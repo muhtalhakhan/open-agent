@@ -1,5 +1,7 @@
 export * from './types.js'
 export { SupermemoryProvider } from './supermemory-provider.js'
 export type { SupermemoryClientLike } from './supermemory-provider.js'
+export { Mem0Provider } from './mem0-provider.js'
+export type { Mem0ClientLike } from './mem0-provider.js'
 export { InMemoryMemoryProvider } from './in-memory-provider.js'
 export { memoryPlugin } from './plugins.js'

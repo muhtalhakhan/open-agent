@@ -20,7 +20,7 @@ jobs:
         run: npm run lint --if-present
       - name: Type check
         run: |
-          for p in context agent memory tools-mcp tools-browser; do
+          for p in context agent memory providers tools-mcp tools-browser tools-computer; do
             npx tsc -p packages/$p/tsconfig.json --noEmit
           done
       - name: Test

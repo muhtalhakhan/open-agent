@@ -1,5 +1,5 @@
 {
-  "name": "@open-agent/memory",
+  "name": "@open-agent/providers",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,9 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@open-agent/context": "*",
-    "supermemory": "^4.25.4",
-    "mem0ai": "^3.1.7"
+    "@open-agent/agent": "*"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

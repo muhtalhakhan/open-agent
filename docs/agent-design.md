@@ -73,6 +73,8 @@ vision(messages, images, options): Response
 
 Provider config is `{ provider, model, apiKey, baseUrl? }` — enough to add any OpenAI-compatible endpoint (LM Studio, self-hosted vLLM, etc.) without new code, and a dedicated adapter only when a provider's API shape diverges (Anthropic, Gemini).
 
+`packages/providers`'s `OpenAiCompatibleProvider` is the first concrete `LlmAdapter`: point `baseURL`/`apiKey`/`model` at OpenAI, OpenRouter, Ollama, or LM Studio and it works unchanged — the whole point of the seam.
+
 ## Memory model
 
 - **Conversation memory**: the current task's message history — this is `SessionLog` in `packages/agent`, not `packages/memory`.
@@ -89,6 +91,10 @@ profile(containerTag, q?): { static: string[], dynamic: string[] }
 forget(request: { containerTag, id?, content?, reason? }): { forgotten }
 ```
 
-`containerTag` scopes memories the same way an agent profile scopes tools — typically a user id, but a task, project, or client id works too. `SupermemoryProvider` (backed by [Supermemory](https://github.com/supermemoryai/supermemory), hosted or self-hosted via `supermemory-server`) is the reference implementation; `InMemoryMemoryProvider` is a dependency-free fallback for tests and offline use. Mounted as `ctx.memory` via `memoryPlugin`, same pattern as `ctx.llm` and `ctx.tools`.
+`containerTag` scopes memories the same way an agent profile scopes tools — typically a user id, but a task, project, or client id works too. Two implementations ship behind the same seam, pick either: `SupermemoryProvider` (backed by [Supermemory](https://github.com/supermemoryai/supermemory), hosted or self-hosted via `supermemory-server`) has a built-in static/dynamic profile split; `Mem0Provider` (backed by [mem0](https://github.com/mem0ai/mem0)) scopes by `userId` and has no profile split of its own (`profile()` returns everything as `static`). `InMemoryMemoryProvider` is a dependency-free fallback for tests and offline use. Mounted as `ctx.memory` via `memoryPlugin`, same pattern as `ctx.llm` and `ctx.tools`.
 
 Memory must be inspectable and deletable by the user — `forget()` is the privacy-control primitive; see `docs/security-model.md`.
+
+## Computer use
+
+`packages/tools-computer` follows the same delegation pattern as browser tools' `retry_with_browser_use_agent`: `computer_use_task` hands a task to a full screenshot -> model-prediction -> mouse/keyboard-action loop (real implementation: [`@ui-tars/sdk`](https://github.com/bytedance/UI-TARS-desktop)'s `GUIAgent` + `@ui-tars/operator-nut-js` for native OS control) via an injected `GuiAgentFactory`, so it's testable without a real display. `computer_screenshot` is a standalone `safe` tool for when the model just needs to look. Both are `ask`/`safe`-gated per `docs/security-model.md` — see the package README for the reasoning.
