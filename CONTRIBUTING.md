@@ -22,12 +22,22 @@ Thanks for considering a contribution. OpenAgent is built in public, and you don
 
 ## Getting started
 
-1. Fork the repo and clone your fork.
+1. Fork the repo (external contributors) or clone it directly (maintainers) — either way, work happens on a branch, never directly on `main` (see [Branch workflow](#branch-workflow) below; it's enforced, not just a convention).
 2. Check `docs/architecture.md` for how a request flows through the system.
 3. Run `npm install`, then `npm test` — every package's tests should pass without any API keys or external services (everything network-facing is tested behind an injected fake; see e.g. `packages/tools-browser/src/browser-use.test.ts`).
 4. To actually run the agent: `cp .env.example .env`, fill in an OpenAI-compatible API key, `npm run cli`. See the root README's Quickstart and `apps/cli/README.md`.
 5. Pick an issue labeled `good-first-issue` or `help-wanted`, or open one describing what you'd like to work on before starting significant work.
 6. Open a PR referencing the issue.
+
+## Branch workflow
+
+`main` is a protected branch: no direct pushes, from anyone, including maintainers. Every change lands via a pull request that:
+
+- Branches off `main` (e.g. `git checkout -b feat/short-description`)
+- Passes the required CI check ("Format, lint, type check, test") before it can merge
+- Has all review conversations resolved
+
+There's no required approving-review count (this is a small project), so a PR can merge as soon as its own CI check is green and any comment threads are resolved — but it still has to go through a PR, not a push straight to `main`.
 
 ## Local checks before opening a PR
 
