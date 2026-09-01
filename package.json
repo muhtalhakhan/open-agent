@@ -9,7 +9,13 @@
   ],
   "scripts": {
     "lint": "echo \"no lint configured yet\"",
-    "test": "echo \"no tests configured yet\""
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.6",
+    "@types/node": "^22.0.0"
+  }
 }

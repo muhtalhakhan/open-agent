@@ -15,8 +15,10 @@ jobs:
           node-version: 22
           cache: npm
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Lint
         run: npm run lint --if-present
+      - name: Type check
+        run: npx tsc -p packages/context/tsconfig.json --noEmit && npx tsc -p packages/agent/tsconfig.json --noEmit
       - name: Test
         run: npm test --if-present

@@ -98,3 +98,14 @@ docker/        Container definitions for sandboxed execution
 ## Language choice
 
 TypeScript-first across `apps/` and `packages/` for a unified type system between the runtime, tool interfaces, and web UI. Individual tools (e.g. computer-use/vision helpers) may shell out to Python where the ecosystem is stronger, but the agent core and tool contracts are TypeScript.
+
+## Kernel: plugins, services, events
+
+`packages/context` implements the mechanism the rules above rely on, inspired by the plugin kernel ([Cordis](https://github.com/cordiverse/cordis)) underneath [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — re-derived at a much smaller scale, not ported:
+
+- A **context** is a repository of services keyed by name (`ctx.get('tools')`, `ctx.get('llm')`, `ctx.get('sessions')`). A service claims one key; other code finds it by key instead of importing a concrete implementation — this is what makes providers and tools swappable from configuration rather than code.
+- A **plugin** registers services/listeners on a context, and can declare `inject: [...]` dependencies so it only activates once those services exist, regardless of mount order.
+- **Events** have five dispatch modes — `emit` (fire-and-forget), `waterfall` (around-middleware that can rewrite or short-circuit a decision), `parallel`, `serial`, `bail` (first defined result wins) — used for interception and policy (e.g. a tool's `ask`/`dangerous` approval gate).
+- **Registrations are reversible effects**: whatever a plugin registers unwinds when it's disposed.
+
+`packages/agent` builds the turn/step agent loop, the session event log, and the tool registry as plugins on top of this kernel (`ctx.sessions`, `ctx.tools`, `ctx.llm`, `ctx.agentLoop`). A **turn** is one full run of a task; a **step** is one model request plus the tools it calls. The session log is append-only and is the only source the model-visible message history is projected from — this is also what conversation/task state, replay, and audit logging derive from. See `packages/agent/README.md` for the concrete API.
