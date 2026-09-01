@@ -75,9 +75,20 @@ Provider config is `{ provider, model, apiKey, baseUrl? }` — enough to add any
 
 ## Memory model
 
-- **Conversation memory**: the current task's message history.
+- **Conversation memory**: the current task's message history — this is `SessionLog` in `packages/agent`, not `packages/memory`.
 - **Task history**: past completed/failed tasks, queryable by the user.
 - **Long-term memory**: durable facts/preferences extracted across tasks, retrievable via semantic search.
 - **User preferences**: explicit settings (tone, default profile, approval defaults).
 
-Memory must be inspectable and deletable by the user — see `docs/security-model.md` for privacy controls.
+Long-term memory and user preferences go through `packages/memory`'s `MemoryProvider` seam:
+
+```
+remember(entry: { content, containerTag, metadata? }): { id }
+recall(query: { q, containerTag, mode?, limit? }): MemorySearchResult[]
+profile(containerTag, q?): { static: string[], dynamic: string[] }
+forget(request: { containerTag, id?, content?, reason? }): { forgotten }
+```
+
+`containerTag` scopes memories the same way an agent profile scopes tools — typically a user id, but a task, project, or client id works too. `SupermemoryProvider` (backed by [Supermemory](https://github.com/supermemoryai/supermemory), hosted or self-hosted via `supermemory-server`) is the reference implementation; `InMemoryMemoryProvider` is a dependency-free fallback for tests and offline use. Mounted as `ctx.memory` via `memoryPlugin`, same pattern as `ctx.llm` and `ctx.tools`.
+
+Memory must be inspectable and deletable by the user — `forget()` is the privacy-control primitive; see `docs/security-model.md`.

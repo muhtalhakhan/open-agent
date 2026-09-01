@@ -19,6 +19,6 @@ jobs:
       - name: Lint
         run: npm run lint --if-present
       - name: Type check
-        run: npx tsc -p packages/context/tsconfig.json --noEmit && npx tsc -p packages/agent/tsconfig.json --noEmit
+        run: npx tsc -p packages/context/tsconfig.json --noEmit && npx tsc -p packages/agent/tsconfig.json --noEmit && npx tsc -p packages/memory/tsconfig.json --noEmit
       - name: Test
         run: npm test --if-present
