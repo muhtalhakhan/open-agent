@@ -18,7 +18,10 @@ describe('Mem0Provider', () => {
     const provider = new Mem0Provider(client)
     const { id } = await provider.remember({ content: 'loves TS', containerTag: 'user_123' })
     expect(id).toBe('m0-1')
-    expect(client.add).toHaveBeenCalledWith([{ role: 'user', content: 'loves TS' }], { userId: 'user_123', metadata: undefined })
+    expect(client.add).toHaveBeenCalledWith([{ role: 'user', content: 'loves TS' }], {
+      userId: 'user_123',
+      metadata: undefined,
+    })
   })
 
   it('recall() maps search results into MemorySearchResult', async () => {

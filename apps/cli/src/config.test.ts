@@ -8,7 +8,11 @@ describe('loadConfigFromEnv', () => {
   })
 
   it('parses the minimal required config with memory defaulting to none', () => {
-    const result = loadConfigFromEnv({ OPENAI_BASE_URL: 'https://api.openai.com/v1', OPENAI_API_KEY: 'sk-x', OPENAI_MODEL: 'gpt-4o-mini' })
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+    })
     expect(result).toEqual({
       ok: true,
       config: {

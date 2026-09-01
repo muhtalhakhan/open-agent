@@ -34,7 +34,11 @@ async function main() {
 
   if (config.memory.provider === 'supermemory') {
     const { default: Supermemory } = await import('supermemory')
-    ctx.plugin(memoryPlugin(new SupermemoryProvider(new Supermemory({ apiKey: config.memory.apiKey, baseURL: config.memory.baseURL }))))
+    ctx.plugin(
+      memoryPlugin(
+        new SupermemoryProvider(new Supermemory({ apiKey: config.memory.apiKey, baseURL: config.memory.baseURL })),
+      ),
+    )
   } else if (config.memory.provider === 'mem0') {
     const { default: MemoryClient } = await import('mem0ai')
     ctx.plugin(memoryPlugin(new Mem0Provider(new MemoryClient({ apiKey: config.memory.apiKey }))))
@@ -71,7 +75,10 @@ async function main() {
     }
     const memory = ctx.get<MemoryProvider>('memory')!
     const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
-    await runRepl(loop, sessions, { prompt, write: (text) => process.stdout.write(text) }, activeAbort, { provider: memory, containerTag })
+    await runRepl(loop, sessions, { prompt, write: (text) => process.stdout.write(text) }, activeAbort, {
+      provider: memory,
+      containerTag,
+    })
   } finally {
     rl.close()
     disposeBrowserTools?.()

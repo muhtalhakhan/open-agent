@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Report a reproducible problem
-title: "[Bug] "
+title: '[Bug] '
 labels: bug
 ---
 
@@ -15,6 +15,7 @@ Steps to reproduce the behavior.
 What you expected to happen.
 
 **Environment**
+
 - OS:
 - Node version:
 - Provider/model in use:

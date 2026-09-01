@@ -5,7 +5,9 @@ import type { SupermemoryClientLike } from './supermemory-provider.js'
 function fakeClient(overrides: Partial<SupermemoryClientLike> = {}): SupermemoryClientLike {
   return {
     add: vi.fn().mockResolvedValue({ id: 'mem-1', status: 'done' }),
-    profile: vi.fn().mockResolvedValue({ profile: { static: ['Loves TypeScript'], dynamic: ['Working on OpenAgent'] } }),
+    profile: vi
+      .fn()
+      .mockResolvedValue({ profile: { static: ['Loves TypeScript'], dynamic: ['Working on OpenAgent'] } }),
     search: vi.fn().mockResolvedValue({
       results: [{ id: 'mem-1', memory: 'User loves TypeScript', similarity: 0.92, metadata: null }],
     }),
@@ -27,7 +29,12 @@ describe('SupermemoryProvider', () => {
     const client = fakeClient()
     const provider = new SupermemoryProvider(client)
     const results = await provider.recall({ q: 'programming style', containerTag: 'user_123' })
-    expect(client.search).toHaveBeenCalledWith({ q: 'programming style', containerTag: 'user_123', searchMode: 'hybrid', limit: undefined })
+    expect(client.search).toHaveBeenCalledWith({
+      q: 'programming style',
+      containerTag: 'user_123',
+      searchMode: 'hybrid',
+      limit: undefined,
+    })
     expect(results).toEqual([{ id: 'mem-1', content: 'User loves TypeScript', score: 0.92, metadata: null }])
   })
 

@@ -43,7 +43,9 @@ describe('computerUseTaskTool', () => {
 
   it('is only executed once approved, like any other ask-level tool', async () => {
     const registry = new ToolRegistry()
-    registry.register(computerUseTaskTool(fakeFactory([{ status: 'end', conversations: [{ from: 'gpt', value: 'ok' }] }])))
+    registry.register(
+      computerUseTaskTool(fakeFactory([{ status: 'end', conversations: [{ from: 'gpt', value: 'ok' }] }])),
+    )
 
     const denied = await registry.execute({ id: 'c1', name: 'computer_use_task', args: { task: 'x' } }, ctx)
     expect(denied.ok).toBe(false)

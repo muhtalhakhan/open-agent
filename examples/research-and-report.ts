@@ -19,12 +19,7 @@
  * resolves the workspace packages' TypeScript source on the fly.
  */
 import { writeFile } from 'node:fs/promises'
-import {
-  AgentLoop,
-  SessionLog,
-  ToolRegistry,
-  consoleLogger,
-} from '@open-agent/agent'
+import { AgentLoop, SessionLog, ToolRegistry, consoleLogger } from '@open-agent/agent'
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 

@@ -29,6 +29,17 @@ Thanks for considering a contribution. OpenAgent is built in public, and you don
 5. Pick an issue labeled `good-first-issue` or `help-wanted`, or open one describing what you'd like to work on before starting significant work.
 6. Open a PR referencing the issue.
 
+## Local checks before opening a PR
+
+CI (`.github/workflows/ci.yml`) runs these on every push and pull request; run them locally first so review isn't spent on things a machine already checks:
+
+```bash
+npm run format:check   # Prettier — npm run format to auto-fix
+npm run lint           # ESLint — npm run lint:fix to auto-fix what it can
+npm run typecheck      # strict TypeScript, no emit
+npm test               # every workspace package's tests
+```
+
 ## Commit / PR style
 
 - Use clear, descriptive commit messages (what changed and why).

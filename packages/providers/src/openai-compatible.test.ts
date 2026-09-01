@@ -13,7 +13,12 @@ function fakeFetch(responseBody: unknown, ok = true, status = 200) {
 describe('OpenAiCompatibleProvider', () => {
   it('sends messages and tool schemas in the OpenAI chat-completions shape', async () => {
     const fetchFn = fakeFetch({ choices: [{ message: { content: 'hi there' } }] })
-    const provider = new OpenAiCompatibleProvider({ baseURL: 'https://api.example.com/v1', apiKey: 'sk-test', model: 'gpt-test', fetchFn })
+    const provider = new OpenAiCompatibleProvider({
+      baseURL: 'https://api.example.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-test',
+      fetchFn,
+    })
 
     await provider.generate(
       {
@@ -33,7 +38,12 @@ describe('OpenAiCompatibleProvider', () => {
     const body = JSON.parse(fetchFn.mock.calls[0][1].body)
     expect(body.model).toBe('gpt-test')
     expect(body.messages).toEqual([{ role: 'user', content: 'hello' }])
-    expect(body.tools).toEqual([{ type: 'function', function: { name: 'echo', description: 'echoes', parameters: { type: 'object', properties: {} } } }])
+    expect(body.tools).toEqual([
+      {
+        type: 'function',
+        function: { name: 'echo', description: 'echoes', parameters: { type: 'object', properties: {} } },
+      },
+    ])
   })
 
   it('parses a plain text response into an assistant message', async () => {
@@ -73,7 +83,12 @@ describe('OpenAiCompatibleProvider', () => {
 
   it('round-trips a tool-result message back to the tool role with tool_call_id', async () => {
     const fetchFn = fakeFetch({ choices: [{ message: { content: 'ok' } }] })
-    const provider = new OpenAiCompatibleProvider({ baseURL: 'https://api.example.com/v1', apiKey: 'sk-test', model: 'gpt-test', fetchFn })
+    const provider = new OpenAiCompatibleProvider({
+      baseURL: 'https://api.example.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-test',
+      fetchFn,
+    })
     await provider.generate(
       { messages: [{ role: 'tool', content: 'search results', toolCallId: 'call_1' }], tools: [] },
       new AbortController().signal,

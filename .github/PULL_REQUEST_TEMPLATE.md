@@ -13,5 +13,8 @@ Closes #
 
 ## Checklist
 
-- [ ] Lint and tests pass locally
+- [ ] `npm run format:check` passes
+- [ ] `npm run lint` passes
+- [ ] `npm run typecheck` passes
+- [ ] `npm test` passes
 - [ ] Docs updated if behavior/interfaces changed

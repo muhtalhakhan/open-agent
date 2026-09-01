@@ -1,7 +1,10 @@
 export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
   browserUse: boolean
-  memory: { provider: 'supermemory'; apiKey: string; baseURL?: string } | { provider: 'mem0'; apiKey: string } | { provider: 'none' }
+  memory:
+    | { provider: 'supermemory'; apiKey: string; baseURL?: string }
+    | { provider: 'mem0'; apiKey: string }
+    | { provider: 'none' }
 }
 
 export type ConfigResult = { ok: true; config: CliConfig } | { ok: false; error: string }

@@ -2,13 +2,18 @@
   "name": "open-agent",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "An open-source, self-hosted, provider-agnostic AI agent runtime.",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "lint": "echo \"no lint configured yet\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "for p in context agent memory providers tools-mcp tools-browser tools-computer; do npx tsc -p packages/$p/tsconfig.json --noEmit || exit 1; done; npx tsc -p apps/cli/tsconfig.json --noEmit",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "cli": "npm run start --workspace @open-agent/cli",
@@ -16,9 +21,14 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/node": "^22.0.0",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
     "tsx": "^4.23.13",
     "typescript": "^5.6.0",
+    "typescript-eslint": "8.69.0",
     "vitest": "^3.2.6"
   }
 }

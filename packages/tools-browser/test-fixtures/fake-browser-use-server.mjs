@@ -10,9 +10,17 @@ function reply(id, result) {
 }
 
 const TOOLS = [
-  { name: 'browser_navigate', description: 'Navigate to a URL', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
+  {
+    name: 'browser_navigate',
+    description: 'Navigate to a URL',
+    inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+  },
   { name: 'browser_get_state', description: 'Get page state', inputSchema: { type: 'object', properties: {} } },
-  { name: 'retry_with_browser_use_agent', description: 'Delegate to the autonomous agent', inputSchema: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] } },
+  {
+    name: 'retry_with_browser_use_agent',
+    description: 'Delegate to the autonomous agent',
+    inputSchema: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] },
+  },
   { name: 'browser_close_all', description: 'Close all sessions', inputSchema: { type: 'object', properties: {} } },
 ]
 
@@ -22,7 +30,11 @@ rl.on('line', (line) => {
   const message = JSON.parse(trimmed)
 
   if (message.method === 'initialize') {
-    reply(message.id, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'fake-browser-use', version: '0.0.0' } })
+    reply(message.id, {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      serverInfo: { name: 'fake-browser-use', version: '0.0.0' },
+    })
   } else if (message.method === 'notifications/initialized') {
     // notification, no reply
   } else if (message.method === 'tools/list') {

@@ -93,7 +93,7 @@ export class Context {
    * (and everything it registered) down.
    */
   plugin<C>(plugin: Plugin<C>, config?: C): Disposer {
-    const inject = typeof plugin === 'function' ? [] : plugin.inject ?? []
+    const inject = typeof plugin === 'function' ? [] : (plugin.inject ?? [])
     const scope = new Context(this)
 
     const activate = (): Disposer => {

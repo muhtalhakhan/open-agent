@@ -1,8 +1,8 @@
 ---
 name: Roadmap task
 about: A scoped implementation task from the milestone backlog
-title: ""
-labels: ""
+title: ''
+labels: ''
 ---
 
 **Milestone**
@@ -11,6 +11,7 @@ labels: ""
 What needs to be built, and where it fits in the architecture (see `docs/architecture.md`).
 
 **Acceptance criteria**
+
 - [ ]
 - [ ]
 

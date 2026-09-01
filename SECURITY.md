@@ -10,6 +10,7 @@ Please **do not** open a public GitHub issue for security vulnerabilities. Inste
 - Email talhakhan325.work@gmail.com with details.
 
 Include:
+
 - A description of the vulnerability and its impact
 - Steps to reproduce (or a PoC)
 - Affected version/commit

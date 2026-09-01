@@ -14,7 +14,7 @@ describe('BrowserUseTools', () => {
     browserUse = undefined
   })
 
-  it('discovers browser-use\'s MCP tools and applies the permission policy', async () => {
+  it("discovers browser-use's MCP tools and applies the permission policy", async () => {
     browserUse = new BrowserUseTools(options)
     await browserUse.connect()
     const tools = await browserUse.tools()
@@ -34,7 +34,10 @@ describe('BrowserUseTools', () => {
     const tools = await browserUse.tools()
     const navigate = tools.find((t) => t.name === 'browser_navigate')!
 
-    const result = await navigate.execute({ url: 'https://example.com' }, { taskId: 't1', signal: new AbortController().signal })
+    const result = await navigate.execute(
+      { url: 'https://example.com' },
+      { taskId: 't1', signal: new AbortController().signal },
+    )
     expect(result).toEqual({ ok: true, content: 'navigated to https://example.com' })
   })
 })
@@ -44,9 +47,12 @@ describe('mountBrowserUseTools', () => {
     const registry = new ToolRegistry()
     const dispose = await mountBrowserUseTools(registry, options)
 
-    expect(registry.list().map((t) => t.name).sort()).toEqual(
-      ['browser_close_all', 'browser_get_state', 'browser_navigate', 'retry_with_browser_use_agent'].sort(),
-    )
+    expect(
+      registry
+        .list()
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual(['browser_close_all', 'browser_get_state', 'browser_navigate', 'retry_with_browser_use_agent'].sort())
 
     const safeResult = await registry.execute(
       { id: 'c1', name: 'browser_navigate', args: { url: 'https://example.com' } },

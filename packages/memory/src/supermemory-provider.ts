@@ -1,4 +1,11 @@
-import type { ForgetRequest, MemoryEntry, MemoryProfile, MemoryProvider, MemorySearchResult, RecallQuery } from './types.js'
+import type {
+  ForgetRequest,
+  MemoryEntry,
+  MemoryProfile,
+  MemoryProvider,
+  MemorySearchResult,
+  RecallQuery,
+} from './types.js'
 
 /**
  * The narrow slice of the `supermemory` SDK's client this provider actually
@@ -9,7 +16,11 @@ import type { ForgetRequest, MemoryEntry, MemoryProfile, MemoryProvider, MemoryS
  * the identical shape — works without any code change.
  */
 export interface SupermemoryClientLike {
-  add(params: { content: string; containerTag?: string; metadata?: Record<string, unknown> }): Promise<{ id: string; status: string }>
+  add(params: {
+    content: string
+    containerTag?: string
+    metadata?: Record<string, unknown>
+  }): Promise<{ id: string; status: string }>
   profile(params: { containerTag: string; q?: string }): Promise<{
     profile: { static: string[]; dynamic: string[] }
   }>
@@ -28,7 +39,12 @@ export interface SupermemoryClientLike {
     }>
   }>
   memories: {
-    forget(params: { containerTag: string; id?: string; content?: string; reason?: string }): Promise<{ id: string; forgotten: boolean }>
+    forget(params: {
+      containerTag: string
+      id?: string
+      content?: string
+      reason?: string
+    }): Promise<{ id: string; forgotten: boolean }>
   }
 }
 

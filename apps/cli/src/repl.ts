@@ -28,7 +28,13 @@ export interface MemoryHook {
  * memory — a minimal, real use of the MemoryProvider seam, not just
  * mounted-and-unused.
  */
-export async function runRepl(agentLoop: AgentLoop, sessions: SessionLog, io: ReplIO, activeAbort: AbortRef, memory?: MemoryHook): Promise<void> {
+export async function runRepl(
+  agentLoop: AgentLoop,
+  sessions: SessionLog,
+  io: ReplIO,
+  activeAbort: AbortRef,
+  memory?: MemoryHook,
+): Promise<void> {
   io.write('OpenAgent CLI — type a task, or ":exit" to quit.\n\n')
   for (;;) {
     const input = await io.prompt()

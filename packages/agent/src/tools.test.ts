@@ -28,14 +28,20 @@ describe('ToolRegistry', () => {
   it('executes a safe tool without approval', async () => {
     const registry = new ToolRegistry()
     registry.register(echoTool)
-    const result = await registry.execute({ id: '1', name: 'echo', args: { text: 'hi' } }, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(
+      { id: '1', name: 'echo', args: { text: 'hi' } },
+      { taskId: 't1', signal: ctx() },
+    )
     expect(result).toEqual({ ok: true, content: 'hi' })
   })
 
   it('denies an "ask" tool by default with no approval handler', async () => {
     const registry = new ToolRegistry()
     registry.register(shellTool)
-    const result = await registry.execute({ id: '2', name: 'shell', args: { cmd: 'ls' } }, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(
+      { id: '2', name: 'shell', args: { cmd: 'ls' } },
+      { taskId: 't1', signal: ctx() },
+    )
     expect(result.ok).toBe(false)
     expect(result.error).toMatch(/approval/)
   })
@@ -44,7 +50,10 @@ describe('ToolRegistry', () => {
     const registry = new ToolRegistry()
     registry.register(shellTool)
     registry.onApproval(() => true)
-    const result = await registry.execute({ id: '3', name: 'shell', args: { cmd: 'ls' } }, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(
+      { id: '3', name: 'shell', args: { cmd: 'ls' } },
+      { taskId: 't1', signal: ctx() },
+    )
     expect(result).toEqual({ ok: true, content: 'ran: ls' })
   })
 
@@ -52,11 +61,17 @@ describe('ToolRegistry', () => {
     const registry = new ToolRegistry()
     registry.register({ ...shellTool, name: 'rm', permissionLevel: 'dangerous' })
     registry.onApproval(() => true)
-    const denied = await registry.execute({ id: '4', name: 'rm', args: { cmd: 'rm -rf /' } }, { taskId: 't1', signal: ctx() })
+    const denied = await registry.execute(
+      { id: '4', name: 'rm', args: { cmd: 'rm -rf /' } },
+      { taskId: 't1', signal: ctx() },
+    )
     expect(denied.ok).toBe(false)
 
     registry.enableDangerous('rm')
-    const allowed = await registry.execute({ id: '5', name: 'rm', args: { cmd: 'rm -rf /' } }, { taskId: 't1', signal: ctx() })
+    const allowed = await registry.execute(
+      { id: '5', name: 'rm', args: { cmd: 'rm -rf /' } },
+      { taskId: 't1', signal: ctx() },
+    )
     expect(allowed.ok).toBe(true)
   })
 

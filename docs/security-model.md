@@ -3,6 +3,7 @@
 ## Threat surface
 
 An OpenAgent instance may, depending on its profile:
+
 - Execute arbitrary shell commands
 - Read/write files
 - Control a browser with a real, authenticated session

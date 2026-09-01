@@ -1,4 +1,11 @@
-import type { ForgetRequest, MemoryEntry, MemoryProfile, MemoryProvider, MemorySearchResult, RecallQuery } from './types.js'
+import type {
+  ForgetRequest,
+  MemoryEntry,
+  MemoryProfile,
+  MemoryProvider,
+  MemorySearchResult,
+  RecallQuery,
+} from './types.js'
 
 /**
  * The narrow slice of the `mem0ai` SDK's MemoryClient this provider calls,
@@ -50,7 +57,10 @@ export class Mem0Provider implements MemoryProvider {
   }
 
   async recall(query: RecallQuery): Promise<MemorySearchResult[]> {
-    const { results } = await this.client.search(query.q, { filters: { user_id: query.containerTag }, topK: query.limit })
+    const { results } = await this.client.search(query.q, {
+      filters: { user_id: query.containerTag },
+      topK: query.limit,
+    })
     return results.map((result): MemorySearchResult => ({
       id: result.id,
       content: result.memory ?? '',

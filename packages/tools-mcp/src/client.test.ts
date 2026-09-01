@@ -38,7 +38,10 @@ describe('McpStdioClient (against a real spawned fake MCP server)', () => {
 
     expect(tool.name).toBe('echo')
     expect(tool.permissionLevel).toBe('safe')
-    const result = await tool.execute({ text: 'via ToolDefinition' }, { taskId: 't1', signal: new AbortController().signal })
+    const result = await tool.execute(
+      { text: 'via ToolDefinition' },
+      { taskId: 't1', signal: new AbortController().signal },
+    )
     expect(result).toEqual({ ok: true, content: 'via ToolDefinition' })
   })
 

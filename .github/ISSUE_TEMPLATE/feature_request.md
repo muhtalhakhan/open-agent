@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Propose a new capability, tool, or provider
-title: "[Feature] "
+title: '[Feature] '
 labels: enhancement
 ---
 

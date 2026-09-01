@@ -19,7 +19,11 @@ rl.on('line', (line) => {
   const message = JSON.parse(trimmed)
 
   if (message.method === 'initialize') {
-    reply(message.id, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'fake', version: '0.0.0' } })
+    reply(message.id, {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      serverInfo: { name: 'fake', version: '0.0.0' },
+    })
   } else if (message.method === 'notifications/initialized') {
     // notification, no reply
   } else if (message.method === 'tools/list') {

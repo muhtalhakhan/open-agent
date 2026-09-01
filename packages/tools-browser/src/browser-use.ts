@@ -1,6 +1,7 @@
 import type { Context, Disposer } from '@open-agent/context'
 import type { PermissionLevel, ToolDefinition, ToolRegistry } from '@open-agent/agent'
-import { McpStdioClient, mcpToolDefinition, spawnMcpServer } from '@open-agent/tools-mcp'
+import { mcpToolDefinition, spawnMcpServer } from '@open-agent/tools-mcp'
+import type { McpStdioClient } from '@open-agent/tools-mcp'
 
 export interface BrowserUseOptions {
   /** Defaults to `python3 -m browser_use.mcp` (see https://github.com/browser-use/browser-use). */
@@ -42,7 +43,9 @@ export class BrowserUseTools {
     if (!this.client) throw new Error('call connect() before tools()')
     const client = this.client
     const descriptors = await client.listTools()
-    return descriptors.map((descriptor) => mcpToolDefinition(client, descriptor, PERMISSION_OVERRIDES[descriptor.name] ?? 'safe'))
+    return descriptors.map((descriptor) =>
+      mcpToolDefinition(client, descriptor, PERMISSION_OVERRIDES[descriptor.name] ?? 'safe'),
+    )
   }
 
   close(): void {
@@ -55,10 +58,7 @@ export class BrowserUseTools {
  * registry (e.g. `ctx.get('tools')`). Returns a disposer that unregisters
  * them and closes the underlying MCP subprocess.
  */
-export async function mountBrowserUseTools(
-  registry: ToolRegistry,
-  options: BrowserUseOptions = {},
-): Promise<Disposer> {
+export async function mountBrowserUseTools(registry: ToolRegistry, options: BrowserUseOptions = {}): Promise<Disposer> {
   const browserUse = new BrowserUseTools(options)
   await browserUse.connect()
   const unregisterFns = (await browserUse.tools()).map((tool) => registry.register(tool))

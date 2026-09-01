@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  lint-and-test:
+  checks:
+    name: Format, lint, type check, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,13 +17,11 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Lint
-        run: npm run lint --if-present
+      - name: Format check (Prettier)
+        run: npm run format:check
+      - name: Lint (ESLint)
+        run: npm run lint
       - name: Type check
-        run: |
-          for p in context agent memory providers tools-mcp tools-browser tools-computer; do
-            npx tsc -p packages/$p/tsconfig.json --noEmit
-          done
-          npx tsc -p apps/cli/tsconfig.json --noEmit
+        run: npm run typecheck
       - name: Test
         run: npm test --if-present

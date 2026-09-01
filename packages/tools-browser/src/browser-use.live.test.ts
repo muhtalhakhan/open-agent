@@ -20,7 +20,7 @@ function browserUseIsInstalled(): boolean {
 }
 
 describe.skipIf(!browserUseIsInstalled())('BrowserUseTools (live browser-use)', () => {
-  it('discovers the real browser-use MCP server\'s tools', async () => {
+  it("discovers the real browser-use MCP server's tools", async () => {
     const browserUse = new BrowserUseTools()
     await browserUse.connect()
     try {

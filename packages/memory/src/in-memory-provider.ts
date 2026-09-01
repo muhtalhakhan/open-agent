@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { ForgetRequest, MemoryEntry, MemoryProfile, MemoryProvider, MemorySearchResult, RecallQuery } from './types.js'
+import type {
+  ForgetRequest,
+  MemoryEntry,
+  MemoryProfile,
+  MemoryProvider,
+  MemorySearchResult,
+  RecallQuery,
+} from './types.js'
 
 interface StoredMemory extends MemoryEntry {
   id: string

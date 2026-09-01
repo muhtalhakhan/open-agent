@@ -35,7 +35,11 @@ export function computerUseTaskTool(factory: GuiAgentFactory): ToolDefinition<{ 
         const agent = factory.create(onUpdate, context.signal)
         await agent.run(args.task)
         if (state.status === 'max_loop') {
-          return { ok: false, content: transcript.join('\n'), error: 'reached the maximum loop count without finishing' }
+          return {
+            ok: false,
+            content: transcript.join('\n'),
+            error: 'reached the maximum loop count without finishing',
+          }
         }
         return { ok: true, content: transcript.join('\n') || '(task completed with no output)' }
       } catch (err) {

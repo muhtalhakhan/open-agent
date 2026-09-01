@@ -1,9 +1,6 @@
 import type { PermissionLevel, ToolCall, ToolDefinition, ToolExecutionContext, ToolResult } from './types.js'
 
-export type ApprovalHandler = (
-  call: ToolCall,
-  tool: ToolDefinition,
-) => boolean | Promise<boolean>
+export type ApprovalHandler = (call: ToolCall, tool: ToolDefinition) => boolean | Promise<boolean>
 
 /**
  * The scoped tool registry and guarded execution pipeline. Every tool
@@ -15,7 +12,12 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>()
   private readonly enabledDangerous = new Set<string>()
   private approvalHandler: ApprovalHandler = () => false
-  readonly auditLog: Array<{ call: ToolCall; permissionLevel: PermissionLevel; approved: boolean; result: ToolResult }> = []
+  readonly auditLog: Array<{
+    call: ToolCall
+    permissionLevel: PermissionLevel
+    approved: boolean
+    result: ToolResult
+  }> = []
 
   register(tool: ToolDefinition): () => void {
     if (this.tools.has(tool.name)) {

@@ -44,7 +44,7 @@ export class AgentLoop {
   }
 
   async run(input: string, signal: AbortSignal, taskId: string = randomUUID()): Promise<TaskState> {
-    const { sessions, tools, llm } = this.options
+    const { sessions, tools } = this.options
     const startedAt = Date.now()
     const task: TaskState = { id: taskId, status: 'running', createdAt: startedAt, updatedAt: startedAt }
 

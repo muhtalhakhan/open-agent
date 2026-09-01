@@ -1,5 +1,12 @@
 import { createInterface } from 'node:readline'
-import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, McpCallToolResult, McpProcessLike, McpToolDescriptor } from './types.js'
+import type {
+  JsonRpcNotification,
+  JsonRpcRequest,
+  JsonRpcResponse,
+  McpCallToolResult,
+  McpProcessLike,
+  McpToolDescriptor,
+} from './types.js'
 
 interface PendingCall {
   resolve: (value: unknown) => void
@@ -17,7 +24,10 @@ export class McpStdioClient {
   private readonly pending = new Map<number, PendingCall>()
   private connected = false
 
-  constructor(private readonly proc: McpProcessLike, private readonly clientName = 'open-agent') {
+  constructor(
+    private readonly proc: McpProcessLike,
+    private readonly clientName = 'open-agent',
+  ) {
     createInterface({ input: this.proc.stdout }).on('line', (line) => this.handleLine(line))
   }
 

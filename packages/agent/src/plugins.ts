@@ -27,7 +27,9 @@ export function llmPlugin(adapter: LlmAdapter): Plugin {
  * Declares `inject: ['sessions', 'tools', 'llm']` so it only activates once
  * those seams exist, regardless of mount order.
  */
-export function agentLoopPlugin(options: Omit<AgentLoopOptions, 'sessions' | 'tools' | 'llm'> & { logger?: Logger } = {}): Plugin {
+export function agentLoopPlugin(
+  options: Omit<AgentLoopOptions, 'sessions' | 'tools' | 'llm'> & { logger?: Logger } = {},
+): Plugin {
   return {
     inject: ['sessions', 'tools', 'llm'],
     apply(ctx: Context) {
