@@ -86,7 +86,9 @@ apps/
 packages/
   agent/       Agent loop, conversation/task state, cancellation, retries, logging
   providers/   Provider abstraction + implementations (OpenAI, Gemini, Anthropic, OpenRouter, Ollama, generic OpenAI-compatible)
-  tools/       Built-in tools: browser, computer use, filesystem, shell, MCP client
+  tools-mcp/   Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
+  tools-browser/ Browser tools, backed by browser-use's MCP server via tools-mcp
+  tools/       Remaining built-in tools: computer use, filesystem, shell
   memory/      Conversation memory, task history, long-term/semantic memory, preferences
   security/    Permission system, approval UI hooks, sandboxing, audit logs
 docs/          Architecture, agent design, security model
