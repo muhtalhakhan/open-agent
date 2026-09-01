@@ -13,9 +13,9 @@ export interface Mem0ClientLike {
   ): Promise<Array<{ id: string }>>
   search(
     query: string,
-    options: { userId: string; topK?: number },
+    options: { filters: Record<string, unknown>; topK?: number },
   ): Promise<{ results: Array<{ id: string; memory?: string; score?: number; metadata?: unknown }> }>
-  getAll(options: { userId: string }): Promise<{ results: Array<{ id: string; memory?: string }> }>
+  getAll(options: { filters: Record<string, unknown> }): Promise<{ results: Array<{ id: string; memory?: string }> }>
   delete(memoryId: string): Promise<{ message: string }>
 }
 
@@ -24,10 +24,17 @@ export interface Mem0ClientLike {
  * alternate to SupermemoryProvider behind the same MemoryProvider seam —
  * pick either without changing anything else in the agent runtime.
  *
- * mem0 scopes memories by `userId` rather than a generic "container tag",
- * and has no built-in static/dynamic profile split the way Supermemory
- * does — `profile()` here returns every memory as `static` with an empty
- * `dynamic`, which is a real limitation of this provider, not a bug.
+ * mem0 scopes `add()` by `userId` directly, but `search()`/`getAll()` only
+ * accept a loosely-typed `filters: Record<string, unknown>` in the SDK's
+ * generated types — there's no dedicated userId param on those two. This
+ * provider filters with `{ user_id: containerTag }`, mem0's documented REST
+ * filter key; verify this against a live account if results come back
+ * empty, since the SDK doesn't type-check the filter's contents.
+ *
+ * mem0 also has no built-in static/dynamic profile split the way
+ * Supermemory does — `profile()` here returns every memory as `static`
+ * with an empty `dynamic`, which is a real limitation of this provider,
+ * not a bug.
  */
 export class Mem0Provider implements MemoryProvider {
   readonly name = 'mem0'
@@ -43,7 +50,7 @@ export class Mem0Provider implements MemoryProvider {
   }
 
   async recall(query: RecallQuery): Promise<MemorySearchResult[]> {
-    const { results } = await this.client.search(query.q, { userId: query.containerTag, topK: query.limit })
+    const { results } = await this.client.search(query.q, { filters: { user_id: query.containerTag }, topK: query.limit })
     return results.map((result): MemorySearchResult => ({
       id: result.id,
       content: result.memory ?? '',
@@ -53,7 +60,7 @@ export class Mem0Provider implements MemoryProvider {
   }
 
   async profile(containerTag: string): Promise<MemoryProfile> {
-    const { results } = await this.client.getAll({ userId: containerTag })
+    const { results } = await this.client.getAll({ filters: { user_id: containerTag } })
     return { static: results.map((r) => r.memory ?? ''), dynamic: [] }
   }
 

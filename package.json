@@ -10,7 +10,9 @@
   "scripts": {
     "lint": "echo \"no lint configured yet\"",
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "cli": "npm run start --workspace @open-agent/cli",
+    "example:research": "tsx examples/research-and-report.ts"
   },
   "license": "MIT",
   "devDependencies": {

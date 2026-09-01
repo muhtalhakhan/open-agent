@@ -23,5 +23,6 @@ jobs:
           for p in context agent memory providers tools-mcp tools-browser tools-computer; do
             npx tsc -p packages/$p/tsconfig.json --noEmit
           done
+          npx tsc -p apps/cli/tsconfig.json --noEmit
       - name: Test
         run: npm test --if-present

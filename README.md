@@ -65,6 +65,20 @@ OpenAgent is in early development. The initial goal is to build a reliable agent
 
 See [docs/architecture.md](docs/architecture.md), [docs/agent-design.md](docs/agent-design.md), and [docs/security-model.md](docs/security-model.md) for the design docs, and the [milestones](../../milestones) for the roadmap.
 
+## Quickstart
+
+The fastest way to actually run OpenAgent rather than just read about it:
+
+```bash
+git clone https://github.com/muhtalhakhan/open-agent
+cd open-agent
+npm install
+cp .env.example .env   # fill in OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL — any OpenAI-compatible endpoint works
+npm run cli
+```
+
+That starts an interactive terminal session against the real agent loop, tool registry, and (optionally) browser/memory tools — see [apps/cli/README.md](apps/cli/README.md) for what it wires up and how. For a single non-interactive run of the original "search the web, summarize, save a report" demo, see [examples/research-and-report.ts](examples/research-and-report.ts) (`npm run example:research`).
+
 ## Repository layout
 
 ```

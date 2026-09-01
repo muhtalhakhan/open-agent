@@ -24,8 +24,10 @@ Thanks for considering a contribution. OpenAgent is built in public, and you don
 
 1. Fork the repo and clone your fork.
 2. Check `docs/architecture.md` for how a request flows through the system.
-3. Pick an issue labeled `good-first-issue` or `help-wanted`, or open one describing what you'd like to work on before starting significant work.
-4. Open a PR referencing the issue.
+3. Run `npm install`, then `npm test` — every package's tests should pass without any API keys or external services (everything network-facing is tested behind an injected fake; see e.g. `packages/tools-browser/src/browser-use.test.ts`).
+4. To actually run the agent: `cp .env.example .env`, fill in an OpenAI-compatible API key, `npm run cli`. See the root README's Quickstart and `apps/cli/README.md`.
+5. Pick an issue labeled `good-first-issue` or `help-wanted`, or open one describing what you'd like to work on before starting significant work.
+6. Open a PR referencing the issue.
 
 ## Commit / PR style
 
