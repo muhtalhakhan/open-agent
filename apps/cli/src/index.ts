@@ -13,16 +13,17 @@ import { loadConfigFromEnv } from './config.js'
 import { createTerminalApprovalHandler } from './approval.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
-/**
- * The Ink TUI needs a real TTY on both ends to take over the screen. Fall
- * back to the plain readline REPL for anything else (CI, `| cat`, piped
- * input/output, etc) — set `CLI_NO_TUI=1` to force the fallback locally.
- */
-const useTui = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !process.env.CLI_NO_TUI
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
+
+/**
+ * The Ink TUI needs a real TTY on both ends to take over the screen. Fall
+ * back to the plain readline REPL for anything else (CI, `| cat`, piped
+ * input/output, etc) — set `CLI_NO_TUI=1` to force the fallback locally
+ * (in the shell or in `.env`, since dotenv has already loaded above).
+ */
+const useTui = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !process.env.CLI_NO_TUI
 
 async function main() {
   const result = loadConfigFromEnv(process.env)
