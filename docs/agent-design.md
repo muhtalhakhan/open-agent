@@ -46,7 +46,7 @@ permissions:
   email.send: ask
 ```
 
-Profiles live under `examples/profiles/` and are loaded by both the CLI and web UI.
+Profiles are a design target, not yet implemented — today's CLI wires up a single fixed set of tools/permissions per run (see `apps/cli/README.md`). `examples/profiles/` and profile loading in the CLI/web UI are planned (Milestone 11).
 
 ## Tool interface
 
@@ -60,7 +60,7 @@ permissionLevel: "safe" | "ask" | "dangerous"
 execute(args, context): Promise<ToolResult>
 ```
 
-Tools are registered in a `ToolRegistry` that the agent loop queries by profile. MCP servers are exposed as tools through the same interface via the MCP client (`packages/tools/mcp`).
+Tools are registered in a `ToolRegistry` that the agent loop queries by profile. MCP servers are exposed as tools through the same interface via the generic MCP client (`packages/tools-mcp`), which `tools-browser` and `tools-computer` both build on.
 
 ## Provider interface
 

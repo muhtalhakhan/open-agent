@@ -1,5 +1,7 @@
 # Security Model
 
+> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Everything else below (approval UI, sandboxing, secret store, prompt-injection defenses, audit logs) is design-only; `packages/security` has no implementation yet. Don't go looking for code that isn't there.
+
 ## Threat surface
 
 An OpenAgent instance may, depending on its profile:

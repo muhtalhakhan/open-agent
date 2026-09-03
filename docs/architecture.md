@@ -75,23 +75,26 @@ A profile is a named bundle of {model, enabled tools, permission policy}. This i
 
 ### 4. Security is not a layer on top
 
-Tool execution passes through the permission/approval system (`packages/security`) before running, not after. See `docs/security-model.md`.
+Tool execution passes through the permission/approval system before running, not after — today that's the `permissionLevel` on each `ToolDefinition`, enforced in the agent loop; a dedicated `packages/security` (approval UI hooks, sandboxing, audit logs) is planned but not yet built, see `docs/security-model.md`.
 
 ## Repository structure
 
+Status markers: ✅ implemented, 🚧 design/stub only (a README with no source yet).
+
 ```
 apps/
-  web/         Web UI (chat + task view + approval prompts)
-  cli/         Command-line interface
+  web/         🚧 Web UI (chat + task view + approval prompts)
+  cli/         ✅ Command-line interface (Ink-based TUI)
 packages/
-  agent/       Agent loop, conversation/task state, cancellation, retries, logging
-  providers/   Provider abstraction + implementations (generic OpenAI-compatible done; Anthropic/Gemini need dedicated adapters)
-  tools-mcp/   Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
-  tools-browser/ Browser tools, backed by browser-use's MCP server via tools-mcp
-  tools-computer/ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
-  tools/       Remaining built-in tools: filesystem, shell
-  memory/      Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider)
-  security/    Permission system, approval UI hooks, sandboxing, audit logs
+  context/     ✅ Plugin/service kernel (contexts, plugins, events) the rest of the runtime is built on
+  agent/       ✅ Agent loop, conversation/task state, cancellation, retries, logging
+  providers/   ✅ Provider abstraction + implementations (generic OpenAI-compatible done; Anthropic/Gemini need dedicated adapters)
+  tools-mcp/   ✅ Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
+  tools-browser/ ✅ Browser tools, backed by browser-use's MCP server via tools-mcp
+  tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
+  tools/       🚧 Remaining built-in tools: filesystem, shell (Milestone 5)
+  memory/      ✅ Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider, in-memory)
+  security/    🚧 Permission system, approval UI hooks, sandboxing, audit logs (Milestone 9)
 docs/          Architecture, agent design, security model
 tests/         Cross-package integration tests
 examples/      Example agent profiles and scripts

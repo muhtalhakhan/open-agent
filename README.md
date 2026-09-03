@@ -1,5 +1,9 @@
 # OpenAgent
 
+[![CI](https://github.com/muhtalhakhan/open-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/muhtalhakhan/open-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Milestones](https://img.shields.io/badge/roadmap-milestones-blueviolet)](../../milestones)
+
 An open-source, self-hosted AI agent that can use your computer, browser, files, tools, and APIs.
 
 OpenAgent is a provider-agnostic AI agent platform designed to give users control over their own AI agents. Bring your own API key. Choose your model. Run locally or remotely.
@@ -10,32 +14,30 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 
 ## What can it do?
 
-OpenAgent is designed to eventually let an AI agent:
+| | Capability | Status |
+|---|---|---|
+| 🌐 | Browse the web | ✅ Built — `tools-browser`, backed by browser-use's MCP server (14 tools: navigate, click, type, scroll, extract content, tabs, ...) |
+| 🖥️ | Control a computer | ✅ Built — `tools-computer`, backed by `@ui-tars/sdk` (screenshot → prediction → mouse/keyboard loop) |
+| 🔧 | Use external tools and MCP servers | ✅ Built — generic MCP stdio client in `tools-mcp`, used by both browser and computer tools |
+| 🧠 | Remember information across tasks | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory |
+| 🔐 | Ask for permission before sensitive actions | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop |
+| 🧠 | Use any model | 🚧 Partial — provider seam exists; any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...) works today, dedicated Anthropic/Gemini adapters are planned |
+| 💻 | Run code and terminal commands | 🚧 Planned — see Milestone 5 (Files + Terminal) |
+| ⏰ | Run scheduled tasks | 🚧 Planned — see Milestone 8 (Automation) |
+| 🤖 | Operate autonomously with configurable limits | 🚧 Planned — see Milestone 9 (Security) / Milestone 10 (Cloud) |
 
-- 🌐 Browse the web
-- 🖥️ Control a computer
-- 💻 Run code and terminal commands
-- 📁 Read and create files
-- 🧠 Remember information across tasks
-- 🔧 Use external tools and MCP servers
-- ⏰ Run scheduled tasks
-- 🤖 Operate autonomously with configurable limits
-- 🔐 Ask for permission before sensitive actions
-- 🧠 Use any model
+A CLI is available today (`npm run cli`); the web UI described below is still a design doc, not code.
+
+See the [milestones](../../milestones) for the full roadmap and what's currently in progress.
 
 ## Provider-agnostic by design
 
-OpenAgent is not tied to a single AI provider. Planned providers include:
+OpenAgent is not tied to a single AI provider. Any OpenAI-compatible endpoint works today via `OpenAiCompatibleProvider` — that already covers OpenAI, OpenRouter, Ollama, LM Studio, and self-hosted vLLM. Dedicated adapters are planned for providers with a different API shape:
 
-- OpenAI
-- Google Gemini
 - Anthropic
+- Google Gemini
 - xAI
-- OpenRouter
 - DeepSeek
-- Ollama
-- LM Studio
-- Custom OpenAI-compatible endpoints
 
 The agent runtime doesn't care which model powers it — a provider is just a config value.
 
@@ -53,17 +55,9 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent is in early development. The initial goal is to build a reliable agent runtime with:
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, and pluggable memory. Filesystem/terminal tools, scheduling, a dedicated security package, and the web UI are still ahead — see the capability table above and the [milestones](../../milestones) for what's done vs. planned.
 
-- Multiple LLM providers
-- Tool calling
-- Browser automation
-- Computer control
-- Filesystem and terminal access
-- Persistent memory
-- Permission and security controls
-
-See [docs/architecture.md](docs/architecture.md), [docs/agent-design.md](docs/agent-design.md), and [docs/security-model.md](docs/security-model.md) for the design docs, and the [milestones](../../milestones) for the roadmap.
+See [docs/architecture.md](docs/architecture.md), [docs/agent-design.md](docs/agent-design.md), and [docs/security-model.md](docs/security-model.md) for the design docs.
 
 ## Quickstart
 
@@ -83,18 +77,22 @@ That starts an interactive terminal session against the real agent loop, tool re
 
 ```
 apps/
-  web/         Web UI
-  cli/         Command-line interface
+  web/            Web UI (design only — no implementation yet)
+  cli/            Command-line interface (Ink-based TUI)
 packages/
-  agent/       Agent runtime (loop, state, tool registry)
-  providers/   LLM provider abstraction and implementations
-  tools/       Built-in tools (browser, files, shell, computer use)
-  memory/      Conversation/task/long-term memory
-  security/    Permissions, approvals, sandboxing
-docs/          Architecture and design docs
-tests/         Cross-package/integration tests
-examples/      Example agent profiles and scripts
-docker/        Container definitions
+  context/         Plugin/service kernel the rest of the runtime is built on
+  agent/           Agent loop, session log, tool registry
+  providers/       LLM provider abstraction (OpenAI-compatible done; Anthropic/Gemini planned)
+  tools-browser/   Browser tools, via browser-use's MCP server
+  tools-computer/  Computer-use tools, via @ui-tars/sdk
+  tools-mcp/       Generic MCP stdio client used by the tool packages above
+  tools/           Remaining built-in tools (filesystem, shell — planned)
+  memory/          Long-term/semantic memory (Supermemory, mem0, in-memory)
+  security/        Permission system, approvals, sandboxing (design only — no implementation yet)
+docs/             Architecture and design docs
+tests/            Cross-package/integration tests
+examples/         Example agent profiles and scripts
+docker/           Container definitions
 ```
 
 ## Contributing
