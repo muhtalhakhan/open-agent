@@ -25,6 +25,7 @@ Thanks for considering a contribution. OpenAgent is built in public, and you don
 1. Fork the repo (external contributors) or clone it directly (maintainers) — either way, work happens on a branch, never directly on `main` (see [Branch workflow](#branch-workflow) below; it's enforced, not just a convention).
 2. Check `docs/architecture.md` for how a request flows through the system.
 3. Run `npm install`, then `npm test` — every package's tests should pass without any API keys or external services (everything network-facing is tested behind an injected fake; see e.g. `packages/tools-browser/src/browser-use.test.ts`).
+   `npm run test:integration` is a separate, slower suite that spawns the real CLI against a fake provider on a local socket; it needs no keys either, and CI runs both.
 4. To actually run the agent: `cp .env.example .env`, fill in an OpenAI-compatible API key, `npm run cli`. See the root README's Quickstart and `apps/cli/README.md`.
 5. Pick an issue labeled `good-first-issue` or `help-wanted`, or open one describing what you'd like to work on before starting significant work.
 6. Open a PR referencing the issue.
@@ -47,7 +48,8 @@ CI (`.github/workflows/ci.yml`) runs these on every push and pull request; run t
 npm run format:check   # Prettier — npm run format to auto-fix
 npm run lint           # ESLint — npm run lint:fix to auto-fix what it can
 npm run typecheck      # strict TypeScript, no emit
-npm test               # every workspace package's tests
+npm test               # every workspace package's unit tests
+npm run test:integration  # slower tests that spawn the real CLI
 ```
 
 ## Commit / PR style

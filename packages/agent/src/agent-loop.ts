@@ -16,6 +16,13 @@ export interface AgentLoopOptions {
   llm: LlmAdapter
   tools: ToolRegistry
   sessions: SessionLog
+  /**
+   * Standing instructions prepended to every turn as a `system` message —
+   * project conventions, most of all. Appended to the session log like any
+   * other model-visible fact rather than injected at request time, so what
+   * the model saw stays reconstructable from the log alone.
+   */
+  systemPrompt?: string
   /** Safety valve against a runaway tool-calling loop. */
   maxSteps?: number
   maxRetries?: number
@@ -49,6 +56,18 @@ export class AgentLoop {
     const task: TaskState = { id: taskId, status: 'running', createdAt: startedAt, updatedAt: startedAt }
 
     sessions.append({ type: 'turn/start', taskId, at: Date.now() })
+    // Appended before the user message so it lands first in the derived
+    // history, and only when this task has no system message yet: a resumed
+    // taskId would otherwise accumulate a copy per run().
+    const systemPrompt = this.options.systemPrompt?.trim()
+    if (systemPrompt && !sessions.all(taskId).some((e) => e.type === 'system/message')) {
+      sessions.append({
+        type: 'system/message',
+        taskId,
+        at: Date.now(),
+        message: { role: 'system', content: systemPrompt },
+      })
+    }
     sessions.append({ type: 'user/message', taskId, at: Date.now(), message: { role: 'user', content: input } })
     this.logger.info('turn/start', { taskId })
 

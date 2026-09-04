@@ -22,7 +22,7 @@ export class SessionLog {
   deriveMessages(taskId: string): Message[] {
     const messages: Message[] = []
     for (const event of this.all(taskId)) {
-      if (event.type === 'user/message' || event.type === 'assistant/message') {
+      if (event.type === 'system/message' || event.type === 'user/message' || event.type === 'assistant/message') {
         messages.push(event.message)
       } else if (event.type === 'tool/result') {
         messages.push({

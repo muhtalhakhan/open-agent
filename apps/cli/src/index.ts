@@ -3,7 +3,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import dotenv from 'dotenv'
-import { AgentLoop, SessionLog, ToolRegistry, consoleLogger, silentLogger } from '@open-agent/agent'
+import {
+  AgentLoop,
+  SessionLog,
+  ToolRegistry,
+  buildSystemPrompt,
+  consoleLogger,
+  loadProjectInstructions,
+  silentLogger,
+} from '@open-agent/agent'
 import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
 import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
@@ -33,6 +41,13 @@ async function main() {
     return
   }
   const { config } = result
+
+  // Loaded before any stdin wiring, and deliberately so. An await that yields
+  // to real I/O between createInterface() below and the first prompt gives
+  // readline time to consume and discard piped input, so `echo task | cli`
+  // prints the banner and exits having done nothing. Keep that window free of
+  // I/O — cli.integration.test.ts pins the behaviour.
+  const instructions = await loadProjectInstructions()
 
   const ctx = new Context()
   const sessions = new SessionLog()
@@ -84,6 +99,16 @@ async function main() {
     teardown = () => rl.close()
   }
 
+  // Surfaced on startup: a file that silently steers every turn is worth
+  // naming. Reported relative to the repo root, not the cwd, so it reads as
+  // `AGENTS.md` however deep the CLI was launched from.
+  if (instructions) {
+    io.write(
+      `Loaded project conventions from ${path.relative(instructions.root, instructions.source)}` +
+        `${instructions.truncated ? ' (truncated)' : ''}\n`,
+    )
+  }
+
   tools.onApproval(createTerminalApprovalHandler(ask))
 
   let disposeBrowserTools: (() => void) | undefined
@@ -111,6 +136,7 @@ async function main() {
     sessions,
     tools,
     llm,
+    systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
     logger: process.env.DEBUG ? consoleLogger : silentLogger,
   })
 
