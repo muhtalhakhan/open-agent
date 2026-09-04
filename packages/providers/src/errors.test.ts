@@ -60,7 +60,10 @@ describe('ProviderHttpError', () => {
 
   it('redacts credentials the provider echoes back in the body', () => {
     const err = new ProviderHttpError(
-      400, 'gemini', 'https://x.test/v1', '{"error":"bad request for https://x.test/v1?key=AIzaSecret"}',
+      400,
+      'gemini',
+      'https://x.test/v1',
+      '{"error":"bad request for https://x.test/v1?key=AIzaSecret"}',
     )
 
     expect(err.body).not.toContain('AIzaSecret')
