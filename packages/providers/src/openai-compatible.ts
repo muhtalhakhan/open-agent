@@ -1,3 +1,4 @@
+import { ProviderHttpError } from './errors.js'
 import type { LlmAdapter, LlmRequest, LlmResponse, Message, ToolCall, ToolDefinition } from '@open-agent/agent'
 
 export interface OpenAiCompatibleOptions {
@@ -78,7 +79,7 @@ export class OpenAiCompatibleProvider implements LlmAdapter {
     })
 
     if (!response.ok) {
-      throw new Error(`${this.options.baseURL} responded ${response.status}: ${await response.text()}`)
+      throw new ProviderHttpError(response.status, this.name, this.options.baseURL, await response.text())
     }
 
     const data = (await response.json()) as { choices: Array<{ message: Parameters<typeof fromOpenAiMessage>[0] }> }

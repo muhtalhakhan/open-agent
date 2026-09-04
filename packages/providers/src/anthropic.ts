@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { ProviderHttpError } from './errors.js'
 import type { LlmAdapter, LlmRequest, LlmResponse, Message, ToolCall, ToolDefinition } from '@open-agent/agent'
 
 export interface AnthropicOptions {
@@ -128,7 +129,7 @@ export class AnthropicProvider implements LlmAdapter {
     })
 
     if (!response.ok) {
-      throw new Error(`${url} responded ${response.status}: ${await response.text()}`)
+      throw new ProviderHttpError(response.status, this.name, url, await response.text())
     }
 
     const data = (await response.json()) as {

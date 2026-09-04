@@ -40,7 +40,7 @@ OpenAgent is not tied to a single AI provider. Any OpenAI-compatible endpoint wo
 - xAI — 🚧 planned
 - DeepSeek — 🚧 planned
 
-Configure several at once with `ProviderFallbackAdapter`: it tries adapters in order and falls through to the next on 401/403/429, so a rate-limited or misconfigured provider doesn't take the agent down. See `packages/providers/src/fallback-provider.ts`.
+Configure several at once with `ProviderFallbackAdapter`: it tries adapters in order and falls through to the next on 401/403/429 (account problems) and 408/502/503/504/529 (provider down or overloaded), so a rate-limited, overloaded, or misconfigured provider doesn't take the agent down. See `packages/providers/src/fallback-provider.ts`.
 
 The agent runtime doesn't care which model powers it — a provider is just a config value.
 

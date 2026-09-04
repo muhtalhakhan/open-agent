@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import type { LlmAdapter, LlmResponse } from '@open-agent/agent'
+import { ProviderHttpError } from './errors.js'
 import { ProviderFallbackAdapter } from './fallback-provider.js'
 
 const mockResponse = (): LlmResponse => ({
@@ -19,6 +20,16 @@ const makeAdapter = (
     adapter: { name, generate: fn } as unknown as LlmAdapter,
     fn,
   }
+}
+
+const makeThrowingAdapter = (
+  name: string,
+  err: Error,
+): { adapter: LlmAdapter; fn: Mock<(...args: unknown[]) => unknown> } => {
+  const fn = vi.fn() as Mock<(...args: unknown[]) => unknown>
+  fn.mockRejectedValueOnce(err)
+  fn.mockResolvedValue(mockResponse())
+  return { adapter: { name, generate: fn } as unknown as LlmAdapter, fn }
 }
 
 describe('ProviderFallbackAdapter', () => {
@@ -177,7 +188,7 @@ describe('ProviderFallbackAdapter', () => {
     expect(ok.fn).not.toHaveBeenCalled()
   })
 
-  it('aborts during backoff instead of waiting out the delay', async () => {
+  it('stops rotating as soon as the signal aborts', async () => {
     const a = makeAdapter('a', { message: '429 Rate limit' })
     const b = makeAdapter('b')
     const fb = new ProviderFallbackAdapter({ adapters: [a.adapter, b.adapter] })
@@ -200,5 +211,58 @@ describe('ProviderFallbackAdapter', () => {
     expect(err).toBeInstanceOf(Error)
     expect((err as Error).message).toBe('all providers exhausted')
     expect(((err as Error).cause as Error).message).toContain('401')
+  })
+
+  it('routes on ProviderHttpError.status rather than the message text', async () => {
+    // Message deliberately carries no parseable status: only the typed field
+    // can tell the adapter this is a rate limit.
+    const err = new ProviderHttpError(429, 'a', 'https://api.example.com/v1/chat', 'slow down')
+    const bad = makeThrowingAdapter('a', err)
+    const ok = makeAdapter('ok')
+    const fb = new ProviderFallbackAdapter({ adapters: [bad.adapter, ok.adapter] })
+
+    const res = await fb.generate({ messages: [], tools: [] }, new AbortController().signal)
+
+    expect(res.message.content).toBe('ok')
+    expect(ok.fn).toHaveBeenCalled()
+  })
+
+  // 529 is Anthropic's `overloaded_error`; 408 is a request timeout.
+  it.each([408, 502, 503, 504, 529])('falls back when the provider is down (%i)', async (status) => {
+    const down = makeThrowingAdapter('down', new ProviderHttpError(status, 'down', 'https://api.example.com', 'nope'))
+    const ok = makeAdapter('ok')
+    const fb = new ProviderFallbackAdapter({ adapters: [down.adapter, ok.adapter] })
+
+    const res = await fb.generate({ messages: [], tools: [] }, new AbortController().signal)
+
+    expect(res.message.content).toBe('ok')
+    expect(ok.fn).toHaveBeenCalled()
+  })
+
+  it.each([400, 500])('re-throws a ProviderHttpError that is not worth retrying (%i)', async (status) => {
+    const bad = makeThrowingAdapter('bad', new ProviderHttpError(status, 'bad', 'https://api.example.com', 'boom'))
+    const ok = makeAdapter('ok')
+    const fb = new ProviderFallbackAdapter({ adapters: [bad.adapter, ok.adapter] })
+
+    await expect(fb.generate({ messages: [], tools: [] }, new AbortController().signal)).rejects.toThrow(
+      `responded ${status}`,
+    )
+    expect(ok.fn).not.toHaveBeenCalled()
+  })
+
+  it('prefers the typed status over a misleading number in the message', async () => {
+    // Body mentions 429, but the real status is 400 — a client fault the next
+    // provider would reject identically, so it must not rotate.
+    const bad = makeThrowingAdapter(
+      'bad',
+      new ProviderHttpError(400, 'bad', 'https://api.example.com', 'field `429` is invalid'),
+    )
+    const ok = makeAdapter('ok')
+    const fb = new ProviderFallbackAdapter({ adapters: [bad.adapter, ok.adapter] })
+
+    await expect(fb.generate({ messages: [], tools: [] }, new AbortController().signal)).rejects.toThrow(
+      'responded 400',
+    )
+    expect(ok.fn).not.toHaveBeenCalled()
   })
 })
