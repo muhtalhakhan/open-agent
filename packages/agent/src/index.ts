@@ -3,7 +3,7 @@ export { SessionLog } from './session.js'
 export { ToolRegistry } from './tools.js'
 export type { ApprovalHandler } from './tools.js'
 export { AgentLoop, CancelledError } from './agent-loop.js'
-export type { AgentLoopOptions } from './agent-loop.js'
+export type { AgentLoopOptions, RunOptions } from './agent-loop.js'
 export {
   loadProjectInstructions,
   buildSystemPrompt,
