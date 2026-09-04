@@ -41,17 +41,25 @@ function startFakeProvider(): Promise<{ url: string; requests: CapturedRequest[]
 }
 
 /** Runs the real CLI entrypoint with piped stdin, as a script or CI job would. */
-function runCli(input: string, env: Record<string, string>, cwd: string): Promise<{ stdout: string; code: number }> {
+function runCli(
+  input: string,
+  env: Record<string, string>,
+  cwd: string,
+  argv: string[] = [],
+): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', cliEntry], {
+    const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, ...argv], {
       cwd,
       env: { ...process.env, ...env, CLI_NO_TUI: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
+    let stderr = ''
+    // Kept apart: print mode's contract is that stdout carries the answer and
+    // nothing else, which a merged stream could not detect.
     child.stdout.on('data', (c) => (stdout += c))
-    child.stderr.on('data', (c) => (stdout += c))
-    child.on('close', (code) => resolve({ stdout, code: code ?? 0 }))
+    child.stderr.on('data', (c) => (stderr += c))
+    child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 0 }))
     child.stdin.end(input)
   })
 }
@@ -115,5 +123,60 @@ describe('CLI end to end', () => {
 
     expect(provider.requests[0].messages.some((m) => m.role === 'system')).toBe(false)
     expect(stdout).not.toContain('Loaded project conventions')
+  })
+
+  describe('print mode', () => {
+    it('prints only the answer on stdout and exits 0', async () => {
+      const { stdout, stderr, code } = await runCli('', env(), repo, ['-p', 'what indentation?'])
+
+      expect(code).toBe(0)
+      expect(stdout).toBe('ack\n')
+      expect(stderr).toBe('')
+      expect(provider.requests).toHaveLength(1)
+    })
+
+    it('reads the task from stdin when -p is given no value', async () => {
+      const { stdout, code } = await runCli('task from stdin\n', env(), repo, ['-p'])
+
+      expect(code).toBe(0)
+      expect(stdout).toBe('ack\n')
+      const user = provider.requests[0].messages.find((m) => m.role === 'user')
+      expect(user?.content).toBe('task from stdin')
+    })
+
+    it('keeps diagnostics off stdout so the answer can be captured cleanly', async () => {
+      await writeFile(path.join(repo, 'AGENTS.md'), '- Always indent with tabs.')
+
+      const { stdout, stderr } = await runCli('', env(), repo, ['-p', 'what indentation?'])
+
+      expect(stdout).toBe('ack\n')
+      expect(stderr).toContain('Loaded project conventions from AGENTS.md')
+    })
+
+    it('exits 1 with an empty stdout when the provider is unreachable', async () => {
+      const badEnv = { ...env(), OPENAI_BASE_URL: 'http://127.0.0.1:1' }
+
+      const { stdout, stderr, code } = await runCli('', badEnv, repo, ['-p', 'anything'])
+
+      expect(code).toBe(1)
+      expect(stdout).toBe('')
+      expect(stderr).toContain('Task failed')
+    })
+
+    it('exits 1 and suggests -p when a task is passed without the flag', async () => {
+      const { stderr, code } = await runCli('', env(), repo, ['summarize the tests'])
+
+      expect(code).toBe(1)
+      expect(stderr).toContain('-p "summarize the tests"')
+      expect(provider.requests).toHaveLength(0)
+    })
+
+    it('prints usage for --help without contacting a provider', async () => {
+      const { stdout, code } = await runCli('', env(), repo, ['--help'])
+
+      expect(code).toBe(0)
+      expect(stdout).toContain('Usage')
+      expect(provider.requests).toHaveLength(0)
+    })
   })
 })

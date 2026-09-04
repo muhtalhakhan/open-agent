@@ -11,3 +11,23 @@ export function createTerminalApprovalHandler(ask: (question: string) => Promise
     return answer.trim().toLowerCase().startsWith('y')
   }
 }
+
+/**
+ * The approval policy for print mode, where nobody is watching to answer a
+ * prompt. Denies by default — a CI job that silently performs a side effect
+ * nobody sanctioned is worse than one that fails — and approves `ask`-level
+ * calls only when the operator opted in with `--yes`.
+ *
+ * `dangerous` tools never reach here unless `ToolRegistry.enableDangerous`
+ * named them explicitly, so `--yes` cannot escalate to that level.
+ */
+export function createNonInteractiveApprovalHandler(approveAsk: boolean, log: (msg: string) => void): ApprovalHandler {
+  return (call: ToolCall, tool: ToolDefinition) => {
+    if (approveAsk) {
+      log(`auto-approved "${tool.name}" (${tool.permissionLevel}) — running with --yes\n`)
+      return true
+    }
+    log(`denied "${tool.name}" (${tool.permissionLevel}): no human to approve; re-run with --yes to allow\n`)
+    return false
+  }
+}

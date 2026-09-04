@@ -1,5 +1,5 @@
 import type { AgentLoop, SessionLog } from '@open-agent/agent'
-import type { MemoryProvider } from '@open-agent/memory'
+import { executeTask, type MemoryHook } from './task.js'
 
 export interface ReplIO {
   /** Resolves to the next line of input, or `null` on EOF (Ctrl+D). */
@@ -12,11 +12,6 @@ export interface ReplIO {
 /** Lets the caller cancel whichever task is currently running (e.g. from a SIGINT handler). */
 export interface AbortRef {
   current: AbortController | null
-}
-
-export interface MemoryHook {
-  provider: MemoryProvider
-  containerTag: string
 }
 
 /**
@@ -45,31 +40,17 @@ export async function runRepl(
     if (!trimmed) continue
     if (trimmed === ':exit') return
 
-    // Recalled memories travel as turn context, not as part of the user's
-    // message: the log should record what the user actually typed, and
-    // background context shouldn't read to the model as the request.
-    let context: string | undefined
-    if (memory) {
-      const recalled = await memory.provider.recall({ q: trimmed, containerTag: memory.containerTag, limit: 5 })
-      if (recalled.length > 0) {
-        context = `Relevant memory from past sessions:\n${recalled.map((r) => `- ${r.content}`).join('\n')}`
-      }
-    }
-
     const controller = new AbortController()
     activeAbort.current = controller
     io.setStatus?.('thinking…')
-    const task = await agentLoop.run(trimmed, controller.signal, undefined, { context })
+    const outcome = await executeTask(agentLoop, sessions, trimmed, controller.signal, memory)
     activeAbort.current = null
     io.setStatus?.(null)
 
-    if (task.status === 'completed') {
-      const messages = sessions.deriveMessages(task.id)
-      const answer = messages.at(-1)?.content ?? ''
-      io.write(`\n${answer}\n\n`)
-      if (memory && answer) await memory.provider.remember({ content: answer, containerTag: memory.containerTag })
+    if (outcome.status === 'completed') {
+      io.write(`\n${outcome.answer}\n\n`)
     } else {
-      io.write(`\n[${task.status}]${task.error ? ` ${task.error}` : ''}\n\n`)
+      io.write(`\n[${outcome.status}]${outcome.error ? ` ${outcome.error}` : ''}\n\n`)
     }
   }
 }
