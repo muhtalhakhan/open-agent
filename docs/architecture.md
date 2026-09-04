@@ -53,7 +53,7 @@ Agent → Tool Registry → browser.navigate() / browser.click() / browser.type(
 
 ### 2. Providers are interchangeable
 
-The agent only sees a provider interface:
+The agent only sees a provider interface. The target shape is:
 
 ```
 generate()
@@ -61,6 +61,12 @@ stream()
 tool_call()
 vision()
 ```
+
+> **Status:** only `generate(request, signal)` exists today. The implemented
+> interface is `LlmAdapter` in `packages/agent/src/types.ts` — `name` plus
+> `generate()` — and tool calls travel inside the ordinary request/response
+> rather than through a separate method. `stream()`, `tool_call()` and
+> `vision()` are design targets, not code.
 
 It never knows whether the backend is OpenAI, Gemini, Claude, Grok, DeepSeek, OpenRouter, Ollama, LM Studio, or a custom endpoint. Switching providers is a config change:
 

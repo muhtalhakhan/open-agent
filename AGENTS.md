@@ -11,9 +11,9 @@ TypeScript monorepo on npm workspaces. `apps/cli` (the terminal app) and
 `packages/providers` (LLM adapters), `packages/memory`, `packages/context`
 (a plugin kernel — _not_ prompt context), and the `tools-*` packages.
 
-`packages/tools` and `packages/security` are README-only placeholders. Nothing
-is implemented in either, despite what CONTRIBUTING.md says — the permission
-and approval system actually lives in `packages/agent/src/tools.ts`.
+`packages/tools` and `packages/security` are README-only placeholders — nothing
+is implemented in either. The permission and approval system lives in
+`packages/agent/src/tools.ts`; the built tools are the `tools-*` packages.
 
 ## Invariants worth knowing before editing
 
@@ -23,9 +23,10 @@ and approval system actually lives in `packages/agent/src/tools.ts`.
 - **Everything above `safe` is denied by default.** `ToolRegistry.decide` gates
   every call; `dangerous` additionally requires `enableDangerous(name)`. Don't
   route around it for convenience.
-- **`LlmAdapter` is `name` + `generate()`.** That is the whole interface —
-  CONTRIBUTING.md's mention of `stream()`/`tool_call()`/`vision()` is aspirational.
-  The agent core must never special-case a provider by name.
+- **`LlmAdapter` is `name` + `generate()`.** That is the whole interface; there
+  is no `stream()`/`tool_call()`/`vision()`. The agent core must never
+  special-case a provider by name — normalising a provider's quirks (Anthropic's
+  top-level `system`, Gemini's `systemInstruction`) is the adapter's job.
 - **The user's message is what the user typed.** Background context (recalled
   memories, project conventions) belongs in the system message via
   `RunOptions.context` or `systemPrompt`, never spliced into the user's text.

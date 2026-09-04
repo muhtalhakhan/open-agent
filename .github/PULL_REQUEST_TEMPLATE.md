@@ -9,7 +9,7 @@ Closes #
 ## Security-sensitive?
 
 - [ ] This PR adds/modifies a tool that can take real-world actions (files, shell, network, browser, external APIs)
-- [ ] If checked above: it correctly declares a `permissionLevel` and goes through the approval flow in `packages/security`
+- [ ] If checked above: it correctly declares a `permissionLevel` and goes through `ToolRegistry` in `packages/agent/src/tools.ts` (a dedicated `packages/security` is planned but not yet built)
 
 ## Checklist
 
