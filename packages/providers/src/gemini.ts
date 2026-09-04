@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { ProviderHttpError } from './errors.js'
 import type { LlmAdapter, LlmRequest, LlmResponse, Message, ToolCall, ToolDefinition } from '@open-agent/agent'
 
 export interface GeminiOptions {
@@ -132,8 +133,7 @@ export class GeminiProvider implements LlmAdapter {
     })
 
     if (!response.ok) {
-      const safeUrl = url.replace(/key=[^&]+/, 'key=[REDACTED]')
-      throw new Error(`${safeUrl} responded ${response.status}: ${await response.text()}`)
+      throw new ProviderHttpError(response.status, this.name, url, await response.text())
     }
 
     const data = (await response.json()) as {
