@@ -73,7 +73,7 @@ vision(messages, images, options): Response
 
 Provider config is `{ provider, model, apiKey, baseUrl? }` — enough to add any OpenAI-compatible endpoint (LM Studio, self-hosted vLLM, etc.) without new code, and a dedicated adapter only when a provider's API shape diverges (Anthropic, Gemini).
 
-`packages/providers`'s `OpenAiCompatibleProvider` is the first concrete `LlmAdapter`: point `baseURL`/`apiKey`/`model` at OpenAI, OpenRouter, Ollama, or LM Studio and it works unchanged — the whole point of the seam.
+`packages/providers`'s `OpenAiCompatibleProvider` is the general-purpose `LlmAdapter`: point `baseURL`/`apiKey`/`model` at OpenAI, OpenRouter, Ollama, or LM Studio and it works unchanged — the whole point of the seam. `AnthropicProvider` and `GeminiProvider` sit alongside it for the two APIs whose shape diverges enough that the compatible path can't cover them.
 
 ## Memory model
 
