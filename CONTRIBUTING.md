@@ -5,18 +5,18 @@ Thanks for considering a contribution. OpenAgent is built in public, and you don
 ## Ways to contribute
 
 - **Code**: pick up an open issue under a milestone (see the [milestones](../../milestones) page).
-- **Tools**: add a new tool under `packages/tools/` following the tool SDK (once available).
+- **Tools**: add a new tool implementing `ToolDefinition` from `packages/agent`. `packages/tools` is a placeholder for a future shared tool SDK and is currently empty — the built tools live in `packages/tools-browser`, `packages/tools-computer`, and `packages/tools-mcp`.
 - **Providers**: add a new LLM provider under `packages/providers/`.
 - **Docs**: improve `docs/architecture.md`, `docs/agent-design.md`, `docs/security-model.md`, or write guides.
 - **Testing**: add unit/integration tests, or file reproducible bug reports.
-- **Security research**: see [SECURITY.md](SECURITY.md) for how to report vulnerabilities responsibly.
+- **Security research**: see [SECURITY.md](SECURITY.md) for how to report vulnerabilities responsibly. (`packages/security` is likewise an empty placeholder; the enforcement code is in `packages/agent`.)
 - **Design/UI**: improvements to `apps/web`.
 
 ## Ground rules
 
 1. **Every capability is a tool.** Don't add browser/computer/filesystem-specific logic to the agent core — implement it as a tool behind the tool registry interface.
-2. **Providers are interchangeable.** New providers must implement the shared `generate() / stream() / tool_call() / vision()` interface in `packages/providers` — the agent must not special-case a provider.
-3. **Security first.** Any tool that can take a real-world action (send an email, run a shell command, write a file outside the workspace, etc.) must go through the permission/approval system in `packages/security`. Don't bypass it for convenience.
+2. **Providers are interchangeable.** New providers go in `packages/providers` and implement the `LlmAdapter` interface defined in `packages/agent/src/types.ts` — currently `name` plus `generate(request, signal)`. The agent core must never special-case a provider by name. Anything a provider does differently (Anthropic's top-level `system`, Gemini's `systemInstruction`) is the adapter's job to normalise.
+3. **Security first.** Any tool that can take a real-world action (send an email, run a shell command, write a file outside the workspace, etc.) must go through the permission/approval system — `ToolRegistry` in `packages/agent/src/tools.ts`, which denies anything above `safe` unless an approval handler allows it, and gates `dangerous` behind an explicit `enableDangerous(name)`. Don't bypass it for convenience.
 4. **Small, focused PRs.** Prefer several small PRs over one large one. Link the issue you're addressing.
 5. **Tests for behavior changes.** New tools and providers need at least basic unit tests.
 
