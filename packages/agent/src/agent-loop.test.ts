@@ -183,4 +183,48 @@ describe('AgentLoop', () => {
       expect(last.messages[0].role).toBe('system')
     })
   })
+
+  describe('run context', () => {
+    it('joins per-turn context onto the standing system prompt, conventions first', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm, systemPrompt: 'Use tabs.' })
+
+      await loop.run('hello', new AbortController().signal, 'c1', { context: 'Recalled: prefers brevity.' })
+
+      const system = llm.requests[0].messages[0]
+      expect(system).toEqual({ role: 'system', content: 'Use tabs.\n\nRecalled: prefers brevity.' })
+    })
+
+    it('carries context on its own when no system prompt is configured', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm })
+
+      await loop.run('hello', new AbortController().signal, 'c2', { context: 'Recalled: prefers brevity.' })
+
+      expect(llm.requests[0].messages[0]).toEqual({ role: 'system', content: 'Recalled: prefers brevity.' })
+    })
+
+    it('leaves the user message exactly as given', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm })
+
+      await loop.run('hello', new AbortController().signal, 'c3', { context: 'Recalled: prefers brevity.' })
+
+      const user = llm.requests[0].messages.find((m) => m.role === 'user')
+      expect(user).toEqual({ role: 'user', content: 'hello' })
+    })
+
+    it('sends no system message when context is empty and no prompt is set', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm })
+
+      await loop.run('hello', new AbortController().signal, 'c4', { context: '   ' })
+
+      expect(llm.requests[0].messages.some((m) => m.role === 'system')).toBe(false)
+    })
+  })
 })

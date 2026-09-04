@@ -12,6 +12,20 @@ export class CancelledError extends Error {
   }
 }
 
+export interface RunOptions {
+  /**
+   * Additional standing context for this turn — recalled memories, retrieved
+   * documents, anything the caller assembled that is *about* the task rather
+   * than part of it.
+   *
+   * It joins the configured `systemPrompt` in the system message instead of
+   * being spliced into the user's text, so the logged user message stays
+   * exactly what the user typed. That matters twice over: the transcript
+   * stays faithful, and context can't be mistaken for the request itself.
+   */
+  context?: string
+}
+
 export interface AgentLoopOptions {
   llm: LlmAdapter
   tools: ToolRegistry
@@ -50,22 +64,32 @@ export class AgentLoop {
     this.logger = options.logger ?? silentLogger
   }
 
-  async run(input: string, signal: AbortSignal, taskId: string = randomUUID()): Promise<TaskState> {
+  async run(
+    input: string,
+    signal: AbortSignal,
+    taskId: string = randomUUID(),
+    options: RunOptions = {},
+  ): Promise<TaskState> {
     const { sessions, tools } = this.options
     const startedAt = Date.now()
     const task: TaskState = { id: taskId, status: 'running', createdAt: startedAt, updatedAt: startedAt }
 
     sessions.append({ type: 'turn/start', taskId, at: Date.now() })
+    // Standing instructions and per-turn context share one system message:
+    // conventions first, then whatever the caller assembled for this turn.
     // Appended before the user message so it lands first in the derived
     // history, and only when this task has no system message yet: a resumed
     // taskId would otherwise accumulate a copy per run().
-    const systemPrompt = this.options.systemPrompt?.trim()
-    if (systemPrompt && !sessions.all(taskId).some((e) => e.type === 'system/message')) {
+    const systemContent = [this.options.systemPrompt, options.context]
+      .map((part) => part?.trim())
+      .filter((part): part is string => Boolean(part))
+      .join('\n\n')
+    if (systemContent && !sessions.all(taskId).some((e) => e.type === 'system/message')) {
       sessions.append({
         type: 'system/message',
         taskId,
         at: Date.now(),
-        message: { role: 'system', content: systemPrompt },
+        message: { role: 'system', content: systemContent },
       })
     }
     sessions.append({ type: 'user/message', taskId, at: Date.now(), message: { role: 'user', content: input } })

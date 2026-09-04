@@ -26,9 +26,9 @@ export interface MemoryHook {
  * real stdin/stdout.
  *
  * When `memory` is given, each turn recalls relevant past memories and
- * prepends them as context, then stores the task's final answer as a new
- * memory — a minimal, real use of the MemoryProvider seam, not just
- * mounted-and-unused.
+ * passes them to the agent loop as turn context, then stores the task's
+ * final answer as a new memory — a minimal, real use of the MemoryProvider
+ * seam, not just mounted-and-unused.
  */
 export async function runRepl(
   agentLoop: AgentLoop,
@@ -45,18 +45,21 @@ export async function runRepl(
     if (!trimmed) continue
     if (trimmed === ':exit') return
 
-    let taskInput = trimmed
+    // Recalled memories travel as turn context, not as part of the user's
+    // message: the log should record what the user actually typed, and
+    // background context shouldn't read to the model as the request.
+    let context: string | undefined
     if (memory) {
       const recalled = await memory.provider.recall({ q: trimmed, containerTag: memory.containerTag, limit: 5 })
       if (recalled.length > 0) {
-        taskInput = `Relevant memory from past sessions:\n${recalled.map((r) => `- ${r.content}`).join('\n')}\n\nTask: ${trimmed}`
+        context = `Relevant memory from past sessions:\n${recalled.map((r) => `- ${r.content}`).join('\n')}`
       }
     }
 
     const controller = new AbortController()
     activeAbort.current = controller
     io.setStatus?.('thinking…')
-    const task = await agentLoop.run(taskInput, controller.signal)
+    const task = await agentLoop.run(trimmed, controller.signal, undefined, { context })
     activeAbort.current = null
     io.setStatus?.(null)
 
