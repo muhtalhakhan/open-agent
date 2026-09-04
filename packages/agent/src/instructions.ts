@@ -90,7 +90,9 @@ export async function loadProjectInstructions(
     if (raw.trim().length === 0) return null
 
     const truncated = Buffer.byteLength(raw, 'utf8') > maxBytes
-    const text = truncated ? `${Buffer.from(raw, 'utf8').subarray(0, maxBytes).toString('utf8')}\n\n[instructions truncated]` : raw
+    const text = truncated
+      ? `${Buffer.from(raw, 'utf8').subarray(0, maxBytes).toString('utf8')}\n\n[instructions truncated]`
+      : raw
     return { text: text.trim(), source, root, truncated }
   }
 

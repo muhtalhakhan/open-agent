@@ -25,3 +25,5 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test --if-present
+      - name: Integration test
+        run: npm run test:integration --if-present
