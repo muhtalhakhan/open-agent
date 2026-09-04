@@ -53,6 +53,7 @@ describe('loadProjectInstructions', () => {
 
     expect(loaded?.text).toBe('# Conventions\n\nUse tabs.')
     expect(loaded?.source).toBe(path.join(root, 'AGENTS.md'))
+    expect(loaded?.root).toBe(root)
     expect(loaded?.truncated).toBe(false)
   })
 
@@ -149,6 +150,7 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt({
       text: 'Use tabs.',
       source: '/repo/AGENTS.md',
+      root: '/repo',
       truncated: false,
     })
 

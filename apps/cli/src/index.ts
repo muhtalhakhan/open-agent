@@ -42,6 +42,13 @@ async function main() {
   }
   const { config } = result
 
+  // Loaded before any stdin wiring, and deliberately so. An await that yields
+  // to real I/O between createInterface() below and the first prompt gives
+  // readline time to consume and discard piped input, so `echo task | cli`
+  // prints the banner and exits having done nothing. Keep that window free of
+  // I/O — cli.integration.test.ts pins the behaviour.
+  const instructions = await loadProjectInstructions()
+
   const ctx = new Context()
   const sessions = new SessionLog()
   const tools = new ToolRegistry()
@@ -92,6 +99,16 @@ async function main() {
     teardown = () => rl.close()
   }
 
+  // Surfaced on startup: a file that silently steers every turn is worth
+  // naming. Reported relative to the repo root, not the cwd, so it reads as
+  // `AGENTS.md` however deep the CLI was launched from.
+  if (instructions) {
+    io.write(
+      `Loaded project conventions from ${path.relative(instructions.root, instructions.source)}` +
+        `${instructions.truncated ? ' (truncated)' : ''}\n`,
+    )
+  }
+
   tools.onApproval(createTerminalApprovalHandler(ask))
 
   let disposeBrowserTools: (() => void) | undefined
@@ -112,17 +129,6 @@ async function main() {
     ctx.plugin(memoryPlugin(new Mem0Provider(new MemoryClient({ apiKey: config.memory.apiKey }))))
   } else {
     ctx.plugin(memoryPlugin(new InMemoryMemoryProvider()))
-  }
-
-  // Repo conventions (AGENTS.md) become the standing system prompt, so the
-  // user doesn't restate project rules every session. Reported on load
-  // because a file silently steering every turn is worth surfacing.
-  const instructions = await loadProjectInstructions()
-  if (instructions) {
-    io.write(
-      `Loaded project conventions from ${path.relative(process.cwd(), instructions.source)}` +
-        `${instructions.truncated ? ' (truncated)' : ''}\n`,
-    )
   }
 
   const llm = new OpenAiCompatibleProvider(config.llm)

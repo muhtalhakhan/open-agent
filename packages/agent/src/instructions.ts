@@ -25,6 +25,8 @@ export interface ProjectInstructions {
   text: string
   /** Absolute path the instructions came from, for logging and `:context`-style output. */
   source: string
+  /** Repo root the file was found under, so callers can report `source` relative to it. */
+  root: string
   /** True when the file was longer than `maxBytes` and had to be cut. */
   truncated: boolean
 }
@@ -89,7 +91,7 @@ export async function loadProjectInstructions(
 
     const truncated = Buffer.byteLength(raw, 'utf8') > maxBytes
     const text = truncated ? `${Buffer.from(raw, 'utf8').subarray(0, maxBytes).toString('utf8')}\n\n[instructions truncated]` : raw
-    return { text: text.trim(), source, truncated }
+    return { text: text.trim(), source, root, truncated }
   }
 
   return null
