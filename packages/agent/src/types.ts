@@ -57,6 +57,7 @@ export type SessionEvent =
   | { type: 'turn/end'; taskId: string; at: number; reason: 'completed' | 'cancelled' | 'error' }
   | { type: 'step/start'; taskId: string; at: number }
   | { type: 'step/end'; taskId: string; at: number }
+  | { type: 'system/message'; taskId: string; at: number; message: Message }
   | { type: 'user/message'; taskId: string; at: number; message: Message }
   | { type: 'assistant/message'; taskId: string; at: number; message: Message }
   | { type: 'tool/call'; taskId: string; at: number; call: ToolCall }

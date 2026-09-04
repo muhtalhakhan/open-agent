@@ -22,6 +22,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🧠  | Remember information across tasks             | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory                                                                                                   |
 | 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                                                                     |
 | 🧠  | Use any model                                 | ✅ Built — Anthropic and Gemini adapters, any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...), and `ProviderFallbackAdapter` for multi-provider failover |
+| 📋  | Follow project-specific conventions           | ✅ Built — an `AGENTS.md` at the repo root is loaded into the system prompt automatically                                                                                      |
 | 💻  | Run code and terminal commands                | 🚧 Planned — see Milestone 5 (Files + Terminal)                                                                                                                                |
 | ⏰  | Run scheduled tasks                           | 🚧 Planned — see Milestone 8 (Automation)                                                                                                                                      |
 | 🤖  | Operate autonomously with configurable limits | 🚧 Planned — see Milestone 9 (Security) / Milestone 10 (Cloud)                                                                                                                 |
@@ -42,6 +43,24 @@ OpenAgent is not tied to a single AI provider. Any OpenAI-compatible endpoint wo
 Configure several at once with `ProviderFallbackAdapter`: it tries adapters in order and falls through to the next on 401/403/429, so a rate-limited or misconfigured provider doesn't take the agent down. See `packages/providers/src/fallback-provider.ts`.
 
 The agent runtime doesn't care which model powers it — a provider is just a config value.
+
+## Project conventions (`AGENTS.md`)
+
+Drop an `AGENTS.md` at the repo root and the agent reads it at session start, folding it into the system prompt so you don't restate project rules every session:
+
+```markdown
+# Conventions
+
+- Prefer `node:test` over adding a test runner dependency.
+- Never edit files under `generated/` by hand.
+```
+
+- **Where it looks.** The repo root only — the directory containing `.git`, found by walking up from the working directory. Conventions govern a repo, so they shouldn't change based on which subdirectory you started the CLI from. Nested `AGENTS.md` files are ignored.
+- **Which file wins.** `.openagent/instructions.md` takes precedence over `AGENTS.md`, letting you keep OpenAgent-specific instructions separate from an `AGENTS.md` shared with other tools. They are alternatives, not layers — the winner is used whole and the other is ignored.
+- **Authority.** Conventions are framed as losing to a direct instruction from you, so a stale line in a checked-in file can't outrank what you're asking for right now.
+- **Size.** Capped at 32 KiB. These ride along on every request, so a runaway file would crowd out the task itself; anything longer is truncated with a marker.
+
+Loading is reported on startup, since a file that silently steers every turn is worth surfacing.
 
 ## Run it yourself
 

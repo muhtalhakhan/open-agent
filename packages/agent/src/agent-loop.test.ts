@@ -34,6 +34,16 @@ class ScriptedAdapter implements LlmAdapter {
   }
 }
 
+/** Records the messages of every request it is handed, then answers immediately. */
+class RecordingAdapter implements LlmAdapter {
+  name = 'recording'
+  requests: LlmRequest[] = []
+  async generate(request: LlmRequest): Promise<LlmResponse> {
+    this.requests.push(request)
+    return { message: { role: 'assistant', content: 'done' } }
+  }
+}
+
 describe('AgentLoop', () => {
   it('runs a full turn: model calls a tool, sees the result, then answers', async () => {
     const sessions = new SessionLog()
@@ -108,5 +118,69 @@ describe('AgentLoop', () => {
     const task = await loop.run('hello', new AbortController().signal, 't4')
     expect(task.status).toBe('error')
     expect(task.error).toMatch(/provider down/)
+  })
+
+  describe('systemPrompt', () => {
+    it('sends the system prompt ahead of the user message', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm, systemPrompt: 'Use tabs.' })
+
+      await loop.run('hello', new AbortController().signal, 's1')
+
+      expect(llm.requests[0].messages[0]).toEqual({ role: 'system', content: 'Use tabs.' })
+      expect(llm.requests[0].messages[1]).toEqual({ role: 'user', content: 'hello' })
+    })
+
+    it('records it in the session log, not just in the request', async () => {
+      const sessions = new SessionLog()
+      const loop = new AgentLoop({
+        sessions,
+        tools: new ToolRegistry(),
+        llm: new RecordingAdapter(),
+        systemPrompt: 'Use tabs.',
+      })
+
+      await loop.run('hello', new AbortController().signal, 's2')
+
+      // The log is the source of truth: what the model saw must be
+      // reconstructable from it alone.
+      expect(sessions.all('s2').filter((e) => e.type === 'system/message')).toHaveLength(1)
+      expect(sessions.deriveMessages('s2')[0].role).toBe('system')
+    })
+
+    it('sends no system message when none is configured', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm })
+
+      await loop.run('hello', new AbortController().signal, 's3')
+
+      expect(llm.requests[0].messages.some((m) => m.role === 'system')).toBe(false)
+    })
+
+    it('ignores a whitespace-only prompt', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm, systemPrompt: '   \n  ' })
+
+      await loop.run('hello', new AbortController().signal, 's4')
+
+      expect(llm.requests[0].messages.some((m) => m.role === 'system')).toBe(false)
+    })
+
+    it('does not accumulate a copy per run when a taskId is reused', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm, systemPrompt: 'Use tabs.' })
+
+      await loop.run('first', new AbortController().signal, 's5')
+      await loop.run('second', new AbortController().signal, 's5')
+
+      expect(sessions.all('s5').filter((e) => e.type === 'system/message')).toHaveLength(1)
+      const last = llm.requests.at(-1)!
+      expect(last.messages.filter((m) => m.role === 'system')).toHaveLength(1)
+      expect(last.messages[0].role).toBe('system')
+    })
   })
 })

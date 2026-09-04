@@ -3,7 +3,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import dotenv from 'dotenv'
-import { AgentLoop, SessionLog, ToolRegistry, consoleLogger, silentLogger } from '@open-agent/agent'
+import {
+  AgentLoop,
+  SessionLog,
+  ToolRegistry,
+  buildSystemPrompt,
+  consoleLogger,
+  loadProjectInstructions,
+  silentLogger,
+} from '@open-agent/agent'
 import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
 import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
@@ -106,11 +114,23 @@ async function main() {
     ctx.plugin(memoryPlugin(new InMemoryMemoryProvider()))
   }
 
+  // Repo conventions (AGENTS.md) become the standing system prompt, so the
+  // user doesn't restate project rules every session. Reported on load
+  // because a file silently steering every turn is worth surfacing.
+  const instructions = await loadProjectInstructions()
+  if (instructions) {
+    io.write(
+      `Loaded project conventions from ${path.relative(process.cwd(), instructions.source)}` +
+        `${instructions.truncated ? ' (truncated)' : ''}\n`,
+    )
+  }
+
   const llm = new OpenAiCompatibleProvider(config.llm)
   const loop = new AgentLoop({
     sessions,
     tools,
     llm,
+    systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
     logger: process.env.DEBUG ? consoleLogger : silentLogger,
   })
 
