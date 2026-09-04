@@ -14,17 +14,17 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 
 ## What can it do?
 
-|     | Capability                                    | Status                                                                                                                                                                    |
-| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🌐  | Browse the web                                | ✅ Built — `tools-browser`, backed by browser-use's MCP server (14 tools: navigate, click, type, scroll, extract content, tabs, ...)                                      |
-| 🖥️  | Control a computer                            | ✅ Built — `tools-computer`, backed by `@ui-tars/sdk` (screenshot → prediction → mouse/keyboard loop)                                                                     |
-| 🔧  | Use external tools and MCP servers            | ✅ Built — generic MCP stdio client in `tools-mcp`, used by both browser and computer tools                                                                               |
-| 🧠  | Remember information across tasks             | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory                                                                                              |
-| 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                                                                |
-| 🧠  | Use any model                                 | 🚧 Partial — provider seam exists; any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...) works today, dedicated Anthropic/Gemini adapters are planned |
-| 💻  | Run code and terminal commands                | 🚧 Planned — see Milestone 5 (Files + Terminal)                                                                                                                           |
-| ⏰  | Run scheduled tasks                           | 🚧 Planned — see Milestone 8 (Automation)                                                                                                                                 |
-| 🤖  | Operate autonomously with configurable limits | 🚧 Planned — see Milestone 9 (Security) / Milestone 10 (Cloud)                                                                                                            |
+|     | Capability                                    | Status                                                                                                                               |
+| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 🌐  | Browse the web                                | ✅ Built — `tools-browser`, backed by browser-use's MCP server (14 tools: navigate, click, type, scroll, extract content, tabs, ...) |
+| 🖥️  | Control a computer                            | ✅ Built — `tools-computer`, backed by `@ui-tars/sdk` (screenshot → prediction → mouse/keyboard loop)                                |
+| 🔧  | Use external tools and MCP servers            | ✅ Built — generic MCP stdio client in `tools-mcp`, used by both browser and computer tools                                          |
+| 🧠  | Remember information across tasks             | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory                                                         |
+| 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                           |
+| 🧠  | Use any model                                 | ✅ Built — OpenAI-compatible, Anthropic, and Gemini adapters plus `ProviderFallbackAdapter` (multi-provider failover on 401/403/429) |
+| 💻  | Run code and terminal commands                | 🚧 Planned — see Milestone 5 (Files + Terminal)                                                                                      |
+| ⏰  | Run scheduled tasks                           | 🚧 Planned — see Milestone 8 (Automation)                                                                                            |
+| 🤖  | Operate autonomously with configurable limits | 🚧 Planned — see Milestone 9 (Security) / Milestone 10 (Cloud)                                                                       |
 
 A CLI is available today (`npm run cli`); the web UI described below is still a design doc, not code.
 
@@ -34,10 +34,11 @@ See the [milestones](../../milestones) for the full roadmap and what's currently
 
 OpenAgent is not tied to a single AI provider. Any OpenAI-compatible endpoint works today via `OpenAiCompatibleProvider` — that already covers OpenAI, OpenRouter, Ollama, LM Studio, and self-hosted vLLM. Dedicated adapters are planned for providers with a different API shape:
 
-- Anthropic
-- Google Gemini
-- xAI
-- DeepSeek
+- Anthropic ✅
+- Google Gemini ✅
+- xAI (planned)
+- DeepSeek (planned)
+- Multi-provider fallback (`ProviderFallbackAdapter`) — tries adapters in order with structured error matching (401/403/429), exponential backoff, and abort respect. Ordering is re-derived per call rather than held in a shared cursor, so concurrent calls cannot race. See `packages/providers/src/fallback-provider.ts`.
 
 The agent runtime doesn't care which model powers it — a provider is just a config value.
 
