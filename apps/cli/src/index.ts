@@ -18,7 +18,9 @@ import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 import { Context } from '@open-agent/context'
 import { loadConfigFromEnv } from './config.js'
-import { createTerminalApprovalHandler } from './approval.js'
+import { createNonInteractiveApprovalHandler, createTerminalApprovalHandler } from './approval.js'
+import { parseCliArgs, USAGE } from './args.js'
+import { runHeadless } from './headless.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -31,9 +33,34 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
  * input/output, etc) — set `CLI_NO_TUI=1` to force the fallback locally
  * (in the shell or in `.env`, since dotenv has already loaded above).
  */
-const useTui = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !process.env.CLI_NO_TUI
+const ttyBothEnds = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !process.env.CLI_NO_TUI
+
+/** Reads the whole of stdin, for `echo "task" | open-agent -p`. */
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', (chunk) => (data += chunk))
+    process.stdin.on('end', () => resolve(data))
+    process.stdin.on('error', reject)
+  })
+}
 
 async function main() {
+  const parsedArgs = parseCliArgs(process.argv.slice(2))
+  if (!parsedArgs.ok) {
+    console.error(parsedArgs.error)
+    process.exitCode = 1
+    return
+  }
+  const args = parsedArgs.args
+  if (args.help) {
+    console.log(USAGE)
+    return
+  }
+  const headless = args.mode === 'print'
+  const useTui = ttyBothEnds && !headless
+
   const result = loadConfigFromEnv(process.env)
   if (!result.ok) {
     console.error(result.error)
@@ -58,7 +85,18 @@ async function main() {
   let ask: (question: string) => Promise<string>
   let teardown: () => void
 
-  if (useTui) {
+  if (headless) {
+    // No readline, no TUI: stdin may carry the task itself, and stdout must
+    // hold nothing but the answer. Everything chatty goes to stderr.
+    io = {
+      async prompt() {
+        return null
+      },
+      write: (text) => void process.stderr.write(text),
+    }
+    ask = async () => 'n'
+    teardown = () => {}
+  } else if (useTui) {
     const { mountTui } = await import('./tui/mount.js')
     const tui = mountTui({
       onInterrupt: () => {
@@ -109,11 +147,17 @@ async function main() {
     )
   }
 
-  tools.onApproval(createTerminalApprovalHandler(ask))
+  tools.onApproval(
+    headless
+      ? createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg))
+      : createTerminalApprovalHandler(ask),
+  )
 
   let disposeBrowserTools: (() => void) | undefined
   if (config.browserUse) {
-    console.log('Starting browser-use (python -m browser_use.mcp)...')
+    // Via io.write, not console.log: in print mode that routes to stderr so
+    // it cannot land in the captured answer.
+    io.write('Starting browser-use (python -m browser_use.mcp)...\n')
     disposeBrowserTools = await mountBrowserUseTools(tools)
   }
 
@@ -143,10 +187,30 @@ async function main() {
   try {
     const memory = ctx.get<MemoryProvider>('memory')!
     const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
-    await runRepl(loop, sessions, io, activeAbort, {
-      provider: memory,
-      containerTag,
-    })
+    const memoryHook = { provider: memory, containerTag }
+
+    if (headless) {
+      if (args.prompt === undefined && process.stdin.isTTY) {
+        console.error('No task given. Pass one as `-p "<task>"` or pipe it on stdin.')
+        process.exitCode = 1
+        return
+      }
+      const prompt = args.prompt ?? (await readStdin())
+      const controller = new AbortController()
+      activeAbort.current = controller
+      process.on('SIGINT', () => controller.abort())
+      process.exitCode = await runHeadless(loop, sessions, {
+        prompt,
+        io: {
+          out: (text) => void process.stdout.write(text),
+          err: (text) => void process.stderr.write(text),
+        },
+        signal: controller.signal,
+        memory: memoryHook,
+      })
+    } else {
+      await runRepl(loop, sessions, io, activeAbort, memoryHook)
+    }
   } finally {
     teardown()
     disposeBrowserTools?.()

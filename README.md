@@ -24,6 +24,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🧠  | Use any model                                 | ✅ Built — Anthropic and Gemini adapters, any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...), and `ProviderFallbackAdapter` for multi-provider failover |
 | 📋  | Follow project-specific conventions           | ✅ Built — an `AGENTS.md` at the repo root is loaded into the system prompt automatically                                                                                      |
 | 💻  | Run code and terminal commands                | 🚧 Planned — see Milestone 5 (Files + Terminal)                                                                                                                                |
+| 🤖  | Run non-interactively in CI                   | ✅ Built — `open-agent -p "<task>"` prints the answer to stdout and exits with a status code                                                                                   |
 | ⏰  | Run scheduled tasks                           | 🚧 Planned — see Milestone 8 (Automation)                                                                                                                                      |
 | 🤖  | Operate autonomously with configurable limits | 🚧 Planned — see Milestone 9 (Security) / Milestone 10 (Cloud)                                                                                                                 |
 
@@ -43,6 +44,19 @@ OpenAgent is not tied to a single AI provider. Any OpenAI-compatible endpoint wo
 Configure several at once with `ProviderFallbackAdapter`: it tries adapters in order and falls through to the next on 401/403/429 (account problems) and 408/502/503/504/529 (provider down or overloaded), so a rate-limited, overloaded, or misconfigured provider doesn't take the agent down. See `packages/providers/src/fallback-provider.ts`.
 
 The agent runtime doesn't care which model powers it — a provider is just a config value.
+
+## Headless / CI mode
+
+Run a single task without a terminal, for scripts and CI jobs:
+
+```bash
+open-agent -p "summarize the failing tests"      # task inline
+echo "summarize the failing tests" | open-agent -p   # task on stdin
+```
+
+- **stdout is just the answer.** Progress, warnings and errors go to stderr, so `open-agent -p "..." > answer.txt` captures the result and nothing else.
+- **Exit codes**: `0` completed, `1` failed, `130` cancelled (Ctrl+C) — so `&&` chaining and CI gates work as expected.
+- **Approvals default to deny.** With no human to answer a prompt, an `ask`-level tool call is refused and the reason goes to stderr; pass `--yes` to approve them. `dangerous` tools stay blocked either way, since they require being enabled by name.
 
 ## Project conventions (`AGENTS.md`)
 
