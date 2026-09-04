@@ -88,7 +88,7 @@ apps/
 packages/
   context/     ✅ Plugin/service kernel (contexts, plugins, events) the rest of the runtime is built on
   agent/       ✅ Agent loop, conversation/task state, cancellation, retries, logging
-  providers/   ✅ Provider abstraction + implementations (generic OpenAI-compatible done; Anthropic/Gemini need dedicated adapters)
+  providers/   ✅ Provider abstraction + implementations (generic OpenAI-compatible, Anthropic, Gemini, multi-provider fallback)
   tools-mcp/   ✅ Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
   tools-browser/ ✅ Browser tools, backed by browser-use's MCP server via tools-mcp
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
