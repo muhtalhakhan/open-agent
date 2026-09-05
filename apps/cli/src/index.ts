@@ -16,6 +16,7 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
+import { httpRequestTool } from '@open-agent/tools-http'
 import { Context } from '@open-agent/context'
 import { loadConfigFromEnv } from './config.js'
 import { createNonInteractiveApprovalHandler, createTerminalApprovalHandler } from './approval.js'
@@ -159,6 +160,10 @@ async function main() {
     // it cannot land in the captured answer.
     io.write('Starting browser-use (python -m browser_use.mcp)...\n')
     disposeBrowserTools = await mountBrowserUseTools(tools)
+  }
+
+  if (config.http.enabled) {
+    tools.register(httpRequestTool({ allowedHosts: config.http.allowedHosts, secrets: config.http.secrets }))
   }
 
   if (config.memory.provider === 'supermemory') {

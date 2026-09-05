@@ -98,6 +98,7 @@ packages/
   tools-mcp/   ✅ Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
   tools-browser/ ✅ Browser tools, backed by browser-use's MCP server via tools-mcp
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
+  tools-http/  ✅ http_request: direct calls to APIs with no MCP server, behind a host allowlist and secret placeholders
   tools/       🚧 Remaining built-in tools: filesystem, shell (Milestone 5)
   memory/      ✅ Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider, in-memory)
   security/    🚧 Permission system, approval UI hooks, sandboxing, audit logs (Milestone 9)

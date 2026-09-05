@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "for p in context agent memory providers tools-mcp tools-browser tools-computer; do npx tsc -p packages/$p/tsconfig.json --noEmit || exit 1; done; npx tsc -p apps/cli/tsconfig.json --noEmit",
+    "typecheck": "for p in context agent memory providers tools-mcp tools-browser tools-computer tools-http; do npx tsc -p packages/$p/tsconfig.json --noEmit || exit 1; done; npx tsc -p apps/cli/tsconfig.json --noEmit",
     "test": "npm run test --workspaces --if-present",
     "test:integration": "npm run test:integration --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",

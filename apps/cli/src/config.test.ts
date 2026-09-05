@@ -18,6 +18,7 @@ describe('loadConfigFromEnv', () => {
       config: {
         llm: { baseURL: 'https://api.openai.com/v1', apiKey: 'sk-x', model: 'gpt-4o-mini' },
         browserUse: false,
+        http: { enabled: false, allowedHosts: undefined, secrets: {} },
         memory: { provider: 'none' },
       },
     })
@@ -31,6 +32,42 @@ describe('loadConfigFromEnv', () => {
       BROWSER_USE: '1',
     })
     expect(result.ok && result.config.browserUse).toBe(true)
+  })
+
+  it('leaves the http tool off, unrestricted and secret-free by default', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+    })
+    expect(result.ok && result.config.http).toEqual({ enabled: false, allowedHosts: undefined, secrets: {} })
+  })
+
+  it('enables the http tool with its allowlist and HTTP_SECRET_* placeholders', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      HTTP_TOOL: '1',
+      HTTP_ALLOWED_HOSTS: 'api.stripe.com, api.github.com',
+      HTTP_SECRET_STRIPE_KEY: 'sk-live-1',
+    })
+    expect(result.ok && result.config.http).toEqual({
+      enabled: true,
+      allowedHosts: ['api.stripe.com', 'api.github.com'],
+      secrets: { STRIPE_KEY: 'sk-live-1' },
+    })
+  })
+
+  it('reads an empty HTTP_ALLOWED_HOSTS as an allowlist of nothing, not as no allowlist', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      HTTP_TOOL: '1',
+      HTTP_ALLOWED_HOSTS: '',
+    })
+    expect(result.ok && result.config.http.allowedHosts).toEqual([])
   })
 
   it('picks supermemory when SUPERMEMORY_API_KEY is set', () => {
