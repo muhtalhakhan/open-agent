@@ -92,9 +92,33 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent has a working agent runtime, tool calling, browser automation, computer control, and pluggable memory. Filesystem/terminal tools, scheduling, a dedicated security package, and the web UI are still ahead — see the capability table above and the [milestones](../../milestones) for what's done vs. planned.
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, and pluggable memory. Filesystem/terminal tools, scheduling, sandboxing, and the web UI are still ahead.
 
-See [docs/architecture.md](docs/architecture.md), [docs/agent-design.md](docs/agent-design.md), and [docs/security-model.md](docs/security-model.md) for the design docs.
+Progress by milestone (issues closed / total):
+
+| Milestone            | Done    | State                                                                                    |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| 0 — Foundation       | 10 / 10 | ✅ Complete                                                                              |
+| 1 — Agent Runtime    | 10 / 10 | ✅ Complete — loop, tool registry, state, cancellation, retries, structured logging      |
+| 2 — Model Providers  | 9 / 10  | 🟢 Nearly done — API-key management (#29) left                                           |
+| 3 — Browser          | 10 / 10 | ✅ Complete                                                                              |
+| 4 — Computer Use     | 8 / 10  | 🟢 Nearly done — window management (#47), human takeover (#50) left                      |
+| 5 — Files + Terminal | 0 / 10  | 🚧 Not started — read/write/list/search files, shell tool, timeouts, workspace isolation |
+| 6 — Memory           | 6 / 8   | 🟢 Nearly done — memory editing (#66), task history (#62) left                           |
+| 7 — Tools/MCP        | 3 / 7   | 🟡 In progress — server discovery (#70), MCP auth (#72), tool SDK (#74), registry (#75)  |
+| 8 — Automation       | 0 / 8   | 🚧 Not started — scheduler, one-time/recurring tasks, job queue, notifications           |
+| 9 — Security         | 3 / 9   | 🟡 In progress — permissions, approvals and audit logs land; sandboxing/isolation left   |
+| 10 — Cloud           | 0 / 8   | 🚧 Not started — remote agent, persistent VM/filesystem, remote browser, WS streaming    |
+| 11 — User Interfaces | 1 / 15  | 🟡 In progress — CLI TUI shipped; streaming, wizard, and the whole web UI left           |
+| 12 — Backlog         | 4 / 26  | 🟡 Ideas and stretch goals — hooks, plan mode, git tooling, ACP, sandbox providers       |
+
+Recently landed: `web_search` (#143), `http_request` (#145), headless `-p` mode (#124), `AGENTS.md` project conventions (#127), permission system and approval UI (#84, #85), audit logs (#90), provider fallback (#30).
+
+Nearest up next: the Files + Terminal milestone (#51–#60) — the reason "run code and terminal commands" is still the one big gap in the capability table — followed by the Security milestone's sandboxing work (#86–#89), which it depends on.
+
+Security caveat: permission levels, approvals, and audit logging are enforced by the agent loop today, but `packages/security` is still a design doc — there is no shell sandbox (#86), browser isolation (#87), secret management (#88), or network restriction (#89) yet. Treat the agent as running with your own privileges.
+
+See [docs/architecture.md](docs/architecture.md), [docs/agent-design.md](docs/agent-design.md), and [docs/security-model.md](docs/security-model.md) for the design docs, and the [milestones](../../milestones) for the live issue-by-issue view.
 
 ## Quickstart
 
