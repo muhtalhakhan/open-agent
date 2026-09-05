@@ -60,7 +60,7 @@ permissionLevel: "safe" | "ask" | "dangerous"
 execute(args, context): Promise<ToolResult>
 ```
 
-Tools are registered in a `ToolRegistry` that the agent loop queries by profile. MCP servers are exposed as tools through the same interface via the generic MCP client (`packages/tools-mcp`), which `tools-browser` and `tools-computer` both build on. `packages/tools-http` covers the other side of that: `http_request` is the unstructured fallback for an API with no MCP server, gated at `ask` and fenced in by a host allowlist, secret placeholders (`{{NAME}}`, substituted at send time and redacted from everything returned) and a response-size ceiling so a large body can't evict the conversation.
+Tools are registered in a `ToolRegistry` that the agent loop queries by profile. MCP servers are exposed as tools through the same interface via the generic MCP client (`packages/tools-mcp`), which `tools-browser` and `tools-computer` both build on. `packages/tools-search` puts a search engine behind the same kind of adapter seam as `LlmAdapter` (`SearchProvider` = `name` + `search()`), so `web_search` is a lightweight API call that works with no browser in the profile at all — search there, then hand a URL to the browser tools only when a page has to be interacted with. `packages/tools-http` covers the other side of that: `http_request` is the unstructured fallback for an API with no MCP server, gated at `ask` and fenced in by a host allowlist, secret placeholders (`{{NAME}}`, substituted at send time and redacted from everything returned) and a response-size ceiling so a large body can't evict the conversation.
 
 ## Provider interface
 

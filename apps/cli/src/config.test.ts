@@ -19,6 +19,7 @@ describe('loadConfigFromEnv', () => {
         llm: { baseURL: 'https://api.openai.com/v1', apiKey: 'sk-x', model: 'gpt-4o-mini' },
         browserUse: false,
         http: { enabled: false, allowedHosts: undefined, secrets: {} },
+        search: { provider: 'none' },
         memory: { provider: 'none' },
       },
     })
@@ -68,6 +69,37 @@ describe('loadConfigFromEnv', () => {
       HTTP_ALLOWED_HOSTS: '',
     })
     expect(result.ok && result.config.http.allowedHosts).toEqual([])
+  })
+
+  it('enables brave web search when BRAVE_SEARCH_API_KEY is set', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      BRAVE_SEARCH_API_KEY: 'brave-1',
+    })
+    expect(result.ok && result.config.search).toEqual({ provider: 'brave', apiKey: 'brave-1' })
+  })
+
+  it('falls back to tavily when only TAVILY_API_KEY is set', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      TAVILY_API_KEY: 'tvly-1',
+    })
+    expect(result.ok && result.config.search).toEqual({ provider: 'tavily', apiKey: 'tvly-1' })
+  })
+
+  it('prefers brave when both search keys are set', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      BRAVE_SEARCH_API_KEY: 'brave-1',
+      TAVILY_API_KEY: 'tvly-1',
+    })
+    expect(result.ok && result.config.search).toEqual({ provider: 'brave', apiKey: 'brave-1' })
   })
 
   it('picks supermemory when SUPERMEMORY_API_KEY is set', () => {
