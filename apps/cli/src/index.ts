@@ -17,6 +17,7 @@ import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 import { httpRequestTool } from '@open-agent/tools-http'
+import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { Context } from '@open-agent/context'
 import { loadConfigFromEnv } from './config.js'
 import { createNonInteractiveApprovalHandler, createTerminalApprovalHandler } from './approval.js'
@@ -164,6 +165,14 @@ async function main() {
 
   if (config.http.enabled) {
     tools.register(httpRequestTool({ allowedHosts: config.http.allowedHosts, secrets: config.http.secrets }))
+  }
+
+  if (config.search.provider !== 'none') {
+    const searchProvider =
+      config.search.provider === 'brave'
+        ? new BraveSearchProvider({ apiKey: config.search.apiKey })
+        : new TavilySearchProvider({ apiKey: config.search.apiKey })
+    tools.register(webSearchTool(searchProvider))
   }
 
   if (config.memory.provider === 'supermemory') {

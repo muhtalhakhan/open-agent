@@ -2,6 +2,7 @@ export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
   browserUse: boolean
   http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
+  search: { provider: 'brave'; apiKey: string } | { provider: 'tavily'; apiKey: string } | { provider: 'none' }
   memory:
     | { provider: 'supermemory'; apiKey: string; baseURL?: string }
     | { provider: 'mem0'; apiKey: string }
@@ -22,6 +23,15 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv): ConfigResult {
   const browserUse = env.BROWSER_USE === '1' || env.BROWSER_USE === 'true'
   const http = loadHttpToolConfig(env)
 
+  // Keyed off which key is present rather than a separate on/off flag: a
+  // search API is useless without one, and there is nothing to enable without.
+  let search: CliConfig['search'] = { provider: 'none' }
+  if (env.BRAVE_SEARCH_API_KEY) {
+    search = { provider: 'brave', apiKey: env.BRAVE_SEARCH_API_KEY }
+  } else if (env.TAVILY_API_KEY) {
+    search = { provider: 'tavily', apiKey: env.TAVILY_API_KEY }
+  }
+
   let memory: CliConfig['memory'] = { provider: 'none' }
   if (env.SUPERMEMORY_API_KEY) {
     memory = { provider: 'supermemory', apiKey: env.SUPERMEMORY_API_KEY, baseURL: env.SUPERMEMORY_BASE_URL }
@@ -29,7 +39,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv): ConfigResult {
     memory = { provider: 'mem0', apiKey: env.MEM0_API_KEY }
   }
 
-  return { ok: true, config: { llm: { baseURL, apiKey, model }, browserUse, http, memory } }
+  return { ok: true, config: { llm: { baseURL, apiKey, model }, browserUse, http, search, memory } }
 }
 
 /**

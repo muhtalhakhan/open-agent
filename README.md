@@ -19,6 +19,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🌐  | Browse the web                                | ✅ Built — `tools-browser`, backed by browser-use's MCP server (14 tools: navigate, click, type, scroll, extract content, tabs, ...)                                           |
 | 🖥️  | Control a computer                            | ✅ Built — `tools-computer`, backed by `@ui-tars/sdk` (screenshot → prediction → mouse/keyboard loop)                                                                          |
 | 🔧  | Use external tools and MCP servers            | ✅ Built — generic MCP stdio client in `tools-mcp`, used by both browser and computer tools                                                                                    |
+| 🔎  | Search the web                                | ✅ Built — `tools-search`'s `web_search`, over Brave or Tavily, standalone (no browser needed)                                                                                 |
 | 🔌  | Call any HTTP API directly                    | ✅ Built — `tools-http`'s `http_request`, with a host allowlist, secret placeholders, and a response-size ceiling                                                              |
 | 🧠  | Remember information across tasks             | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory                                                                                                   |
 | 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                                                                     |
@@ -122,6 +123,7 @@ packages/
   tools-browser/   Browser tools, via browser-use's MCP server
   tools-computer/  Computer-use tools, via @ui-tars/sdk
   tools-http/      Direct HTTP requests to arbitrary APIs (http_request)
+  tools-search/    Web search (web_search), over Brave or Tavily
   tools-mcp/       Generic MCP stdio client used by the tool packages above
   tools/           Remaining built-in tools (filesystem, shell — planned)
   memory/          Long-term/semantic memory (Supermemory, mem0, in-memory)
