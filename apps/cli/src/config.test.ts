@@ -20,6 +20,13 @@ describe('loadConfigFromEnv', () => {
         browserUse: false,
         http: { enabled: false, allowedHosts: undefined, secrets: {} },
         files: { enabled: false, root: undefined },
+        shell: {
+          enabled: false,
+          root: undefined,
+          allowedCommands: undefined,
+          allowEnv: undefined,
+          timeoutMs: undefined,
+        },
         search: { provider: 'none' },
         memory: { provider: 'none' },
         secrets: ['sk-x'],
@@ -234,7 +241,49 @@ describe('loadConfigFromEnv', () => {
     })
     expect(result.ok && [...result.config.secrets].sort()).toEqual(['m0-key', 'sk-live-1', 'sk-x', 'tvly-1'])
   })
+
+  it('leaves the shell tool off unless SHELL_TOOL is set', () => {
+    const result = loadConfigFromEnv(base())
+    expect(result.ok && result.config.shell.enabled).toBe(false)
+  })
+
+  it('enables the shell tool with its allowlist, env exceptions and timeout', () => {
+    const result = loadConfigFromEnv({
+      ...base(),
+      SHELL_TOOL: '1',
+      SHELL_ROOT: '/srv/workspace',
+      SHELL_ALLOWED_COMMANDS: 'git, npm',
+      SHELL_ALLOW_ENV: 'GH_TOKEN',
+      SHELL_TIMEOUT_MS: '30000',
+    })
+    expect(result.ok && result.config.shell).toEqual({
+      enabled: true,
+      root: '/srv/workspace',
+      allowedCommands: ['git', 'npm'],
+      allowEnv: ['GH_TOKEN'],
+      timeoutMs: 30000,
+    })
+  })
+
+  it('falls back to FILES_ROOT so both tools share one workspace', () => {
+    const result = loadConfigFromEnv({ ...base(), SHELL_TOOL: '1', FILES_ROOT: '/srv/shared' })
+    expect(result.ok && result.config.shell.root).toBe('/srv/shared')
+  })
+
+  it('rejects a nonsense SHELL_TIMEOUT_MS instead of silently ignoring it', () => {
+    const result = loadConfigFromEnv({ ...base(), SHELL_TOOL: '1', SHELL_TIMEOUT_MS: 'soon' })
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('SHELL_TIMEOUT_MS') })
+  })
 })
+
+/** The three variables every config needs before anything else can be tested. */
+function base(): NodeJS.ProcessEnv {
+  return {
+    OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    OPENAI_API_KEY: 'sk-x',
+    OPENAI_MODEL: 'gpt-4o-mini',
+  }
+}
 
 /** Stands in for the ENOENT a real read would throw, so error paths stay off the disk. */
 function raiseMissing(path: string): never {

@@ -20,6 +20,7 @@
     "@open-agent/tools-files": "*",
     "@open-agent/tools-http": "*",
     "@open-agent/tools-search": "*",
+    "@open-agent/tools-terminal": "*",
     "dotenv": "^16.4.5",
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",

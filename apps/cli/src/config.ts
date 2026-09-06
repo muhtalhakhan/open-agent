@@ -5,6 +5,13 @@ export interface CliConfig {
   browserUse: boolean
   http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
   files: { enabled: boolean; root?: string }
+  shell: {
+    enabled: boolean
+    root?: string
+    allowedCommands?: string[]
+    allowEnv?: string[]
+    timeoutMs?: number
+  }
   search: { provider: 'brave'; apiKey: string } | { provider: 'tavily'; apiKey: string } | { provider: 'none' }
   memory:
     | { provider: 'supermemory'; apiKey: string; baseURL?: string }
@@ -71,6 +78,9 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
   // read of the environment, and the launch directory is not part of it.
   const files = { enabled: env.FILES_TOOL === '1' || env.FILES_TOOL === 'true', root: env.FILES_ROOT || undefined }
 
+  const shell = loadShellToolConfig(env)
+  if (!shell.ok) return { ok: false, error: shell.error }
+
   // Keyed off which key is present rather than a separate on/off flag: a
   // search API is useless without one, and there is nothing to enable without.
   let search: CliConfig['search'] = { provider: 'none' }
@@ -102,9 +112,53 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
       browserUse,
       http: http.config,
       files,
+      shell: shell.config,
       search,
       memory,
       secrets,
+    },
+  }
+}
+
+/**
+ * `SHELL_TOOL=1` turns the shell tool on. It runs under `SHELL_ROOT`, falling
+ * back to `FILES_ROOT` so the two tools share one workspace by default — an
+ * agent that can read a directory and run commands somewhere else would be a
+ * strange thing to configure by accident.
+ *
+ * `SHELL_ALLOWED_COMMANDS` narrows it to a list of programs, and
+ * `SHELL_ALLOW_ENV` names credential variables to pass through that the tool
+ * would otherwise hide. Neither has a default: the tool is already behind an
+ * approval prompt on every call.
+ */
+function loadShellToolConfig(
+  env: NodeJS.ProcessEnv,
+): { ok: true; config: CliConfig['shell'] } | { ok: false; error: string } {
+  const enabled = env.SHELL_TOOL === '1' || env.SHELL_TOOL === 'true'
+  const list = (value: string | undefined) => {
+    const items = (value ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    return items.length > 0 ? items : undefined
+  }
+
+  let timeoutMs: number | undefined
+  if (env.SHELL_TIMEOUT_MS !== undefined && env.SHELL_TIMEOUT_MS !== '') {
+    timeoutMs = Number(env.SHELL_TIMEOUT_MS)
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+      return { ok: false, error: 'SHELL_TIMEOUT_MS must be a positive whole number of milliseconds.' }
+    }
+  }
+
+  return {
+    ok: true,
+    config: {
+      enabled,
+      root: env.SHELL_ROOT || env.FILES_ROOT || undefined,
+      allowedCommands: list(env.SHELL_ALLOWED_COMMANDS),
+      allowEnv: list(env.SHELL_ALLOW_ENV),
+      timeoutMs,
     },
   }
 }

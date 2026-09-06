@@ -18,6 +18,7 @@ import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/pro
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 import { listDirectoryTool, readFileTool, searchFilesTool, writeFileTool } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
+import { runCommandTool } from '@open-agent/tools-terminal'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { Context } from '@open-agent/context'
 import { loadConfigFromEnv } from './config.js'
@@ -172,6 +173,17 @@ async function main() {
     tools.register(listDirectoryTool({ root }))
     tools.register(searchFilesTool({ root }))
     tools.register(writeFileTool({ root }))
+  }
+
+  if (config.shell.enabled) {
+    tools.register(
+      runCommandTool({
+        root: config.shell.root ?? process.cwd(),
+        allowedCommands: config.shell.allowedCommands,
+        allowEnv: config.shell.allowEnv,
+        timeoutMs: config.shell.timeoutMs,
+      }),
+    )
   }
 
   if (config.http.enabled) {
