@@ -25,6 +25,33 @@ export function redactUrl(url: string): string {
 }
 
 /**
+ * Anything shorter than this is not distinctive enough to redact by value: a
+ * four-character key would match inside ordinary words and turn readable logs
+ * into a field of `[REDACTED]`. Real provider keys are far longer, so the
+ * floor costs nothing in practice.
+ */
+const MIN_REDACTABLE_LENGTH = 8
+
+/**
+ * Replaces every occurrence of a known secret with `[REDACTED]`.
+ *
+ * `redactUrl` handles credentials that a provider takes as a query parameter,
+ * which can be recognised by shape alone. This handles the other direction:
+ * values we already know are secret, wherever they turn up — a header echoed
+ * back in an error body, a tool argument, a config dump. Matching is literal
+ * rather than by regex so a key containing `$` or `\` cannot corrupt the
+ * replacement.
+ */
+export function redactSecrets(text: string, secrets: Iterable<string>): string {
+  let redacted = text
+  for (const secret of secrets) {
+    if (secret.length < MIN_REDACTABLE_LENGTH) continue
+    redacted = redacted.split(secret).join('[REDACTED]')
+  }
+  return redacted
+}
+
+/**
  * Error thrown by every provider adapter when the upstream API returns a
  * non-OK response.
  *

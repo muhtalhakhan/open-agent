@@ -14,7 +14,7 @@ import {
 } from '@open-agent/agent'
 import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
 import type { MemoryProvider } from '@open-agent/memory'
-import { OpenAiCompatibleProvider } from '@open-agent/providers'
+import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 import { readFileTool } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
@@ -200,7 +200,9 @@ async function main() {
     tools,
     llm,
     systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
-    logger: process.env.DEBUG ? consoleLogger : silentLogger,
+    // Wrapped so a resolved API key cannot reach the log through an
+    // error body, a tool argument, or anything else that happens to carry it.
+    logger: createRedactingLogger(process.env.DEBUG ? consoleLogger : silentLogger, config.secrets),
   })
 
   try {

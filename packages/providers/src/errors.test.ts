@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ProviderHttpError, redactUrl } from './errors.js'
+import { ProviderHttpError, redactSecrets, redactUrl } from './errors.js'
 
 describe('redactUrl', () => {
   it.each([
@@ -69,5 +69,25 @@ describe('ProviderHttpError', () => {
     expect(err.body).not.toContain('AIzaSecret')
     expect(err.message).not.toContain('AIzaSecret')
     expect(err.body).toContain('key=[REDACTED]')
+  })
+})
+
+describe('redactSecrets', () => {
+  it('replaces every occurrence of a known secret', () => {
+    expect(redactSecrets('auth=sk-live-secret retry with sk-live-secret', ['sk-live-secret'])).toBe(
+      'auth=[REDACTED] retry with [REDACTED]',
+    )
+  })
+
+  it('matches literally, so a key full of regex metacharacters still goes', () => {
+    expect(redactSecrets('Bearer sk-$1.a+b(c)', ['sk-$1.a+b(c)'])).toBe('Bearer [REDACTED]')
+  })
+
+  it('leaves a value too short to be distinctive alone, rather than shredding ordinary text', () => {
+    expect(redactSecrets('the model returned an answer', ['an'])).toBe('the model returned an answer')
+  })
+
+  it('leaves text holding no secret unchanged', () => {
+    expect(redactSecrets('nothing to see', ['sk-live-secret'])).toBe('nothing to see')
   })
 })

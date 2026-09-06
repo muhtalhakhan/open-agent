@@ -26,7 +26,7 @@ Both modes share one task path (`task.ts`): recall memories, run the loop, store
 
 ## What it wires up
 
-- **Provider**: `OpenAiCompatibleProvider` from `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` — point it at OpenAI, OpenRouter, Ollama, or LM Studio.
+- **Provider**: `OpenAiCompatibleProvider` from `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` — point it at OpenAI, OpenRouter, Ollama, or LM Studio. Pointed at a vendor with its own conventional variable, that name wins: `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`. Every credential also accepts a `<NAME>_FILE` variant naming a file holding the value, for Docker/Kubernetes secrets, and each resolved value is filtered out of the agent's logs.
 - **Browser tools**: mounted when `BROWSER_USE=1` (needs Python + `browser-use` installed — see `packages/tools-browser/README.md`).
 - **Memory**: `SupermemoryProvider` if `SUPERMEMORY_API_KEY` is set, else `Mem0Provider` if `MEM0_API_KEY` is set, else the dependency-free `InMemoryMemoryProvider`. Each turn recalls relevant memories and prepends them as context, then stores the answer as a new memory — a real use of the seam, not just mounted-and-unused.
 - **Approval**: `ask`/`dangerous`-level tool calls prompt you in the terminal (`y`/`N`) before running, per `docs/security-model.md`.
