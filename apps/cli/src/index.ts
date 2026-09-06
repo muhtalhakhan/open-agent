@@ -16,7 +16,7 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
-import { readFileTool } from '@open-agent/tools-files'
+import { listDirectoryTool, readFileTool, searchFilesTool, writeFileTool } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { Context } from '@open-agent/context'
@@ -165,7 +165,13 @@ async function main() {
   }
 
   if (config.files.enabled) {
-    tools.register(readFileTool({ root: config.files.root ?? process.cwd() }))
+    // One root for all four: the capability the user granted is "this
+    // directory", not "this directory for reads and some other one for writes".
+    const root = config.files.root ?? process.cwd()
+    tools.register(readFileTool({ root }))
+    tools.register(listDirectoryTool({ root }))
+    tools.register(searchFilesTool({ root }))
+    tools.register(writeFileTool({ root }))
   }
 
   if (config.http.enabled) {
