@@ -22,6 +22,7 @@ describe('loadConfigFromEnv', () => {
         files: { enabled: false, root: undefined },
         search: { provider: 'none' },
         memory: { provider: 'none' },
+        secrets: ['sk-x'],
       },
     })
   })
@@ -143,4 +144,99 @@ describe('loadConfigFromEnv', () => {
     })
     expect(result.ok && result.config.memory).toEqual({ provider: 'mem0', apiKey: 'm0-key' })
   })
+  it('accepts the vendor spelling of the key when the base URL points at that vendor', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://openrouter.ai/api/v1',
+      OPENROUTER_API_KEY: 'or-key',
+      OPENAI_MODEL: 'gpt-4o-mini',
+    })
+    expect(result.ok && result.config.llm.apiKey).toBe('or-key')
+  })
+
+  it('prefers the vendor key over the generic one when both are set', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://openrouter.ai/api/v1',
+      OPENROUTER_API_KEY: 'or-key',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+    })
+    expect(result.ok && result.config.llm.apiKey).toBe('or-key')
+  })
+
+  it('reads any credential from its _FILE variant', () => {
+    const files: Record<string, string> = {
+      '/run/secrets/llm': 'sk-from-file\n',
+      '/run/secrets/brave': 'brave-from-file',
+      '/run/secrets/stripe': 'sk-live-from-file',
+    }
+    const result = loadConfigFromEnv(
+      {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_API_KEY_FILE: '/run/secrets/llm',
+        OPENAI_MODEL: 'gpt-4o-mini',
+        BRAVE_SEARCH_API_KEY_FILE: '/run/secrets/brave',
+        HTTP_TOOL: '1',
+        HTTP_SECRET_STRIPE_KEY_FILE: '/run/secrets/stripe',
+      },
+      (path) => files[path] ?? raiseMissing(path),
+    )
+
+    expect(result.ok && result.config.llm.apiKey).toBe('sk-from-file')
+    expect(result.ok && result.config.search).toEqual({ provider: 'brave', apiKey: 'brave-from-file' })
+    expect(result.ok && result.config.http.secrets).toEqual({ STRIPE_KEY: 'sk-live-from-file' })
+  })
+
+  it('names the {{PLACEHOLDER}} without the _FILE suffix', () => {
+    const result = loadConfigFromEnv(
+      {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_API_KEY: 'sk-x',
+        OPENAI_MODEL: 'gpt-4o-mini',
+        HTTP_TOOL: '1',
+        HTTP_SECRET_TOKEN_FILE: '/run/secrets/token',
+      },
+      () => 'ghp-1',
+    )
+    expect(result.ok && result.config.http.secrets).toEqual({ TOKEN: 'ghp-1' })
+  })
+
+  it('fails loudly when an optional credential file cannot be read, rather than disabling the feature', () => {
+    const result = loadConfigFromEnv(
+      {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_API_KEY: 'sk-x',
+        OPENAI_MODEL: 'gpt-4o-mini',
+        BRAVE_SEARCH_API_KEY_FILE: '/run/secrets/typo',
+      },
+      (path) => raiseMissing(path),
+    )
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('BRAVE_SEARCH_API_KEY_FILE') })
+  })
+
+  it('treats an empty key as unset, so the error names the variable instead of reaching the provider', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: '',
+      OPENAI_MODEL: 'gpt-4o-mini',
+    })
+    expect(result).toEqual({ ok: false, error: expect.stringMatching(/OPENAI_API_KEY/) })
+  })
+
+  it('collects every resolved secret for redaction', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      HTTP_TOOL: '1',
+      HTTP_SECRET_STRIPE_KEY: 'sk-live-1',
+      TAVILY_API_KEY: 'tvly-1',
+      MEM0_API_KEY: 'm0-key',
+    })
+    expect(result.ok && [...result.config.secrets].sort()).toEqual(['m0-key', 'sk-live-1', 'sk-x', 'tvly-1'])
+  })
 })
+
+/** Stands in for the ENOENT a real read would throw, so error paths stay off the disk. */
+function raiseMissing(path: string): never {
+  throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+}

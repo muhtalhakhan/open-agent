@@ -45,6 +45,14 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 - API keys and credentials are stored outside of model-visible context (env vars / secret store), injected only at the point a tool executes, and redacted from logs.
 - The model never sees raw API keys, even for tools that use them internally.
 
+> **Status:** implemented for the credentials the CLI resolves. `resolveCredential`
+> in `packages/providers` reads each key from `<NAME>` or a `<NAME>_FILE` naming a
+> secret file, rejects one carrying whitespace or control characters, and reports
+> failures by variable name rather than by value; `createRedactingLogger` filters
+> the resolved values back out of everything the agent loop logs, and `redactUrl`
+> covers the keys providers take as a query parameter. A pluggable secret store
+> (OS keychain, Vault) is a design target, not code.
+
 ## Prompt-injection defenses
 
 - Content fetched from the web/files/tool output is tagged as untrusted data in context and instructed (via system prompt + guardrails) not to be treated as instructions.

@@ -1,3 +1,5 @@
+import { apiKeyVarsFor, resolveCredential, type CredentialLookup, type CredentialResult } from '@open-agent/providers'
+
 export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
   browserUse: boolean
@@ -8,66 +10,146 @@ export interface CliConfig {
     | { provider: 'supermemory'; apiKey: string; baseURL?: string }
     | { provider: 'mem0'; apiKey: string }
     | { provider: 'none' }
+  /**
+   * Every secret value the config resolved, collected in one place so the
+   * caller can hand them to `createRedactingLogger`. Deliberately not a map
+   * from variable name to value: nothing should be looking a credential up by
+   * name from here, only filtering it back out of text.
+   */
+  secrets: string[]
 }
 
 export type ConfigResult = { ok: true; config: CliConfig } | { ok: false; error: string }
 
-/** Pure, testable parse of the environment into a CliConfig. See .env.example for the full list. */
-export function loadConfigFromEnv(env: NodeJS.ProcessEnv): ConfigResult {
-  const baseURL = env.OPENAI_BASE_URL
-  const apiKey = env.OPENAI_API_KEY
-  const model = env.OPENAI_MODEL
-  if (!baseURL || !apiKey || !model) {
-    return { ok: false, error: 'Set OPENAI_BASE_URL, OPENAI_API_KEY, and OPENAI_MODEL (see .env.example).' }
+/**
+ * Parses the environment into a `CliConfig`. See .env.example for the full list.
+ *
+ * Every credential goes through `resolveCredential`, so each one also accepts
+ * a `<NAME>_FILE` variant pointing at a file holding the value — the shape
+ * Docker and Kubernetes secrets arrive in. `readFile` is injectable so tests
+ * stay off the disk; with it stubbed the function is as pure as it was before.
+ */
+export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialLookup['readFile']): ConfigResult {
+  const lookup: CredentialLookup = { env, readFile }
+  const secrets: string[] = []
+
+  /**
+   * Resolves an optional credential. A `missing` one is simply absent, but an
+   * unreadable or malformed one is an operator mistake worth stopping for:
+   * silently disabling search because a secret file had a typo in its path is
+   * how you end up debugging the agent instead of the config.
+   */
+  const optional = (names: string | string[]): { value?: string; error?: string } => {
+    const result = resolveCredential(names, lookup)
+    if (result.ok) {
+      secrets.push(result.value)
+      return { value: result.value }
+    }
+    return result.reason === 'missing' ? {} : { error: result.error }
   }
 
+  const baseURL = env.OPENAI_BASE_URL
+  const model = env.OPENAI_MODEL
+  // Resolved against the base URL's vendor first (OPENROUTER_API_KEY and
+  // friends), falling back to the generic name that works for every
+  // OpenAI-compatible endpoint.
+  const apiKey: CredentialResult = resolveCredential(apiKeyVarsFor(baseURL ?? ''), lookup)
+  if (!baseURL || !model || (!apiKey.ok && apiKey.reason === 'missing')) {
+    return { ok: false, error: 'Set OPENAI_BASE_URL, OPENAI_API_KEY, and OPENAI_MODEL (see .env.example).' }
+  }
+  if (!apiKey.ok) return { ok: false, error: apiKey.error }
+  secrets.push(apiKey.value)
+
   const browserUse = env.BROWSER_USE === '1' || env.BROWSER_USE === 'true'
-  const http = loadHttpToolConfig(env)
+
+  const http = loadHttpToolConfig(env, lookup, secrets)
+  if (!http.ok) return { ok: false, error: http.error }
+
   // Off unless asked for, like the HTTP tool: handing a model the filesystem
   // is a decision to make on purpose, not a default to discover afterwards.
   // Left undefined rather than defaulted to the cwd here: this function is a
-  // pure read of the environment, and the launch directory is not part of it.
+  // read of the environment, and the launch directory is not part of it.
   const files = { enabled: env.FILES_TOOL === '1' || env.FILES_TOOL === 'true', root: env.FILES_ROOT || undefined }
 
   // Keyed off which key is present rather than a separate on/off flag: a
   // search API is useless without one, and there is nothing to enable without.
   let search: CliConfig['search'] = { provider: 'none' }
-  if (env.BRAVE_SEARCH_API_KEY) {
-    search = { provider: 'brave', apiKey: env.BRAVE_SEARCH_API_KEY }
-  } else if (env.TAVILY_API_KEY) {
-    search = { provider: 'tavily', apiKey: env.TAVILY_API_KEY }
+  const brave = optional('BRAVE_SEARCH_API_KEY')
+  if (brave.error) return { ok: false, error: brave.error }
+  const tavily = optional('TAVILY_API_KEY')
+  if (tavily.error) return { ok: false, error: tavily.error }
+  if (brave.value) {
+    search = { provider: 'brave', apiKey: brave.value }
+  } else if (tavily.value) {
+    search = { provider: 'tavily', apiKey: tavily.value }
   }
 
   let memory: CliConfig['memory'] = { provider: 'none' }
-  if (env.SUPERMEMORY_API_KEY) {
-    memory = { provider: 'supermemory', apiKey: env.SUPERMEMORY_API_KEY, baseURL: env.SUPERMEMORY_BASE_URL }
-  } else if (env.MEM0_API_KEY) {
-    memory = { provider: 'mem0', apiKey: env.MEM0_API_KEY }
+  const supermemory = optional('SUPERMEMORY_API_KEY')
+  if (supermemory.error) return { ok: false, error: supermemory.error }
+  const mem0 = optional('MEM0_API_KEY')
+  if (mem0.error) return { ok: false, error: mem0.error }
+  if (supermemory.value) {
+    memory = { provider: 'supermemory', apiKey: supermemory.value, baseURL: env.SUPERMEMORY_BASE_URL }
+  } else if (mem0.value) {
+    memory = { provider: 'mem0', apiKey: mem0.value }
   }
 
-  return { ok: true, config: { llm: { baseURL, apiKey, model }, browserUse, http, files, search, memory } }
+  return {
+    ok: true,
+    config: {
+      llm: { baseURL, apiKey: apiKey.value, model },
+      browserUse,
+      http: http.config,
+      files,
+      search,
+      memory,
+      secrets,
+    },
+  }
 }
 
 /**
  * `HTTP_TOOL=1` turns the tool on, `HTTP_ALLOWED_HOSTS` narrows where it may
  * go, and every `HTTP_SECRET_<NAME>` becomes the `{{NAME}}` placeholder the
- * model can put in a header without the value entering its context. Reading
- * credentials straight from the environment is the stand-in until a real
- * secret store exists.
+ * model can put in a header without the value entering its context.
+ * `HTTP_SECRET_<NAME>_FILE` supplies the same placeholder from a file.
  */
-function loadHttpToolConfig(env: NodeJS.ProcessEnv): CliConfig['http'] {
+function loadHttpToolConfig(
+  env: NodeJS.ProcessEnv,
+  lookup: CredentialLookup,
+  secrets: string[],
+): { ok: true; config: CliConfig['http'] } | { ok: false; error: string } {
   const enabled = env.HTTP_TOOL === '1' || env.HTTP_TOOL === 'true'
   const hosts = (env.HTTP_ALLOWED_HOSTS ?? '')
     .split(',')
     .map((host) => host.trim())
     .filter(Boolean)
 
-  const secrets: Record<string, string> = {}
+  // Both spellings name the same placeholder, so the `_FILE` suffix is
+  // stripped before the name is collected and the set is de-duplicated —
+  // otherwise `HTTP_SECRET_TOKEN_FILE` would offer the model a `{{TOKEN_FILE}}`
+  // that resolves to nothing.
+  const names = new Set<string>()
   for (const [key, value] of Object.entries(env)) {
-    if (key.startsWith('HTTP_SECRET_') && value) secrets[key.slice('HTTP_SECRET_'.length)] = value
+    if (!key.startsWith('HTTP_SECRET_') || !value) continue
+    const name = key.slice('HTTP_SECRET_'.length)
+    names.add(name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name)
+  }
+
+  const resolved: Record<string, string> = {}
+  for (const name of names) {
+    if (name === '') continue
+    const result = resolveCredential(`HTTP_SECRET_${name}`, lookup)
+    if (!result.ok) return { ok: false, error: result.error }
+    resolved[name] = result.value
+    secrets.push(result.value)
   }
 
   // An unset HTTP_ALLOWED_HOSTS means "no restriction"; an empty one would
   // otherwise silently become an allowlist that permits nothing.
-  return { enabled, allowedHosts: env.HTTP_ALLOWED_HOSTS === undefined ? undefined : hosts, secrets }
+  return {
+    ok: true,
+    config: { enabled, allowedHosts: env.HTTP_ALLOWED_HOSTS === undefined ? undefined : hosts, secrets: resolved },
+  }
 }
