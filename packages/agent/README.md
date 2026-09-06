@@ -30,3 +30,16 @@ const result = await ctx.get('agentLoop')!.run('summarize the latest AI news', n
 This fills in Milestone 1 (Agent Runtime): agent interface, agent loop, tool interface/registry/execution, conversation/task state, cancellation, retries, and structured logging (`src/logger.ts`).
 
 Providers (`packages/providers`) implement `LlmAdapter` from `src/types.ts`; browser/filesystem/shell tools (`packages/tools`) implement `ToolDefinition`.
+
+## Approvals
+
+Anything above `safe` goes through the `ApprovalHandler` before it runs. The handler can answer with a boolean for a one-off decision, or with `{ approved, scope, match }` to have the answer remembered:
+
+- `scope`: `once` (default), `task` (until `turn/end`), `session`.
+- `match`: `exact` (default — these arguments only) or `tool` (anything that tool is called with).
+
+`exact` is the default deliberately. "Approve `run_command` for this task" sounds like a small convenience and means every subsequent command runs unprompted, which is close to not having approval at all.
+
+A `dangerous` call is never covered by a remembered approval and its answer is never remembered — the point of the level is that each one gets looked at.
+
+`auditLog` records `approvalSource` (`safe` / `granted` / `remembered` / `denied`), so a call that ran on an earlier answer is distinguishable from one a human just saw. `listApprovals()` shows what is remembered and `revokeApprovals(tool?)` forgets it.

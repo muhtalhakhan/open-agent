@@ -34,6 +34,18 @@ A profile can override defaults per tool (e.g. downgrade `shell.execute` to `saf
 
 Approvals can be scoped: "approve this once," "approve this tool for this task," or "always approve this tool for this profile" (the last one should require an explicit, separate confirmation since it removes future prompts).
 
+> **Status:** implemented (#178). An `ApprovalHandler` may return
+> `{ approved, scope, match }` instead of a boolean; `ToolRegistry` remembers the
+> answer for the task or the session and clears task-scoped grants at `turn/end`.
+> A grant covers the _exact arguments_ by default rather than the whole tool —
+> "approve run_command for this task" would otherwise mean every later command
+> runs unprompted, which is close to having no approval at all. `dangerous` calls
+> are never remembered, whatever the handler answers. The audit log records
+> whether a call was `granted` by a human or `remembered` from an earlier answer,
+> and `listApprovals()`/`revokeApprovals()` make what is remembered visible and
+> reversible. The CLI prompt offers once / task / always, with `always` confirmed
+> separately. Profile-scoped grants wait on profiles existing.
+
 ## Sandboxing
 
 - Shell execution defaults to a container/VM with no access to the host filesystem beyond the declared workspace.

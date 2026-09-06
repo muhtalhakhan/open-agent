@@ -108,6 +108,9 @@ export class AgentLoop {
         const toolCalls = response.message.toolCalls ?? []
         if (toolCalls.length === 0) {
           sessions.append({ type: 'step/end', taskId, at: Date.now() })
+          // Task-scoped approvals die with the task. One that outlived it
+          // would be a session-scoped approval the user never agreed to.
+          tools.endTask(taskId)
           sessions.append({ type: 'turn/end', taskId, at: Date.now(), reason: 'completed' })
           this.logger.info('turn/end', { taskId, reason: 'completed', steps: step + 1 })
           return { ...task, status: 'completed', updatedAt: Date.now() }
@@ -126,6 +129,7 @@ export class AgentLoop {
       throw new Error(`exceeded maxSteps (${this.maxSteps}) without a final answer`)
     } catch (err) {
       const reason = err instanceof CancelledError ? 'cancelled' : 'error'
+      tools.endTask(taskId)
       sessions.append({ type: 'turn/end', taskId, at: Date.now(), reason })
       this.logger.error('turn/end', { taskId, reason, error: err instanceof Error ? err.message : String(err) })
       return {
