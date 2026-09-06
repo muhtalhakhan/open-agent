@@ -95,23 +95,27 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, and pluggable memory. Filesystem/terminal tools, scheduling, sandboxing, and the web UI are still ahead.
 
-Progress by milestone (issues closed / total):
+Progress by milestone (issues closed / total), regenerated from the tracker by [`docs-status.yml`](.github/workflows/docs-status.yml) — edit the issues, not the table:
 
-| Milestone            | Done    | State                                                                                    |
-| -------------------- | ------- | ---------------------------------------------------------------------------------------- |
-| 0 — Foundation       | 10 / 10 | ✅ Complete                                                                              |
-| 1 — Agent Runtime    | 10 / 10 | ✅ Complete — loop, tool registry, state, cancellation, retries, structured logging      |
-| 2 — Model Providers  | 9 / 10  | 🟢 Nearly done — API-key management (#29) left                                           |
-| 3 — Browser          | 10 / 10 | ✅ Complete                                                                              |
-| 4 — Computer Use     | 8 / 10  | 🟢 Nearly done — window management (#47), human takeover (#50) left                      |
-| 5 — Files + Terminal | 0 / 10  | 🚧 Not started — read/write/list/search files, shell tool, timeouts, workspace isolation |
-| 6 — Memory           | 6 / 8   | 🟢 Nearly done — memory editing (#66), task history (#62) left                           |
-| 7 — Tools/MCP        | 3 / 7   | 🟡 In progress — server discovery (#70), MCP auth (#72), tool SDK (#74), registry (#75)  |
-| 8 — Automation       | 0 / 8   | 🚧 Not started — scheduler, one-time/recurring tasks, job queue, notifications           |
-| 9 — Security         | 3 / 9   | 🟡 In progress — permissions, approvals and audit logs land; sandboxing/isolation left   |
-| 10 — Cloud           | 0 / 8   | 🚧 Not started — remote agent, persistent VM/filesystem, remote browser, WS streaming    |
-| 11 — User Interfaces | 1 / 15  | 🟡 In progress — CLI TUI shipped; streaming, wizard, and the whole web UI left           |
-| 12 — Backlog         | 4 / 26  | 🟡 Ideas and stretch goals — hooks, plan mode, git tooling, ACP, sandbox providers       |
+<!-- BEGIN GENERATED: milestone-status -->
+
+| Milestone            | Done    | State                                                                                                                                  |
+| -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Foundation       | 10 / 10 | ✅ Complete                                                                                                                            |
+| 1 — Agent Runtime    | 10 / 10 | ✅ Complete                                                                                                                            |
+| 2 — Model Providers  | 9 / 10  | 🟢 Nearly done — API-key management (#29) left                                                                                         |
+| 3 — Browser          | 10 / 10 | ✅ Complete                                                                                                                            |
+| 4 — Computer Use     | 8 / 10  | 🟢 Nearly done — Window management (#47), Human takeover (#50) left                                                                    |
+| 5 — Files + Terminal | 1 / 10  | 🟡 In progress — Write file tool (#52), List directory tool (#53), +7 more left                                                        |
+| 6 — Memory           | 6 / 8   | 🟢 Nearly done — Task history (#62), Memory editing (#66) left                                                                         |
+| 7 — Tools/MCP        | 3 / 7   | 🟡 In progress — MCP server discovery (#70), MCP authentication (#72), +2 more left                                                    |
+| 8 — Automation       | 0 / 8   | 🚧 Not started — first up: Task scheduler (#76), One-time tasks (#77), +6 more                                                         |
+| 9 — Security         | 3 / 9   | 🟡 In progress — Shell sandbox (#86), Browser isolation (#87), +4 more left                                                            |
+| 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                                  |
+| 11 — User Interfaces | 1 / 15  | 🟡 In progress — Streaming token output in the CLI (#102), Markdown rendering in terminal output (#103), +12 more left                 |
+| 12 — Backlog         | 4 / 26  | 🟡 In progress — Plan mode: diff review & approval workflow (#120), Git-aware tooling (status/diff/commit/branc… (#121), +20 more left |
+
+<!-- END GENERATED: milestone-status -->
 
 Recently landed: `web_search` (#143), `http_request` (#145), headless `-p` mode (#124), `AGENTS.md` project conventions (#127), permission system and approval UI (#84, #85), audit logs (#90), provider fallback (#30).
 

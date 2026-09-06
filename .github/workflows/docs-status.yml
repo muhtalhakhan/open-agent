@@ -1,0 +1,83 @@
+name: Docs status
+
+# Keeps README.md's milestone table honest. A merge closes issues, which
+# changes the tracker, which makes the table in the README wrong — so
+# regenerate it from the tracker at exactly those moments.
+on:
+  # pull_request_target rather than pull_request: merging a fork's PR gives
+  # the pull_request token read-only scope, and the update PR could not be
+  # opened. Nothing from the pull request is ever checked out or executed —
+  # the job only ever builds main — so the usual pull_request_target hazard
+  # does not apply here.
+  pull_request_target:
+    types: [closed]
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# A squash merge with --delete-branch fires both triggers; the second run
+# would only recompute what the first already pushed.
+concurrency:
+  group: docs-status
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Refresh the milestone table
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'delete' && github.event.ref_type == 'branch') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: chore/docs-status
+      # Optional DOCS_PAT: a pull request opened with GITHUB_TOKEN cannot
+      # trigger another workflow, so without a PAT the update PR arrives with
+      # no CI run and protected main will not merge it — push an empty commit,
+      # or add a repo secret named DOCS_PAT with `repo` scope.
+      GH_TOKEN: ${{ secrets.DOCS_PAT || secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          token: ${{ secrets.DOCS_PAT || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate the milestone table
+        run: npm run docs:status
+        env:
+          GITHUB_TOKEN: ${{ secrets.DOCS_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Open or update the docs pull request
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "Milestone table already matches the tracker; nothing to open."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -m "docs: refresh the milestone status table" -- README.md
+          git push --force origin "$BRANCH"
+
+          # One long-lived branch and one open PR: a force-push onto an
+          # already-open PR updates it instead of opening a second one.
+          if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')" != "0" ]; then
+            echo "Updated the open docs pull request."
+            exit 0
+          fi
+          gh pr create --base main --head "$BRANCH" \
+            --title "docs: refresh the milestone status table" \
+            --body "Regenerated from the issue tracker by \`.github/workflows/docs-status.yml\`. Only the block between the \`milestone-status\` markers in README.md changes; the prose around it stays hand-written."

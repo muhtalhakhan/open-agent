@@ -13,7 +13,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['eslint.config.js', 'examples/*.ts', '*/*/vitest*.config.ts'],
+          allowDefaultProject: ['eslint.config.js', 'examples/*.ts', 'scripts/*.mjs', '*/*/vitest*.config.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -23,6 +23,14 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
       'no-console': 'off',
+    },
+  },
+  {
+    // Plain-JS repo scripts: no tsconfig to supply Node's globals, and pulling
+    // in the `globals` package for three names is not worth the dependency.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', fetch: 'readonly', process: 'readonly' },
     },
   },
   {
