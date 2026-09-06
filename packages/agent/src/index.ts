@@ -20,6 +20,8 @@ export {
 } from './instructions.js'
 export type { ProjectInstructions, LoadInstructionsOptions } from './instructions.js'
 export { filterEnv } from './env-policy.js'
+export { NetworkPolicyError, checkResolvedAddresses, checkUrl, hostMatches, isPrivateHost } from './network-policy.js'
+export type { NetworkPolicy } from './network-policy.js'
 export { consoleLogger, silentLogger } from './logger.js'
 export type { Logger } from './logger.js'
 export { sessionPlugin, toolsPlugin, llmPlugin, agentLoopPlugin } from './plugins.js'

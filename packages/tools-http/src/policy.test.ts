@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HttpPolicyError, checkUrl, redactSecrets, resolveSecrets } from './policy.js'
+import { NetworkPolicyError, checkUrl, redactSecrets, resolveSecrets } from './policy.js'
 
 describe('checkUrl', () => {
   it('rejects anything that is not http(s)', () => {
@@ -8,7 +8,7 @@ describe('checkUrl', () => {
   })
 
   it('rejects a non-absolute URL', () => {
-    expect(() => checkUrl('/v1/users')).toThrow(HttpPolicyError)
+    expect(() => checkUrl('/v1/users')).toThrow(NetworkPolicyError)
   })
 
   it('allows any host when no allowlist is configured', () => {
@@ -16,17 +16,21 @@ describe('checkUrl', () => {
   })
 
   it('matches an allowlist entry exactly and by subdomain', () => {
-    expect(checkUrl('https://api.example.com/x', ['example.com']).hostname).toBe('api.example.com')
-    expect(checkUrl('https://example.com/x', ['example.com']).hostname).toBe('example.com')
-    expect(() => checkUrl('https://evil.com/x', ['example.com'])).toThrow(/not in the allowed host list/)
+    expect(checkUrl('https://api.example.com/x', { allowedHosts: ['example.com'] }).hostname).toBe('api.example.com')
+    expect(checkUrl('https://example.com/x', { allowedHosts: ['example.com'] }).hostname).toBe('example.com')
+    expect(() => checkUrl('https://evil.com/x', { allowedHosts: ['example.com'] })).toThrow(
+      /not in the allowed host list/,
+    )
   })
 
   it('does not let a lookalike host pass as a subdomain', () => {
-    expect(() => checkUrl('https://notexample.com/x', ['example.com'])).toThrow(/not in the allowed host list/)
+    expect(() => checkUrl('https://notexample.com/x', { allowedHosts: ['example.com'] })).toThrow(
+      /not in the allowed host list/,
+    )
   })
 
   it('allows nothing when the allowlist is empty', () => {
-    expect(() => checkUrl('https://example.com', [])).toThrow(/not in the allowed host list/)
+    expect(() => checkUrl('https://example.com', { allowedHosts: [] })).toThrow(/not in the allowed host list/)
   })
 })
 

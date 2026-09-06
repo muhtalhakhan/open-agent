@@ -13,39 +13,15 @@ const PLACEHOLDER = /\{\{([A-Za-z0-9_.-]+)\}\}/g
 export class HttpPolicyError extends Error {}
 
 /**
- * Matches a hostname against an allowlist entry. `example.com` covers
- * `example.com` and any subdomain of it; that is the usual reading of an
- * allowlist entry, and pinning a single host is still possible by listing
- * the exact subdomain and nothing above it.
+ * Host vetting moved to `@open-agent/agent`, where the browser and any future
+ * proxy can share one rule rather than each growing its own. Re-exported here
+ * so the tool keeps a single import for its policy.
+ *
+ * `HttpPolicyError` stays distinct from `NetworkPolicyError` for the checks
+ * that really are HTTP's own — a bad `{{PLACEHOLDER}}`, an oversized body.
  */
-function hostMatches(hostname: string, entry: string): boolean {
-  const host = hostname.toLowerCase()
-  const allowed = entry.toLowerCase().replace(/^\./, '')
-  return host === allowed || host.endsWith(`.${allowed}`)
-}
-
-/**
- * Parses and vets a URL. Only http(s) survives: `file:`, `data:` and the
- * rest are not "an API" and would hand the model a filesystem read through
- * a tool that is not meant to have one.
- */
-export function checkUrl(url: string, allowedHosts?: readonly string[]): URL {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new HttpPolicyError(`"${url}" is not a valid absolute URL`)
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new HttpPolicyError(`unsupported URL scheme "${parsed.protocol}" — only http and https are allowed`)
-  }
-  if (allowedHosts && !allowedHosts.some((entry) => hostMatches(parsed.hostname, entry))) {
-    throw new HttpPolicyError(
-      `host "${parsed.hostname}" is not in the allowed host list (${allowedHosts.join(', ') || 'empty'})`,
-    )
-  }
-  return parsed
-}
+export { checkUrl, hostMatches, NetworkPolicyError } from '@open-agent/agent'
+export type { NetworkPolicy } from '@open-agent/agent'
 
 /**
  * Substitutes `{{NAME}}` with the secret's value. An unknown name is an

@@ -1,9 +1,13 @@
 import type { ToolDefinition, ToolResult } from '@open-agent/agent'
+import { lookup } from 'node:dns/promises'
+import { checkResolvedAddresses, type NetworkPolicy } from '@open-agent/agent'
 import { HttpPolicyError, checkUrl, redactSecrets, resolveSecrets } from './policy.js'
 import { formatResponse, readCappedBody } from './response.js'
 
 /** Enough to answer with a page of JSON, small enough not to evict the conversation. */
 const DEFAULT_MAX_RESPONSE_BYTES = 64_000
+/** Redirect hops followed before giving up. */
+const DEFAULT_MAX_REDIRECTS = 5
 const DEFAULT_TIMEOUT_MS = 30_000
 
 const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] as const
@@ -19,6 +23,19 @@ export interface HttpToolOptions {
    * restrictions land.
    */
   allowedHosts?: readonly string[]
+  /**
+   * Full network policy — denied hosts, and whether loopback/private
+   * addresses may be reached at all. `allowedHosts` above folds into it.
+   */
+  network?: NetworkPolicy
+  /** Redirects followed before giving up (default 5). Each hop is vetted again. */
+  maxRedirects?: number
+  /**
+   * Resolves a hostname to addresses, for the check that a public name is not
+   * pointing at a private one. Injectable for tests; defaults to the system
+   * resolver. Pass `null` to skip resolution entirely.
+   */
+  lookupFn?: ((hostname: string) => Promise<string[]>) | null
   /**
    * Credentials the model may reference as `{{NAME}}` in the URL, a header,
    * or the body. Values are substituted at execution time and redacted from
@@ -58,6 +75,11 @@ const SCHEMA = {
   required: ['url'],
 }
 
+/** The 3xx statuses that carry a Location worth following. */
+function isRedirect(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
+}
+
 function fail(error: string): ToolResult {
   return { ok: false, content: '', error }
 }
@@ -86,7 +108,38 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
   const secrets = options.secrets ?? {}
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS
   const secretNames = Object.keys(secrets)
+
+  // `allowedHosts` predates the shared policy and still works; it folds in
+  // here rather than becoming a second thing to keep in step.
+  const policy: NetworkPolicy = { ...options.network }
+  if (options.allowedHosts !== undefined) policy.allowedHosts = options.allowedHosts
+
+  const resolveHost =
+    options.lookupFn === null
+      ? null
+      : (options.lookupFn ??
+        (async (hostname: string) => (await lookup(hostname, { all: true })).map((entry) => entry.address)))
+
+  /**
+   * Vets one URL: the name first, then what it actually resolves to. The
+   * second check is what stops `metadata.evil.test A 169.254.169.254`, which
+   * costs an attacker one DNS record and defeats the name check alone.
+   */
+  const vet = async (target: string): Promise<void> => {
+    const parsed = checkUrl(target, policy)
+    if (!resolveHost) return
+    let addresses: string[]
+    try {
+      addresses = await resolveHost(parsed.hostname)
+    } catch {
+      // A name that does not resolve is the fetch's problem to report, and
+      // its error message is better than anything invented here.
+      return
+    }
+    checkResolvedAddresses(parsed.hostname, addresses, policy)
+  }
 
   return {
     name: 'http_request',
@@ -109,7 +162,7 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
         if (typeof args.url !== 'string' || !args.url) return fail('url is required')
         method = parseMethod(args.method)
         url = resolveSecrets(args.url, secrets)
-        checkUrl(url, options.allowedHosts)
+        await vet(url)
         headers = Object.fromEntries(
           Object.entries(args.headers ?? {}).map(([name, value]) => [name, resolveSecrets(String(value), secrets)]),
         )
@@ -130,7 +183,24 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
       const timer = setTimeout(() => controller.abort(new Error(`request timed out after ${timeoutMs}ms`)), timeoutMs)
 
       try {
-        const response = await fetchFn(url, { method, headers, body, signal: controller.signal, redirect: 'follow' })
+        // `redirect: 'manual'`, and every hop vetted again. Following
+        // automatically would let one redirect to 169.254.169.254 undo the
+        // check the first URL just passed — the destination is what matters,
+        // and only the first one was ever looked at.
+        let response = await fetchFn(url, { method, headers, body, signal: controller.signal, redirect: 'manual' })
+        let hops = 0
+        while (isRedirect(response.status)) {
+          const location = response.headers.get('location')
+          if (!location) break
+          if (hops >= maxRedirects) {
+            return fail(`too many redirects (stopped after ${maxRedirects})`)
+          }
+          const next = new URL(location, url).toString()
+          await vet(next)
+          url = next
+          hops += 1
+          response = await fetchFn(url, { method, headers, body, signal: controller.signal, redirect: 'manual' })
+        }
         const read = await readCappedBody(response, maxResponseBytes)
         const content = redactSecrets(formatResponse(response, read), secrets)
         // A 4xx/5xx is a real answer, not a tool failure — the model gets the

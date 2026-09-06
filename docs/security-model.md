@@ -74,6 +74,21 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 
 - Network access from sandboxed execution can be restricted (allowlist/denylist of domains) per profile.
 
+> **Status:** partly implemented (#89). The policy itself lives in
+> `@open-agent/agent` (`checkUrl`, `checkResolvedAddresses`) and `http_request`
+> enforces it: allowlist, denylist, and — the part that needed no configuration to
+> matter — loopback, private and link-local destinations refused by default, so an
+> agent handed a URL by a page it just read cannot fetch
+> `http://169.254.169.254/…` and return the cloud credentials as tool output.
+> Redirects are followed manually and every hop is vetted again, and a hostname is
+> checked against the addresses it actually resolves to.
+>
+> What is **not** covered: `run_command` and the browser get network on or off,
+> not per-host rules. A container gets `--network none` or a working network;
+> filtering by host from there needs an egress proxy the agent controls, which is
+> the natural follow-up. DNS rebinding between the check and the connection is
+> also still open — closing it means pinning the checked address.
+
 ## Secrets
 
 - API keys and credentials are stored outside of model-visible context (env vars / secret store), injected only at the point a tool executes, and redacted from logs.

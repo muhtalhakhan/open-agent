@@ -39,3 +39,16 @@ In the CLI, set `HTTP_TOOL=1` (plus `HTTP_ALLOWED_HOSTS` and any `HTTP_SECRET_<N
 - **Timeout** (`timeoutMs`, default 30000), and the caller's `AbortSignal` is honoured throughout.
 
 A 4xx/5xx comes back as `ok: false` with `error: "HTTP <status>"`, but the body is still handed to the model — the error payload is usually the most useful thing an API returns.
+
+## Network restrictions
+
+`allowedHosts` narrows where the tool may go, `deniedHosts` refuses hosts outright, and both are checked on the first URL _and_ on every redirect hop.
+
+The default worth knowing about is the one you do not configure: **loopback, private and link-local addresses are refused** even with no allowlist set. An agent's URLs frequently come from a page it just read, so "the attacker picks the URL" is the ordinary case — and `http://169.254.169.254/latest/meta-data/iam/security-credentials/` returns cloud credentials to anything that asks. `http://localhost:6379` and the rest of what is listening on the host are the same problem in a smaller hat.
+
+Reaching a local API is a legitimate thing to want, so either name the host (`allowedHosts: ['localhost']`, which is a decision about that host) or set `allowLocal: true` (which is a decision about all of them). In the CLI: `HTTP_ALLOWED_HOSTS`, `HTTP_DENIED_HOSTS`, `HTTP_ALLOW_LOCAL`.
+
+Two further protections, and their limits:
+
+- **Redirects are followed manually**, each hop re-vetted. Following automatically would let one `302` to a private address undo the check the first URL passed.
+- **The hostname is checked against what it resolves to**, because `metadata.evil.test A 169.254.169.254` costs an attacker one DNS record. This narrows the hole rather than closing it: a name re-resolved between the check and the connection can still change. Closing that means pinning the checked address, which is not done here.

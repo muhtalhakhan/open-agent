@@ -18,7 +18,7 @@ describe('loadConfigFromEnv', () => {
       config: {
         llm: { baseURL: 'https://api.openai.com/v1', apiKey: 'sk-x', model: 'gpt-4o-mini' },
         browser: { enabled: false, profileDir: undefined, keepProfile: false, allowEnv: undefined },
-        http: { enabled: false, allowedHosts: undefined, secrets: {} },
+        http: { enabled: false, allowedHosts: undefined, deniedHosts: undefined, allowLocal: false, secrets: {} },
         files: { enabled: false, root: undefined, deny: undefined, allow: undefined, readOnly: false },
         workspace: { session: false, base: undefined },
         shell: {
@@ -107,7 +107,13 @@ describe('loadConfigFromEnv', () => {
       OPENAI_API_KEY: 'sk-x',
       OPENAI_MODEL: 'gpt-4o-mini',
     })
-    expect(result.ok && result.config.http).toEqual({ enabled: false, allowedHosts: undefined, secrets: {} })
+    expect(result.ok && result.config.http).toEqual({
+      enabled: false,
+      allowedHosts: undefined,
+      deniedHosts: undefined,
+      allowLocal: false,
+      secrets: {},
+    })
   })
 
   it('enables the http tool with its allowlist and HTTP_SECRET_* placeholders', () => {
@@ -122,10 +128,24 @@ describe('loadConfigFromEnv', () => {
     expect(result.ok && result.config.http).toEqual({
       enabled: true,
       allowedHosts: ['api.stripe.com', 'api.github.com'],
+      deniedHosts: undefined,
+      allowLocal: false,
       secrets: { STRIPE_KEY: 'sk-live-1' },
     })
   })
 
+  it('reads the denied host list and the local-address opt-in', () => {
+    const result = loadConfigFromEnv({
+      ...base(),
+      HTTP_TOOL: '1',
+      HTTP_DENIED_HOSTS: 'internal.corp, metadata.google.internal',
+      HTTP_ALLOW_LOCAL: '1',
+    })
+    expect(result.ok && result.config.http).toMatchObject({
+      deniedHosts: ['internal.corp', 'metadata.google.internal'],
+      allowLocal: true,
+    })
+  })
   it('reads an empty HTTP_ALLOWED_HOSTS as an allowlist of nothing, not as no allowlist', () => {
     const result = loadConfigFromEnv({
       OPENAI_BASE_URL: 'https://api.openai.com/v1',

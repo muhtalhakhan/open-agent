@@ -3,7 +3,13 @@ import { apiKeyVarsFor, resolveCredential, type CredentialLookup, type Credentia
 export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
   browser: { enabled: boolean; profileDir?: string; keepProfile: boolean; allowEnv?: string[] }
-  http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
+  http: {
+    enabled: boolean
+    allowedHosts?: string[]
+    deniedHosts?: string[]
+    allowLocal: boolean
+    secrets: Record<string, string>
+  }
   files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
   /** Where the file and shell tools work, and whether it is provisioned per run. */
   workspace: { session: boolean; base?: string }
@@ -249,9 +255,23 @@ function loadHttpToolConfig(
   }
 
   // An unset HTTP_ALLOWED_HOSTS means "no restriction"; an empty one would
-  // otherwise silently become an allowlist that permits nothing.
+  // otherwise silently become an allowlist that permits nothing. "No
+  // restriction" still excludes loopback and private addresses unless
+  // HTTP_ALLOW_LOCAL says otherwise — see the network policy in
+  // @open-agent/agent for why that one default is deny.
+  const denied = (env.HTTP_DENIED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean)
+
   return {
     ok: true,
-    config: { enabled, allowedHosts: env.HTTP_ALLOWED_HOSTS === undefined ? undefined : hosts, secrets: resolved },
+    config: {
+      enabled,
+      allowedHosts: env.HTTP_ALLOWED_HOSTS === undefined ? undefined : hosts,
+      deniedHosts: denied.length > 0 ? denied : undefined,
+      allowLocal: env.HTTP_ALLOW_LOCAL === '1' || env.HTTP_ALLOW_LOCAL === 'true',
+      secrets: resolved,
+    },
   }
 }

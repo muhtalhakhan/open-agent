@@ -229,7 +229,13 @@ async function main() {
   }
 
   if (config.http.enabled) {
-    tools.register(httpRequestTool({ allowedHosts: config.http.allowedHosts, secrets: config.http.secrets }))
+    tools.register(
+      httpRequestTool({
+        allowedHosts: config.http.allowedHosts,
+        network: { deniedHosts: config.http.deniedHosts, allowLocal: config.http.allowLocal },
+        secrets: config.http.secrets,
+      }),
+    )
   }
 
   if (config.search.provider !== 'none') {
