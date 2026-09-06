@@ -112,33 +112,9 @@ export function checkCommand(command: unknown, policy: CommandPolicy = {}): stri
 }
 
 /**
- * Names that look like a credential. The shell tool inherits the agent's
- * environment, which is where every API key it was configured with lives — so
- * `env`, or any program that echoes its environment, would otherwise hand the
- * model the keys `docs/security-model.md` promises it never sees.
+ * Re-exported so the shell tools keep one import for their policy. The rule
+ * itself lives in `@open-agent/agent`, because the MCP subprocesses in
+ * `tools-browser` need exactly the same filtering and two copies of a
+ * security rule is one too many.
  */
-const CREDENTIAL_NAME = /(^|_)(api[_-]?key|token|secret|password|passwd|credentials?|auth)($|_)/i
-
-/**
- * Strips credential-looking variables from the environment a command inherits.
- * `keep` names the exceptions — a command that genuinely needs `GH_TOKEN` can
- * have it, but by the operator's decision rather than the model's.
- */
-export function filterEnv(
-  env: NodeJS.ProcessEnv,
-  keep: readonly string[] = [],
-): { env: NodeJS.ProcessEnv; removed: string[] } {
-  const kept = new Set(keep)
-  const filtered: NodeJS.ProcessEnv = {}
-  const removed: string[] = []
-
-  for (const [name, value] of Object.entries(env)) {
-    if (!kept.has(name) && CREDENTIAL_NAME.test(name)) {
-      removed.push(name)
-      continue
-    }
-    filtered[name] = value
-  }
-
-  return { env: filtered, removed: removed.sort() }
-}
+export { filterEnv } from '@open-agent/agent'

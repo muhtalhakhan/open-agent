@@ -17,7 +17,7 @@ describe('loadConfigFromEnv', () => {
       ok: true,
       config: {
         llm: { baseURL: 'https://api.openai.com/v1', apiKey: 'sk-x', model: 'gpt-4o-mini' },
-        browserUse: false,
+        browser: { enabled: false, profileDir: undefined, keepProfile: false, allowEnv: undefined },
         http: { enabled: false, allowedHosts: undefined, secrets: {} },
         files: { enabled: false, root: undefined, deny: undefined, allow: undefined, readOnly: false },
         workspace: { session: false, base: undefined },
@@ -45,9 +45,29 @@ describe('loadConfigFromEnv', () => {
       OPENAI_MODEL: 'gpt-4o-mini',
       BROWSER_USE: '1',
     })
-    expect(result.ok && result.config.browserUse).toBe(true)
+    expect(result.ok && result.config.browser.enabled).toBe(true)
   })
 
+  it('uses a throwaway browser profile unless one is named', () => {
+    const result = loadConfigFromEnv({ ...base(), BROWSER_USE: '1' })
+    expect(result.ok && result.config.browser.profileDir).toBeUndefined()
+  })
+
+  it('treats a named profile directory as the opt-in to sharing', () => {
+    const result = loadConfigFromEnv({
+      ...base(),
+      BROWSER_USE: '1',
+      BROWSER_PROFILE_DIR: '/home/u/.config/google-chrome',
+      BROWSER_ALLOW_ENV: 'GH_TOKEN',
+      BROWSER_KEEP_PROFILE: '1',
+    })
+    expect(result.ok && result.config.browser).toEqual({
+      enabled: true,
+      profileDir: '/home/u/.config/google-chrome',
+      keepProfile: true,
+      allowEnv: ['GH_TOKEN'],
+    })
+  })
   it('enables the read_file tool with an explicit root when FILES_TOOL=1', () => {
     const result = loadConfigFromEnv({
       OPENAI_BASE_URL: 'https://api.openai.com/v1',

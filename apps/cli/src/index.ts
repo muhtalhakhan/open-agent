@@ -158,11 +158,23 @@ async function main() {
   )
 
   let disposeBrowserTools: (() => void) | undefined
-  if (config.browserUse) {
+  if (config.browser.enabled) {
     // Via io.write, not console.log: in print mode that routes to stderr so
     // it cannot land in the captured answer.
     io.write('Starting browser-use (python -m browser_use.mcp)...\n')
-    disposeBrowserTools = await mountBrowserUseTools(tools)
+    // A shared profile is a browser already logged into everything the user
+    // is, reachable by any page the agent visits. Worth saying out loud when
+    // someone has asked for it.
+    io.write(
+      config.browser.profileDir
+        ? `Browser profile: ${config.browser.profileDir} (SHARED — the agent gets any session logged in there)\n`
+        : 'Browser profile: a throwaway one, discarded when this run ends\n',
+    )
+    disposeBrowserTools = await mountBrowserUseTools(tools, {
+      profileDir: config.browser.profileDir,
+      keepProfile: config.browser.keepProfile,
+      allowEnv: config.browser.allowEnv,
+    })
   }
 
   // One workspace for the file and shell tools alike: the capability the user

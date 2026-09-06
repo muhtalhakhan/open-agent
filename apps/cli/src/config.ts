@@ -2,7 +2,7 @@ import { apiKeyVarsFor, resolveCredential, type CredentialLookup, type Credentia
 
 export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
-  browserUse: boolean
+  browser: { enabled: boolean; profileDir?: string; keepProfile: boolean; allowEnv?: string[] }
   http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
   files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
   /** Where the file and shell tools work, and whether it is provisioned per run. */
@@ -72,7 +72,23 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
   if (!apiKey.ok) return { ok: false, error: apiKey.error }
   secrets.push(apiKey.value)
 
-  const browserUse = env.BROWSER_USE === '1' || env.BROWSER_USE === 'true'
+  const commaList = (value: string | undefined) => {
+    const items = (value ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    return items.length > 0 ? items : undefined
+  }
+
+  // BROWSER_PROFILE_DIR is how profile sharing is opted into: naming a
+  // directory means "use this one", and naming your real Chrome profile means
+  // handing the agent a browser already logged into everything you are.
+  const browser = {
+    enabled: env.BROWSER_USE === '1' || env.BROWSER_USE === 'true',
+    profileDir: env.BROWSER_PROFILE_DIR || undefined,
+    keepProfile: env.BROWSER_KEEP_PROFILE === '1' || env.BROWSER_KEEP_PROFILE === 'true',
+    allowEnv: commaList(env.BROWSER_ALLOW_ENV),
+  }
 
   const http = loadHttpToolConfig(env, lookup, secrets)
   if (!http.ok) return { ok: false, error: http.error }
@@ -84,13 +100,6 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
   // `FILES_DENY`/`FILES_ALLOW` add to the built-in secret list rather than
   // replacing it: an operator naming one extra private directory should not
   // silently lose the `.env` protection they never had to ask for.
-  const commaList = (value: string | undefined) => {
-    const items = (value ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-    return items.length > 0 ? items : undefined
-  }
   const files = {
     enabled: env.FILES_TOOL === '1' || env.FILES_TOOL === 'true',
     root: env.FILES_ROOT || undefined,
@@ -135,7 +144,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
     ok: true,
     config: {
       llm: { baseURL, apiKey: apiKey.value, model },
-      browserUse,
+      browser,
       http: http.config,
       files,
       workspace,

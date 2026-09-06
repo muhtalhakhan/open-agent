@@ -43,6 +43,11 @@ const TOOLS = [
     },
   },
   {
+    name: '__env',
+    description: 'test-only: reports the environment this server was started with',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'browser_screenshot',
     description: 'Take a screenshot of the current page',
     inputSchema: { type: 'object', properties: {} },
@@ -139,6 +144,10 @@ rl.on('line', (line) => {
       retry_with_browser_use_agent: () => `agent completed task: ${args.task}`,
       browser_close_session: () => `session closed`,
       browser_close_all: () => `all sessions closed`,
+      // Not a browser-use tool. It reports the environment this subprocess was
+      // actually started with, so a test can assert what the parent passed
+      // through rather than trusting that it did.
+      __env: () => JSON.stringify(process.env),
     }
     const handler = handlers[name]
     const text = handler ? handler() : `called ${name}`

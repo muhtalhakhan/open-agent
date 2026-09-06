@@ -61,6 +61,17 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > provider-neutral sandbox interface (#136) are still design-only.
 
 - Browser automation uses a dedicated, isolated browser profile — not the user's real logged-in browser — unless the user explicitly configures profile sharing.
+
+> **Status:** implemented (#87). `packages/tools-browser` provisions a fresh profile
+> directory per run and removes it afterwards, so the agent's browser starts with no
+> cookies, no saved passwords and no history for a visited page to reach. Sharing is
+> opt-in by naming a directory (`BROWSER_PROFILE_DIR`), and the CLI says out loud
+> when a run is sharing one. Separately, MCP subprocesses no longer inherit the
+> agent's credentials: `spawnMcpServer` credential-filters the environment, so
+> browser-use — a third-party program whose output comes back as tool output — does
+> not receive the API keys the agent runs on. What is _not_ done: the browser itself
+> is not sandboxed, so a compromised browser process has the same reach as the user.
+
 - Network access from sandboxed execution can be restricted (allowlist/denylist of domains) per profile.
 
 ## Secrets

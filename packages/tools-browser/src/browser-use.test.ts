@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ToolRegistry } from '@open-agent/agent'
@@ -19,8 +22,12 @@ describe('BrowserUseTools', () => {
     await browserUse.connect()
     const tools = await browserUse.tools()
 
+    // `__env` is the fixture's own test-only tool, not one of browser-use's;
+    // it reports the environment the subprocess was started with so the
+    // isolation tests below can assert what was passed through.
     const byName = Object.fromEntries(tools.map((t) => [t.name, t.permissionLevel]))
     expect(byName).toEqual({
+      __env: 'safe',
       browser_navigate: 'safe',
       browser_click: 'safe',
       browser_type: 'safe',
@@ -80,6 +87,7 @@ describe('mountBrowserUseTools', () => {
         .sort(),
     ).toEqual(
       [
+        '__env',
         'browser_close_all',
         'browser_close_session',
         'browser_close_tab',
@@ -118,5 +126,96 @@ describe('mountBrowserUseTools', () => {
     expect(gatedResult2.error).toMatch(/approval/)
 
     dispose()
+  })
+})
+
+describe('browser isolation', () => {
+  let browserUse: BrowserUseTools | undefined
+
+  afterEach(async () => {
+    await browserUse?.dispose()
+    browserUse = undefined
+  })
+
+  /** The environment the fixture subprocess actually received. */
+  async function subprocessEnv(tools: BrowserUseTools): Promise<Record<string, string>> {
+    const env = (await tools.tools()).find((tool) => tool.name === '__env')!
+    const result = await env.execute({}, { taskId: 't1', signal: new AbortController().signal })
+    return JSON.parse(result.content)
+  }
+
+  it('provisions a throwaway profile rather than using the real browser', async () => {
+    browserUse = new BrowserUseTools(options)
+    await browserUse.connect()
+
+    const profile = browserUse.browserProfile!
+    expect(profile.shared).toBe(false)
+    expect(await subprocessEnv(browserUse)).toMatchObject({ BROWSER_USE_USER_DATA_DIR: profile.dir })
+  })
+
+  it('removes the provisioned profile on dispose', async () => {
+    browserUse = new BrowserUseTools(options)
+    await browserUse.connect()
+    const dir = browserUse.browserProfile!.dir
+
+    await browserUse.dispose()
+    browserUse = undefined
+
+    await expect(fs.stat(dir)).rejects.toThrow()
+  })
+
+  it('shares a named profile, and marks it as shared', async () => {
+    const mine = await fs.mkdtemp(path.join(os.tmpdir(), 'real-profile-'))
+    try {
+      browserUse = new BrowserUseTools({ ...options, profileDir: mine })
+      await browserUse.connect()
+
+      expect(browserUse.browserProfile!.shared).toBe(true)
+      expect(await subprocessEnv(browserUse)).toMatchObject({ BROWSER_USE_USER_DATA_DIR: mine })
+
+      await browserUse.dispose()
+      browserUse = undefined
+      // Still there: it is the user's directory.
+      expect((await fs.stat(mine)).isDirectory()).toBe(true)
+    } finally {
+      await fs.rm(mine, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps the agent API keys out of the browser subprocess', async () => {
+    // browser-use is a third-party program, and anything it prints comes back
+    // as tool output. It has no business seeing the keys the agent runs on.
+    process.env.OPENAI_API_KEY = 'sk-live-should-not-leak'
+    process.env.GH_TOKEN = 'ghp-should-not-leak'
+    try {
+      browserUse = new BrowserUseTools(options)
+      await browserUse.connect()
+
+      const env = await subprocessEnv(browserUse)
+
+      expect(env.OPENAI_API_KEY).toBeUndefined()
+      expect(env.GH_TOKEN).toBeUndefined()
+      expect(env.PATH).toBeDefined()
+    } finally {
+      delete process.env.OPENAI_API_KEY
+      delete process.env.GH_TOKEN
+    }
+  })
+
+  it('passes through a credential the operator named', async () => {
+    process.env.GH_TOKEN = 'ghp-allowed'
+    try {
+      browserUse = new BrowserUseTools({ ...options, allowEnv: ['GH_TOKEN'] })
+      await browserUse.connect()
+      expect((await subprocessEnv(browserUse)).GH_TOKEN).toBe('ghp-allowed')
+    } finally {
+      delete process.env.GH_TOKEN
+    }
+  })
+
+  it('lets an explicit env entry win over the profile default', async () => {
+    browserUse = new BrowserUseTools({ ...options, env: { BROWSER_USE_USER_DATA_DIR: '/somewhere/chosen' } })
+    await browserUse.connect()
+    expect((await subprocessEnv(browserUse)).BROWSER_USE_USER_DATA_DIR).toBe('/somewhere/chosen')
   })
 })

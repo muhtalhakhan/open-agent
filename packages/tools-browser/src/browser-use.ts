@@ -2,12 +2,26 @@ import type { Context, Disposer, Plugin } from '@open-agent/context'
 import type { PermissionLevel, ToolDefinition, ToolRegistry } from '@open-agent/agent'
 import { mcpToolDefinition, spawnMcpServer } from '@open-agent/tools-mcp'
 import type { McpStdioClient } from '@open-agent/tools-mcp'
+import { DEFAULT_PROFILE_ENV_VARS, createBrowserProfile, profileEnv, type BrowserProfile } from './profile.js'
 
 export interface BrowserUseOptions {
   /** Defaults to `python3 -m browser_use.mcp` (see https://github.com/browser-use/browser-use). */
   command?: string
   args?: string[]
   env?: Record<string, string>
+  /**
+   * Use this profile directory instead of a throwaway one. Naming the user's
+   * real Chrome profile here is how profile sharing is opted into.
+   */
+  profileDir?: string
+  /** Where throwaway profiles are provisioned (default: the OS temp dir). */
+  profileBase?: string
+  /** Keep a provisioned profile after closing, to inspect what the browser stored. */
+  keepProfile?: boolean
+  /** Environment variables that point browser-use at the profile. */
+  profileEnvVars?: readonly string[]
+  /** Credential-looking variables to pass through to the browser subprocess. */
+  allowEnv?: readonly string[]
 }
 
 /**
@@ -27,14 +41,33 @@ const PERMISSION_OVERRIDES: Record<string, PermissionLevel> = {
 /** Spawns browser-use's MCP server and exposes its tools as `ToolDefinition`s. */
 export class BrowserUseTools {
   private client: McpStdioClient | undefined
+  private profile: BrowserProfile | undefined
 
   constructor(private readonly options: BrowserUseOptions = {}) {}
 
+  /** The profile in use, once connected. `shared` says whether it is the user's own. */
+  get browserProfile(): BrowserProfile | undefined {
+    return this.profile
+  }
+
   async connect(): Promise<void> {
+    this.profile = await createBrowserProfile({
+      dir: this.options.profileDir,
+      base: this.options.profileBase,
+      keep: this.options.keepProfile,
+    })
+
     this.client = await spawnMcpServer({
       command: this.options.command ?? 'python3',
       args: this.options.args ?? ['-m', 'browser_use.mcp'],
-      env: this.options.env,
+      // Profile variables first, so an explicit `env` entry still wins: an
+      // operator naming a variable by hand has said something more specific
+      // than our default.
+      env: {
+        ...profileEnv(this.profile, this.options.profileEnvVars ?? DEFAULT_PROFILE_ENV_VARS),
+        ...this.options.env,
+      },
+      allowEnv: this.options.allowEnv,
       clientName: 'open-agent',
     })
   }
@@ -51,6 +84,13 @@ export class BrowserUseTools {
   close(): void {
     this.client?.close()
   }
+
+  /** Closes the subprocess and removes a provisioned profile. */
+  async dispose(): Promise<void> {
+    this.close()
+    await this.profile?.dispose()
+    this.profile = undefined
+  }
 }
 
 /**
@@ -64,7 +104,10 @@ export async function mountBrowserUseTools(registry: ToolRegistry, options: Brow
   const unregisterFns = (await browserUse.tools()).map((tool) => registry.register(tool))
   return () => {
     for (const unregister of unregisterFns) unregister()
-    browserUse.close()
+    // The disposer is synchronous by contract, so the profile removal is
+    // started and not waited on. A leftover directory in the temp dir is a
+    // far smaller problem than a disposer that cannot be called from one.
+    void browserUse.dispose()
   }
 }
 
