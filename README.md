@@ -21,6 +21,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🔧  | Use external tools and MCP servers            | ✅ Built — generic MCP stdio client in `tools-mcp`, used by both browser and computer tools                                                                                    |
 | 🔎  | Search the web                                | ✅ Built — `tools-search`'s `web_search`, over Brave or Tavily, standalone (no browser needed)                                                                                 |
 | 🔌  | Call any HTTP API directly                    | ✅ Built — `tools-http`'s `http_request`, with a host allowlist, secret placeholders, and a response-size ceiling                                                              |
+| 📄  | Read files from a workspace                   | ✅ Built — `tools-files`'s `read_file`, confined to one root, streamed and paged; write/list/search are next in Milestone 5                                                    |
 | 🧠  | Remember information across tasks             | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory                                                                                                   |
 | 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                                                                     |
 | 🧠  | Use any model                                 | ✅ Built — Anthropic and Gemini adapters, any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...), and `ProviderFallbackAdapter` for multi-provider failover |
@@ -146,10 +147,11 @@ packages/
   providers/       LLM provider abstraction (OpenAI-compatible, Anthropic, Gemini, fallback)
   tools-browser/   Browser tools, via browser-use's MCP server
   tools-computer/  Computer-use tools, via @ui-tars/sdk
+  tools-files/     Filesystem tools confined to a workspace root (read_file)
   tools-http/      Direct HTTP requests to arbitrary APIs (http_request)
   tools-search/    Web search (web_search), over Brave or Tavily
   tools-mcp/       Generic MCP stdio client used by the tool packages above
-  tools/           Remaining built-in tools (filesystem, shell — planned)
+  tools/           Remaining built-in tools (shell — planned)
   memory/          Long-term/semantic memory (Supermemory, mem0, in-memory)
   security/        Permission system, approvals, sandboxing (design only — no implementation yet)
 docs/             Architecture and design docs

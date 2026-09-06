@@ -16,6 +16,7 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
+import { readFileTool } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { Context } from '@open-agent/context'
@@ -161,6 +162,10 @@ async function main() {
     // it cannot land in the captured answer.
     io.write('Starting browser-use (python -m browser_use.mcp)...\n')
     disposeBrowserTools = await mountBrowserUseTools(tools)
+  }
+
+  if (config.files.enabled) {
+    tools.register(readFileTool({ root: config.files.root ?? process.cwd() }))
   }
 
   if (config.http.enabled) {

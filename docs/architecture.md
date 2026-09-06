@@ -100,7 +100,8 @@ packages/
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
   tools-http/  ✅ http_request: direct calls to APIs with no MCP server, behind a host allowlist and secret placeholders
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
-  tools/       🚧 Remaining built-in tools: filesystem, shell (Milestone 5)
+  tools-files/ ✅ read_file: text files from one workspace root, streamed and paged (write/list/search are next)
+  tools/       🚧 Remaining built-in tools: shell (Milestone 5)
   memory/      ✅ Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider, in-memory)
   security/    🚧 Permission system, approval UI hooks, sandboxing, audit logs (Milestone 9)
 docs/          Architecture, agent design, security model

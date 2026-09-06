@@ -2,6 +2,7 @@ export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
   browserUse: boolean
   http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
+  files: { enabled: boolean; root?: string }
   search: { provider: 'brave'; apiKey: string } | { provider: 'tavily'; apiKey: string } | { provider: 'none' }
   memory:
     | { provider: 'supermemory'; apiKey: string; baseURL?: string }
@@ -22,6 +23,11 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv): ConfigResult {
 
   const browserUse = env.BROWSER_USE === '1' || env.BROWSER_USE === 'true'
   const http = loadHttpToolConfig(env)
+  // Off unless asked for, like the HTTP tool: handing a model the filesystem
+  // is a decision to make on purpose, not a default to discover afterwards.
+  // Left undefined rather than defaulted to the cwd here: this function is a
+  // pure read of the environment, and the launch directory is not part of it.
+  const files = { enabled: env.FILES_TOOL === '1' || env.FILES_TOOL === 'true', root: env.FILES_ROOT || undefined }
 
   // Keyed off which key is present rather than a separate on/off flag: a
   // search API is useless without one, and there is nothing to enable without.
@@ -39,7 +45,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv): ConfigResult {
     memory = { provider: 'mem0', apiKey: env.MEM0_API_KEY }
   }
 
-  return { ok: true, config: { llm: { baseURL, apiKey, model }, browserUse, http, search, memory } }
+  return { ok: true, config: { llm: { baseURL, apiKey, model }, browserUse, http, files, search, memory } }
 }
 
 /**

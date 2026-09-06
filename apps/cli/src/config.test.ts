@@ -19,6 +19,7 @@ describe('loadConfigFromEnv', () => {
         llm: { baseURL: 'https://api.openai.com/v1', apiKey: 'sk-x', model: 'gpt-4o-mini' },
         browserUse: false,
         http: { enabled: false, allowedHosts: undefined, secrets: {} },
+        files: { enabled: false, root: undefined },
         search: { provider: 'none' },
         memory: { provider: 'none' },
       },
@@ -33,6 +34,27 @@ describe('loadConfigFromEnv', () => {
       BROWSER_USE: '1',
     })
     expect(result.ok && result.config.browserUse).toBe(true)
+  })
+
+  it('enables the read_file tool with an explicit root when FILES_TOOL=1', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      FILES_TOOL: '1',
+      FILES_ROOT: '/srv/workspace',
+    })
+    expect(result.ok && result.config.files).toEqual({ enabled: true, root: '/srv/workspace' })
+  })
+
+  it('leaves the file root unset so the caller can supply the launch directory', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      FILES_TOOL: 'true',
+    })
+    expect(result.ok && result.config.files).toEqual({ enabled: true, root: undefined })
   })
 
   it('leaves the http tool off, unrestricted and secret-free by default', () => {
