@@ -106,7 +106,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 2 — Model Providers  | 10 / 10 | ✅ Complete                                                                                                                            |
 | 3 — Browser          | 10 / 10 | ✅ Complete                                                                                                                            |
 | 4 — Computer Use     | 8 / 10  | 🟢 Nearly done — Window management (#47), Human takeover (#50) left                                                                    |
-| 5 — Files + Terminal | 5 / 10  | 🟡 In progress — Command timeout (#56), Process management (#57), +3 more left                                                         |
+| 5 — Files + Terminal | 6 / 10  | 🟡 In progress — Command timeout (#56), Process management (#57), +2 more left                                                         |
 | 6 — Memory           | 6 / 8   | 🟢 Nearly done — Task history (#62), Memory editing (#66) left                                                                         |
 | 7 — Tools/MCP        | 3 / 7   | 🟡 In progress — MCP server discovery (#70), MCP authentication (#72), +2 more left                                                    |
 | 8 — Automation       | 0 / 8   | 🚧 Not started — first up: Task scheduler (#76), One-time tasks (#77), +6 more                                                         |
