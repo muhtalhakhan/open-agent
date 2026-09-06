@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeState, renderMilestoneTable, replaceGeneratedBlock } from './update-status-docs.mjs'
+import {
+  assertIssuesResolved,
+  describeState,
+  renderMilestoneTable,
+  replaceGeneratedBlock,
+} from './update-status-docs.mjs'
 
 const milestone = (overrides) => ({ title: 'Milestone 1 — Thing', closed: 0, open: 0, remaining: [], ...overrides })
 const issues = (...numbers) => numbers.map((number) => ({ number, title: `issue ${number}` }))
@@ -63,6 +68,22 @@ describe('renderMilestoneTable', () => {
     expect(table).toContain('a \\| b (#7)')
     // Markdown splits a row on unescaped pipes only, so the row is still 3 cells.
     expect(table.split('\n')[2].split(/(?<!\\)\|/)).toHaveLength(5)
+  })
+})
+
+describe('assertIssuesResolved', () => {
+  it('rejects a milestone with open issues but no issue list', () => {
+    expect(() => assertIssuesResolved([milestone({ title: 'Milestone 9 — Security', closed: 3, open: 6 })])).toThrow(
+      /Milestone 9 — Security.*issues:read/s,
+    )
+  })
+
+  it('accepts a complete milestone, which has nothing left to list', () => {
+    expect(() => assertIssuesResolved([milestone({ closed: 10 })])).not.toThrow()
+  })
+
+  it('accepts a milestone whose open issues came back', () => {
+    expect(() => assertIssuesResolved([milestone({ closed: 1, open: 1, remaining: issues(52) })])).not.toThrow()
   })
 })
 

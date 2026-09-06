@@ -14,8 +14,13 @@ on:
   delete:
   workflow_dispatch:
 
+# An explicit block zeroes every scope it does not list, and the generator
+# reads the tracker: without issues:read the milestones endpoint still answers
+# with correct counts while the issues endpoint returns nothing, which silently
+# produces a table of empty "what's left" cells.
 permissions:
   contents: write
+  issues: read
   pull-requests: write
 
 # A squash merge with --delete-branch fires both triggers; the second run
@@ -78,6 +83,21 @@ jobs:
             echo "Updated the open docs pull request."
             exit 0
           fi
-          gh pr create --base main --head "$BRANCH" \
+          if ! gh pr create --base main --head "$BRANCH" \
             --title "docs: refresh the milestone status table" \
-            --body "Regenerated from the issue tracker by \`.github/workflows/docs-status.yml\`. Only the block between the \`milestone-status\` markers in README.md changes; the prose around it stays hand-written."
+            --body "Regenerated from the issue tracker by \`.github/workflows/docs-status.yml\`. Only the block between the \`milestone-status\` markers in README.md changes; the prose around it stays hand-written."; then
+            # The branch is pushed either way, so nothing is lost — but say
+            # exactly which switch is off, because the message GitHub returns
+            # ("not permitted to create or approve pull requests") does not.
+            {
+              echo "### Docs status: branch pushed, pull request not opened"
+              echo
+              echo "Open it here: https://github.com/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+              echo
+              echo "To let this happen automatically, either tick **Settings → Actions → General →"
+              echo "Allow GitHub Actions to create and approve pull requests**, or add a repository"
+              echo "secret named \`DOCS_PAT\` with \`repo\` scope."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Pushed $BRANCH but could not open the pull request — see the job summary for the two ways to fix it."
+            exit 1
+          fi

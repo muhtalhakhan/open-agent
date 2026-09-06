@@ -112,6 +112,22 @@ async function githubPaged(url, token) {
   return items
 }
 
+/**
+ * A milestone with open issues and nothing in `remaining` means the issues
+ * endpoint answered but told us nothing — the milestones endpoint alone is
+ * enough to fill the Done column, so without this the run would quietly write
+ * a table whose every "what's left" cell is blank.
+ */
+export function assertIssuesResolved(milestones) {
+  const unresolved = milestones.filter((milestone) => milestone.open > 0 && milestone.remaining.length === 0)
+  if (unresolved.length > 0) {
+    throw new Error(
+      `no open issues came back for ${unresolved.map((m) => m.title).join(', ')} — ` +
+        'the token is most likely missing the issues:read scope',
+    )
+  }
+}
+
 export async function fetchMilestones(repo, token) {
   const api = `https://api.github.com/repos/${repo}`
   const [milestones, issues] = await Promise.all([
@@ -137,6 +153,7 @@ async function main() {
   const readme = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'README.md')
 
   const milestones = await fetchMilestones(repo, process.env.GITHUB_TOKEN)
+  assertIssuesResolved(milestones)
   const before = await fs.readFile(readme, 'utf8')
   // Formatted here rather than in a separate CI step so that the comparison
   // below is against the bytes that would actually be committed — otherwise
