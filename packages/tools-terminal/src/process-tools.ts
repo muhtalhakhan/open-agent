@@ -75,7 +75,7 @@ export function startProcessTool(options: ProcessToolsOptions): ToolDefinition<{
 
       const { env } = filterEnv(options.env ?? process.env, options.allowEnv)
       try {
-        const snapshot = options.registry.start({ command, cwd, env })
+        const snapshot = options.registry.start({ command, cwd, workspaceRoot: options.root, env })
         return {
           ok: true,
           content:

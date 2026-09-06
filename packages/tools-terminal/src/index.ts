@@ -16,3 +16,12 @@ export { OutputBuffer, ProcessLimitError, ProcessRegistry } from './process-regi
 export type { ProcessSnapshot, ProcessStatus, StartOptions } from './process-registry.js'
 export { mountTerminalTools } from './mount.js'
 export type { MountTerminalOptions } from './mount.js'
+export { bubblewrapSandbox, dockerSandbox, noneSandbox, selectSandbox, DEFAULT_DOCKER_IMAGE } from './sandbox.js'
+export type {
+  BubblewrapOptions,
+  DockerOptions,
+  Sandbox,
+  SandboxName,
+  SandboxSpec,
+  SelectSandboxOptions,
+} from './sandbox.js'

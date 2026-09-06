@@ -3,6 +3,7 @@ import type { ToolDefinition, ToolResult } from '@open-agent/agent'
 import { WorkspaceError, resolveInWorkspace } from '@open-agent/tools-files'
 import { execute } from './execute.js'
 import { ShellPolicyError, checkCommand, filterEnv, type CommandPolicy } from './policy.js'
+import type { Sandbox } from './sandbox.js'
 
 /** Long enough for an install or a test run, short enough that a hang is not the agent's new life. */
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -21,6 +22,10 @@ export interface RunCommandToolOptions extends CommandPolicy {
   env?: NodeJS.ProcessEnv
   /** Credential-looking variables to pass through anyway, e.g. `["GH_TOKEN"]`. */
   allowEnv?: readonly string[]
+  /** Isolation the command runs under. Without one it runs with your privileges. */
+  sandbox?: Sandbox
+  /** Whether commands may reach the network, where the sandbox can enforce it. */
+  network?: boolean
 }
 
 type RunCommandArgs = {
@@ -127,7 +132,17 @@ export function runCommandTool(options: RunCommandToolOptions): ToolDefinition<R
       const { env } = filterEnv(options.env ?? process.env, options.allowEnv)
 
       try {
-        const result = await execute({ command, cwd, env, timeoutMs, maxOutputBytes, signal: context.signal })
+        const result = await execute({
+          command,
+          cwd,
+          workspaceRoot: options.root,
+          env,
+          timeoutMs,
+          maxOutputBytes,
+          signal: context.signal,
+          sandbox: options.sandbox,
+          network: options.network,
+        })
 
         // A non-zero exit is reported as a successful tool call. A failing test
         // run or a grep that found nothing is an answer the model needs to read

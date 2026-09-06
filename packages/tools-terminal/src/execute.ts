@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { noneSandbox, type Sandbox } from './sandbox.js'
 
 /** How long the process gets to exit after SIGTERM before it is killed outright. */
 const KILL_GRACE_MS = 5_000
@@ -6,10 +7,16 @@ const KILL_GRACE_MS = 5_000
 export interface ExecuteOptions {
   command: string
   cwd: string
+  /** The writable root. A sandbox mounts this; without one it is unused. */
+  workspaceRoot?: string
   env: NodeJS.ProcessEnv
   timeoutMs: number
   maxOutputBytes: number
   signal: AbortSignal
+  /** Isolation to run under. Defaults to none, which is what the tests want. */
+  sandbox?: Sandbox
+  /** Whether the command may reach the network, when the sandbox can enforce it. */
+  network?: boolean
 }
 
 export interface ExecuteResult {
@@ -59,18 +66,6 @@ class CappedBuffer {
 }
 
 /**
- * The shell a command runs through. POSIX gets `sh -c`, Windows gets its
- * comspec — the same pair Node's own `shell: true` uses, spelled out here
- * because the process-group handling below needs to know which one it got.
- */
-function shellFor(command: string): { file: string; args: string[] } {
-  if (process.platform === 'win32') {
-    return { file: process.env.ComSpec ?? 'cmd.exe', args: ['/d', '/s', '/c', command] }
-  }
-  return { file: '/bin/sh', args: ['-c', command] }
-}
-
-/**
  * Runs one command to completion, or to whichever limit it hits first.
  *
  * The child is started in its own process group (`detached`) so that a
@@ -80,7 +75,13 @@ function shellFor(command: string): { file: string; args: string[] } {
  */
 export function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   return new Promise((resolve, reject) => {
-    const { file, args } = shellFor(options.command)
+    const sandbox = options.sandbox ?? noneSandbox()
+    const { file, args } = sandbox.wrap({
+      command: options.command,
+      cwd: options.cwd,
+      workspaceRoot: options.workspaceRoot ?? options.cwd,
+      network: options.network ?? false,
+    })
     const detached = process.platform !== 'win32'
 
     let child

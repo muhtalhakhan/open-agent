@@ -18,7 +18,7 @@ import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/pro
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
-import { mountTerminalTools } from '@open-agent/tools-terminal'
+import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { Context } from '@open-agent/context'
 import { loadConfigFromEnv } from './config.js'
@@ -184,12 +184,35 @@ async function main() {
       io.write(`Working in a session workspace at ${workspace.root}\n`)
     }
     if (config.files.enabled) disposeFileTools = mountFileTools(tools, workspace)
+
     if (config.shell.enabled) {
-      disposeTerminalTools = mountTerminalTools(tools, workspace, {
-        allowedCommands: config.shell.allowedCommands,
-        allowEnv: config.shell.allowEnv,
-        timeoutMs: config.shell.timeoutMs,
+      const sandbox = await selectSandbox(config.shell.sandbox, {
+        docker: { image: config.shell.sandboxImage },
       })
+
+      // Not registering the tools is the whole point of the check. Falling
+      // back to an unsandboxed shell because bwrap happened to be missing is
+      // exactly the failure the sandbox exists to prevent, so the shell stays
+      // off until someone says which of the two they want.
+      if (!sandbox) {
+        io.write(
+          `Shell tools are off: no sandbox is available (asked for "${config.shell.sandbox}").\n` +
+            `Install bubblewrap or Docker, or set SHELL_SANDBOX=none to run commands with your own privileges.\n`,
+        )
+      } else {
+        if (sandbox.name === 'none') {
+          io.write('Shell tools are UNSANDBOXED: commands run with your full privileges.\n')
+        } else {
+          io.write(`Shell sandbox: ${sandbox.describe()}\n`)
+        }
+        disposeTerminalTools = mountTerminalTools(tools, workspace, {
+          allowedCommands: config.shell.allowedCommands,
+          allowEnv: config.shell.allowEnv,
+          timeoutMs: config.shell.timeoutMs,
+          sandbox,
+          network: config.shell.network,
+        })
+      }
     }
   }
 

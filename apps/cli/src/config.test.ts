@@ -24,6 +24,9 @@ describe('loadConfigFromEnv', () => {
         shell: {
           enabled: false,
           root: undefined,
+          sandbox: 'auto',
+          sandboxImage: undefined,
+          network: false,
           allowedCommands: undefined,
           allowEnv: undefined,
           timeoutMs: undefined,
@@ -293,12 +296,39 @@ describe('loadConfigFromEnv', () => {
     expect(result.ok && result.config.shell).toEqual({
       enabled: true,
       root: '/srv/workspace',
+      sandbox: 'auto',
+      sandboxImage: undefined,
+      network: false,
       allowedCommands: ['git', 'npm'],
       allowEnv: ['GH_TOKEN'],
       timeoutMs: 30000,
     })
   })
 
+  it('defaults the shell sandbox to auto, never to none', () => {
+    const result = loadConfigFromEnv({ ...base(), SHELL_TOOL: '1' })
+    expect(result.ok && result.config.shell.sandbox).toBe('auto')
+  })
+
+  it('takes an explicit sandbox backend and image', () => {
+    const result = loadConfigFromEnv({
+      ...base(),
+      SHELL_TOOL: '1',
+      SHELL_SANDBOX: 'docker',
+      SHELL_SANDBOX_IMAGE: 'node:22-alpine',
+      SHELL_NETWORK: '1',
+    })
+    expect(result.ok && result.config.shell).toMatchObject({
+      sandbox: 'docker',
+      sandboxImage: 'node:22-alpine',
+      network: true,
+    })
+  })
+
+  it('rejects an unknown sandbox rather than quietly running without one', () => {
+    const result = loadConfigFromEnv({ ...base(), SHELL_TOOL: '1', SHELL_SANDBOX: 'chroot' })
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('SHELL_SANDBOX') })
+  })
   it('falls back to FILES_ROOT so both tools share one workspace', () => {
     const result = loadConfigFromEnv({ ...base(), SHELL_TOOL: '1', FILES_ROOT: '/srv/shared' })
     expect(result.ok && result.config.shell.root).toBe('/srv/shared')

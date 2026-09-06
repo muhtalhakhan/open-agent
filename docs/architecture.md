@@ -98,7 +98,7 @@ packages/
   tools-mcp/   ✅ Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
   tools-browser/ ✅ Browser tools, backed by browser-use's MCP server via tools-mcp
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
-  tools-terminal/ ✅ run_command + background process management (start/list/read/stop), workspace-rooted, timed out and killed by process group (no sandbox yet — see docs/security-model.md)
+  tools-terminal/ ✅ run_command + background process management (start/list/read/stop), workspace-rooted, timed out and killed by process group, sandboxed via bubblewrap or Docker with a read-only filesystem and no network by default
   tools-http/  ✅ http_request: direct calls to APIs with no MCP server, behind a host allowlist and secret placeholders
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up

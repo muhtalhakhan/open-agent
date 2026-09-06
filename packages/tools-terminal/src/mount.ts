@@ -4,12 +4,17 @@ import { ProcessRegistry } from './process-registry.js'
 import { processTools } from './process-tools.js'
 import { runCommandTool } from './run-command.js'
 import type { CommandPolicy } from './policy.js'
+import type { Sandbox } from './sandbox.js'
 
 export interface MountTerminalOptions extends CommandPolicy {
   timeoutMs?: number
   env?: NodeJS.ProcessEnv
   allowEnv?: readonly string[]
   maxRunning?: number
+  /** Isolation every command runs under. Without one they run with your privileges. */
+  sandbox?: Sandbox
+  /** Whether commands may reach the network, where the sandbox can enforce it. */
+  network?: boolean
 }
 
 /**
@@ -26,7 +31,11 @@ export function mountTerminalTools(
   workspace: Workspace,
   options: MountTerminalOptions = {},
 ): () => void {
-  const processes = new ProcessRegistry({ maxRunning: options.maxRunning })
+  const processes = new ProcessRegistry({
+    maxRunning: options.maxRunning,
+    sandbox: options.sandbox,
+    network: options.network,
+  })
   const shared = { root: workspace.root, ...options }
 
   const disposers = [

@@ -10,6 +10,9 @@ export interface CliConfig {
   shell: {
     enabled: boolean
     root?: string
+    sandbox: 'auto' | 'none' | 'bubblewrap' | 'docker'
+    sandboxImage?: string
+    network: boolean
     allowedCommands?: string[]
     allowEnv?: string[]
     timeoutMs?: number
@@ -154,6 +157,10 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
  * `SHELL_ALLOW_ENV` names credential variables to pass through that the tool
  * would otherwise hide. Neither has a default: the tool is already behind an
  * approval prompt on every call.
+ *
+ * `SHELL_SANDBOX` picks the isolation backend and defaults to `auto`. There is
+ * deliberately no automatic fall-through to `none`: running the agent's shell
+ * with your full privileges is a decision, so it has to be spelled.
  */
 function loadShellToolConfig(
   env: NodeJS.ProcessEnv,
@@ -175,11 +182,19 @@ function loadShellToolConfig(
     }
   }
 
+  const sandbox = env.SHELL_SANDBOX ?? 'auto'
+  if (sandbox !== 'auto' && sandbox !== 'none' && sandbox !== 'bubblewrap' && sandbox !== 'docker') {
+    return { ok: false, error: `SHELL_SANDBOX must be auto, none, bubblewrap or docker (got "${sandbox}").` }
+  }
+
   return {
     ok: true,
     config: {
       enabled,
       root: env.SHELL_ROOT || env.FILES_ROOT || undefined,
+      sandbox,
+      sandboxImage: env.SHELL_SANDBOX_IMAGE || undefined,
+      network: env.SHELL_NETWORK === '1' || env.SHELL_NETWORK === 'true',
       allowedCommands: list(env.SHELL_ALLOWED_COMMANDS),
       allowEnv: list(env.SHELL_ALLOW_ENV),
       timeoutMs,

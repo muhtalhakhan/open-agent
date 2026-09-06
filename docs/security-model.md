@@ -1,6 +1,6 @@
 # Security Model
 
-> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Everything else below (approval UI, sandboxing, secret store, prompt-injection defenses, audit logs) is design-only; `packages/security` has no implementation yet. Don't go looking for code that isn't there.
+> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Shell sandboxing (#86) and the on-disk secret policy (#59) are implemented too, in `packages/tools-terminal` and `packages/tools-files` respectively; each carries a status note below. The rest (approval UI, secret store, prompt-injection defenses, audit logs) is design-only, and `packages/security` still has no implementation. Don't go looking for code that isn't there.
 
 ## Threat surface
 
@@ -37,6 +37,17 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 ## Sandboxing
 
 - Shell execution defaults to a container/VM with no access to the host filesystem beyond the declared workspace.
+
+> **Status:** implemented for the shell tools (#86). `packages/tools-terminal` runs
+> every command under a `Sandbox` — bubblewrap where the kernel allows it, otherwise
+> Docker — with the filesystem read-only apart from the workspace and the network
+> off unless `SHELL_NETWORK=1`. Backends are probed by _running_ them, not by
+> looking for the binary, because `bwrap` is installed on plenty of machines that
+> deny it the namespaces it needs. There is no automatic fall-through to running
+> unsandboxed: if no backend works the shell tools are not registered at all, and
+> `SHELL_SANDBOX=none` has to be set deliberately. Browser isolation (#87) and the
+> provider-neutral sandbox interface (#136) are still design-only.
+
 - Browser automation uses a dedicated, isolated browser profile — not the user's real logged-in browser — unless the user explicitly configures profile sharing.
 - Network access from sandboxed execution can be restricted (allowlist/denylist of domains) per profile.
 
@@ -57,8 +68,10 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > `packages/tools-files` (#59): `.env`, private keys, `.ssh/**`, `.aws/credentials`
 > and similar are refused for reads and writes and hidden from listings and
 > search results, with `deny`/`allow` overrides per deployment. It binds the file
-> tools only — `run_command` can still `cat` any of them, which is what the
-> approval prompt on every command is for until #86's sandbox exists.
+> tools only. `run_command` is no longer the hole it was — under a sandbox it
+> sees a read-only filesystem and only the workspace is writable — but a
+> secret _inside_ the workspace is still readable by a command, since the
+> file policy is enforced by the file tools rather than by the kernel.
 
 ## Prompt-injection defenses
 

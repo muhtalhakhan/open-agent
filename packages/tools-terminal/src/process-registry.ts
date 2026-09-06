@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { noneSandbox, type Sandbox } from './sandbox.js'
 
 /** How long a process gets after SIGTERM before it is killed outright. */
 const KILL_GRACE_MS = 5_000
@@ -94,6 +95,8 @@ export interface StartOptions {
   command: string
   cwd: string
   env: NodeJS.ProcessEnv
+  /** The writable root a sandbox mounts. Defaults to `cwd`. */
+  workspaceRoot?: string
 }
 
 export class ProcessLimitError extends Error {
@@ -116,7 +119,12 @@ export class ProcessRegistry {
   private readonly entries = new Map<string, Entry>()
 
   constructor(
-    private readonly options: { maxRunning?: number; bufferBytes?: number } = {},
+    private readonly options: {
+      maxRunning?: number
+      bufferBytes?: number
+      sandbox?: Sandbox
+      network?: boolean
+    } = {},
     private readonly spawnFn: typeof spawn = spawn,
   ) {}
 
@@ -133,8 +141,13 @@ export class ProcessRegistry {
     }
 
     const detached = process.platform !== 'win32'
-    const file = detached ? '/bin/sh' : (process.env.ComSpec ?? 'cmd.exe')
-    const args = detached ? ['-c', options.command] : ['/d', '/s', '/c', options.command]
+    const sandbox = this.options.sandbox ?? noneSandbox()
+    const { file, args } = sandbox.wrap({
+      command: options.command,
+      cwd: options.cwd,
+      workspaceRoot: options.workspaceRoot ?? options.cwd,
+      network: this.options.network ?? false,
+    })
     const child = this.spawnFn(file, args, {
       cwd: options.cwd,
       env: options.env,
