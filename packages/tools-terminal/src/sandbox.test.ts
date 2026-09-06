@@ -132,10 +132,21 @@ describe('selectSandbox', () => {
 
 /**
  * The real thing, against whichever backend this machine can actually run.
- * Skipped rather than failed where none is available — CI runners and
- * developer laptops differ, and a sandbox test that cannot run is not a
- * regression.
+ *
+ * Probed at module load rather than in a `beforeAll`, because `it.skipIf`
+ * evaluates its condition while collecting the suite — before any hook has
+ * run. Deciding in a hook silently skips every one of these regardless of
+ * what is installed, which is a worse failure than the one being fixed: it
+ * looks like a green suite either way.
+ *
+ * Reported as skipped rather than passed, so "verified" and "did nothing"
+ * cannot be confused in the one suite where the difference matters most.
  */
+const available = await selectSandbox('auto')
+if (!available) {
+  console.warn('[sandbox] no backend available here; the real-sandbox tests will be skipped, not verified')
+}
+
 describe('a real sandbox', () => {
   let root: string
   let outside: string
@@ -152,8 +163,6 @@ describe('a real sandbox', () => {
   })
 
   const run = async (command: string, network = false) => {
-    const sandbox = await selectSandbox('auto')
-    if (!sandbox) return undefined
     return execute({
       command,
       cwd: root,
@@ -162,35 +171,34 @@ describe('a real sandbox', () => {
       timeoutMs: 60_000,
       maxOutputBytes: 64_000,
       signal: new AbortController().signal,
-      sandbox,
+      sandbox: available!,
       network,
     })
   }
 
-  it('runs a command and returns its output', async () => {
-    const result = await run('echo hello')
-    if (!result) return
-    expect(result.stdout.trim()).toBe('hello')
+  it.skipIf(!available)('runs a command and returns its output', async () => {
+    expect((await run('echo hello')).stdout.trim()).toBe('hello')
   })
 
-  it('can write inside the workspace', async () => {
+  it.skipIf(!available)('can write inside the workspace', async () => {
     const result = await run('echo written > marker.txt && cat marker.txt')
-    if (!result) return
     expect(result.stdout.trim()).toBe('written')
   })
 
-  it('cannot read a file outside the workspace', async () => {
+  it.skipIf(!available)('cannot read a file outside the workspace', async () => {
     const result = await run(`cat ${path.join(outside, 'secret.txt')}`)
-    if (!result) return
     expect(result.stdout).not.toContain('do not read me')
     expect(result.code).not.toBe(0)
   })
 
-  it('cannot reach the network by default', async () => {
-    // Any of "no such host", "network unreachable" or a non-zero exit will do;
-    // what matters is that the bytes did not come back.
-    const result = await run('wget -q -T 3 -O - http://example.com || echo BLOCKED')
-    if (!result) return
-    expect(result.stdout).toContain('BLOCKED')
-  }, 30_000)
+  it.skipIf(!available)(
+    'cannot reach the network by default',
+    async () => {
+      // Any of "no such host", "network unreachable" or a non-zero exit will
+      // do; what matters is that the bytes did not come back.
+      const result = await run('wget -q -T 3 -O - http://example.com || echo BLOCKED')
+      expect(result.stdout).toContain('BLOCKED')
+    },
+    30_000,
+  )
 })
