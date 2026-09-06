@@ -103,7 +103,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | 0 — Foundation       | 10 / 10 | ✅ Complete                                                                                                                            |
 | 1 — Agent Runtime    | 10 / 10 | ✅ Complete                                                                                                                            |
-| 2 — Model Providers  | 9 / 10  | 🟢 Nearly done — API-key management (#29) left                                                                                         |
+| 2 — Model Providers  | 10 / 10 | ✅ Complete                                                                                                                            |
 | 3 — Browser          | 10 / 10 | ✅ Complete                                                                                                                            |
 | 4 — Computer Use     | 8 / 10  | 🟢 Nearly done — Window management (#47), Human takeover (#50) left                                                                    |
 | 5 — Files + Terminal | 1 / 10  | 🟡 In progress — Write file tool (#52), List directory tool (#53), +7 more left                                                        |
