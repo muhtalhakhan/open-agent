@@ -42,7 +42,11 @@ jobs:
       # Optional DOCS_PAT: a pull request opened with GITHUB_TOKEN cannot
       # trigger another workflow, so without a PAT the update PR arrives with
       # no CI run and protected main will not merge it — push an empty commit,
-      # or add a repo secret named DOCS_PAT with `repo` scope.
+      # or add a repo secret named DOCS_PAT. A fine-grained token scoped to
+      # this repository needs Contents: read/write (push the branch), Pull
+      # requests: read/write (open the PR) and Issues: read (milestones live
+      # under that permission). It also carries the minting account's identity,
+      # which is what lets CI run on the pull request it opens.
       GH_TOKEN: ${{ secrets.DOCS_PAT || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
@@ -96,7 +100,8 @@ jobs:
               echo
               echo "To let this happen automatically, either tick **Settings → Actions → General →"
               echo "Allow GitHub Actions to create and approve pull requests**, or add a repository"
-              echo "secret named \`DOCS_PAT\` with \`repo\` scope."
+              echo "secret named \`DOCS_PAT\` — a fine-grained token on this repository with"
+              echo "Contents: read/write, Pull requests: read/write and Issues: read."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error::Pushed $BRANCH but could not open the pull request — see the job summary for the two ways to fix it."
             exit 1
