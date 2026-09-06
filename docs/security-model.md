@@ -52,6 +52,13 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > the resolved values back out of everything the agent loop logs, and `redactUrl`
 > covers the keys providers take as a query parameter. A pluggable secret store
 > (OS keychain, Vault) is a design target, not code.
+>
+> Secrets on disk are covered separately by the file policy in
+> `packages/tools-files` (#59): `.env`, private keys, `.ssh/**`, `.aws/credentials`
+> and similar are refused for reads and writes and hidden from listings and
+> search results, with `deny`/`allow` overrides per deployment. It binds the file
+> tools only — `run_command` can still `cat` any of them, which is what the
+> approval prompt on every command is for until #86's sandbox exists.
 
 ## Prompt-injection defenses
 

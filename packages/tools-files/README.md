@@ -1,6 +1,6 @@
 # @open-agent/tools-files
 
-Filesystem tools, all of them confined to one workspace root: `read_file`, `write_file`, `list_directory` and `search_files`. They share `workspace.ts` for path confinement and `filters.ts` for what a walk skips by default.
+Filesystem tools, all of them confined to one workspace root: `read_file`, `write_file`, `list_directory` and `search_files`. They share `workspace.ts` for path confinement, `file-policy.ts` for which files inside the root are off-limits, and `filters.ts` for what a walk skips by default.
 
 ## Usage
 
@@ -9,11 +9,12 @@ import { ToolRegistry } from '@open-agent/agent'
 import { listDirectoryTool, readFileTool, searchFilesTool, writeFileTool } from '@open-agent/tools-files'
 
 const root = process.cwd()
+const policy = { deny: ['internal/**'] } // on top of the built-in secret list
 const tools = new ToolRegistry()
-tools.register(readFileTool({ root }))
-tools.register(listDirectoryTool({ root }))
-tools.register(searchFilesTool({ root }))
-tools.register(writeFileTool({ root }))
+tools.register(readFileTool({ root, policy }))
+tools.register(listDirectoryTool({ root, policy }))
+tools.register(searchFilesTool({ root, policy }))
+tools.register(writeFileTool({ root, policy }))
 ```
 
 In the CLI, set `FILES_TOOL=1` (and optionally `FILES_ROOT`, which defaults to the directory you launched it from) — see `.env.example`.
@@ -54,9 +55,30 @@ src/agent-loop.ts:42: const result = await this.tools.execute(call, context)
 
 Replaces the whole file unless `append` is set, creates parent directories as needed, and refuses to overwrite when `create_only` is set. A replace is atomic: the content goes to a sibling temp file which is then renamed over the target, so a crash or a cancelled task leaves the original intact rather than a half-written file.
 
+## File policy
+
+The root answers "which directory", which is the wrong granularity for what people actually worry about: a `.env` sitting in the middle of the project you want the agent to work on. `docs/security-model.md` promises the model never sees raw API keys, and a root-only check cannot deliver that when the keys are in a file inside the root.
+
+So secrets are excluded by default — `.env` and `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.jks`, `id_rsa` and friends, `.ssh/**`, `.aws/credentials`, `.kube/config`, `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`, `.git/config`, `credentials.json`, `secrets.y*ml`. `.env.example` and its siblings are carved back out: a template of variable _names_ with the values blank is checked in precisely so people can read it.
+
+A denied path is refused for reads and writes, **and** left out of listings and search results. That last part is the point rather than a nicety — a search that printed the matching line from `.env` would leak the secret exactly as thoroughly as reading the file. Listings say how many entries were hidden without naming them, which tells the model to stop looking without telling it what to ask for.
+
+```ts
+{
+  deny: ['internal/**'],   // added to the built-ins
+  allow: ['.env.local'],   // wins over a deny, including a default one
+  readOnly: true,          // refuse every write, whatever the path
+  noDefaults: true,        // drop the built-in lists entirely
+}
+```
+
+Patterns match the root-relative path _and_ the basename, so `.env` covers `packages/api/.env` without a leading `**`. Matching is case-insensitive, since macOS and Windows will serve `.ENV` for a file the policy knows as `.env`.
+
+**It binds these four tools, not the machine.** `run_command` can `cat .env`, because a shell command is opaque to a path check. That is what the approval prompt on every command is for, and ultimately #86's sandbox.
+
 ## Permission levels
 
-`read_file`, `list_directory` and `search_files` are `safe`. The capability is granted once, at configuration time, by handing the tool a root; after that a read inside that root changes nothing, and prompting on every one would only train the user to approve without looking. Which files inside a root should still be off-limits (a `.env`, a private key) is per-file policy — that belongs with the file-permission work (#59), not in these tools.
+`read_file`, `list_directory` and `search_files` are `safe`. The capability is granted once, at configuration time, by handing the tool a root; after that a read inside that root changes nothing, and prompting on every one would only train the user to approve without looking. Which files inside the root are still off-limits is the file policy above, applied before anything is opened.
 
 `write_file` is `ask`. It destroys whatever was there before, and the blast radius is a file the user cares about. The root bounds _where_ that can happen; the approval prompt is what makes each one a decision.
 

@@ -171,4 +171,27 @@ describe('globToRegExp', () => {
     expect(globToRegExp('*.TS', false).test('index.ts')).toBe(true)
     expect(globToRegExp('*.TS', true).test('index.ts')).toBe(false)
   })
+
+  it('never opens a denied file, so a match inside it cannot leak', async () => {
+    await seed('.env', 'OPENAI_API_KEY=sk-live-secret')
+    await seed('notes.txt', 'sk-live-secret is not here either')
+    const result = await search({ query: 'sk-live-secret', all: true })
+    expect(result.content).toContain('notes.txt')
+    expect(result.content).not.toContain('.env:')
+  })
+
+  it('leaves denied files out of a glob listing too', async () => {
+    await seed('.env', 'x')
+    await seed('.env.example', 'x')
+    const result = await search({ glob: '.env*', all: true })
+    expect(result.content).toBe('.env.example')
+  })
+
+  it('honours an extra deny pattern from the caller', async () => {
+    await seed('internal/secret.md', 'needle')
+    await seed('public/open.md', 'needle')
+    const tool = searchFilesTool({ root, policy: { deny: ['internal/**'] } })
+    const result = await tool.execute({ query: 'needle' }, ctx)
+    expect(result.content).toBe('public/open.md:1: needle')
+  })
 })

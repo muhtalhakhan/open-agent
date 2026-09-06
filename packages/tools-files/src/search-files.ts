@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ToolDefinition, ToolResult } from '@open-agent/agent'
+import { isDenied, type FilePolicy } from './file-policy.js'
 import { globToRegExp, shouldSkip } from './filters.js'
-import { WorkspaceError, resolveInWorkspace } from './workspace.js'
+import { WorkspaceError, resolvePathInWorkspace, toPosix } from './workspace.js'
 
 /** Matches returned in one call. Past this the model should narrow the query, not read more. */
 const DEFAULT_MAX_MATCHES = 100
@@ -17,6 +18,12 @@ const SNIFF_BYTES = 4_096
 export interface SearchFilesToolOptions {
   /** Absolute path the tool may search under. Every argument resolves inside it. */
   root: string
+  /**
+   * Which files inside the root are off-limits. Denied files are never opened
+   * — printing the matching line from a `.env` would leak the secret as
+   * thoroughly as reading the file.
+   */
+  policy?: FilePolicy
   /** Matches returned in one call (default 100). */
   maxMatches?: number
 }
@@ -69,8 +76,10 @@ function clip(line: string): string {
  */
 async function candidates(
   base: string,
+  baseRelative: string,
   glob: RegExp | undefined,
   all: boolean,
+  policy: FilePolicy | undefined,
   signal: AbortSignal,
 ): Promise<{ files: string[]; truncated: boolean }> {
   const files: string[] = []
@@ -99,6 +108,9 @@ async function candidates(
         // Matched against the path relative to the search base, so `*.ts`
         // means "a .ts file anywhere under it" rather than only at the top.
         if (glob && !glob.test(relative) && !glob.test(dirent.name)) continue
+        // Dropped before the file is ever opened, so a denied file cannot
+        // reach the scan that would print its contents.
+        if (isDenied(toPosix(baseRelative ? path.join(baseRelative, relative) : relative), policy)) continue
         if (files.length >= MAX_FILES_SCANNED) return { files, truncated: true }
         files.push(relative)
       }
@@ -188,10 +200,13 @@ export function searchFilesTool(options: SearchFilesToolOptions): ToolDefinition
       }
 
       let base: string
+      let baseRelative: string
       let glob: RegExp | undefined
       let pattern: RegExp | undefined
       try {
-        base = await resolveInWorkspace(options.root, requested)
+        const resolved = await resolvePathInWorkspace(options.root, requested)
+        base = resolved.absolute
+        baseRelative = resolved.relative
         if (args.glob !== undefined) {
           if (typeof args.glob !== 'string' || args.glob === '')
             throw new WorkspaceError('glob must be a non-empty string')
@@ -217,7 +232,7 @@ export function searchFilesTool(options: SearchFilesToolOptions): ToolDefinition
         const stats = await fs.stat(base)
         if (!stats.isDirectory()) return fail(`"${shown}" is not a directory`)
 
-        const found = await candidates(base, glob, args.all === true, context.signal)
+        const found = await candidates(base, baseRelative, glob, args.all === true, options.policy, context.signal)
         const notes: string[] = []
         if (found.truncated) notes.push(`[stopped after ${MAX_FILES_SCANNED} files; narrow path or glob]`)
 

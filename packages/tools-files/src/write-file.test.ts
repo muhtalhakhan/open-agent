@@ -128,4 +128,24 @@ describe('writeFileTool', () => {
     const result = await writeFileTool({ root }).execute({ path: 'utf.txt', content: 'héllo' }, ctx)
     expect(result.content).toBe('created utf.txt (6 bytes)')
   })
+
+  it('refuses to write over a file the policy denies', async () => {
+    await seed('.env', 'OPENAI_API_KEY=sk-live-secret')
+    const result = await writeFileTool({ root }).execute({ path: '.env', content: 'clobbered' }, ctx)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('excluded by the workspace file policy')
+    expect(await read('.env')).toBe('OPENAI_API_KEY=sk-live-secret')
+  })
+
+  it('refuses to create a denied file that does not exist yet', async () => {
+    const result = await writeFileTool({ root }).execute({ path: 'certs/new.pem', content: 'x' }, ctx)
+    expect(result.error).toContain('file policy')
+  })
+
+  it('refuses every write when the workspace is read-only', async () => {
+    const tool = writeFileTool({ root, policy: { readOnly: true } })
+    const result = await tool.execute({ path: 'notes.txt', content: 'x' }, ctx)
+    expect(result.error).toBe('the workspace is read-only')
+    expect(await fs.readdir(root)).toEqual([])
+  })
 })

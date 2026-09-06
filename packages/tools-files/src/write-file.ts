@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ToolDefinition, ToolResult } from '@open-agent/agent'
-import { WorkspaceError, resolveInWorkspace } from './workspace.js'
+import { FilePolicyError, checkAccess, type FilePolicy } from './file-policy.js'
+import { WorkspaceError, resolvePathInWorkspace } from './workspace.js'
 
 /**
  * A model writing more than this in one call is nearly always a runaway
@@ -14,6 +15,8 @@ const DEFAULT_MAX_BYTES = 1_000_000
 export interface WriteFileToolOptions {
   /** Absolute path the tool may write under. Every argument resolves inside it. */
   root: string
+  /** Which files inside the root are off-limits, and whether writes are allowed at all. */
+  policy?: FilePolicy
   /** Content bytes accepted in one call (default 1000000). */
   maxBytes?: number
 }
@@ -91,8 +94,11 @@ export function writeFileTool(options: WriteFileToolOptions): ToolDefinition<Wri
 
       let file: string
       try {
-        file = await resolveInWorkspace(options.root, args.path)
+        const resolved = await resolvePathInWorkspace(options.root, args.path)
+        checkAccess(resolved.relative, 'write', options.policy)
+        file = resolved.absolute
       } catch (err) {
+        if (err instanceof FilePolicyError || err instanceof WorkspaceError) return fail(err.message)
         return fail(err instanceof Error ? err.message : String(err))
       }
 

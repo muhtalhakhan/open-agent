@@ -4,7 +4,7 @@ export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
   browserUse: boolean
   http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
-  files: { enabled: boolean; root?: string }
+  files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
   shell: {
     enabled: boolean
     root?: string
@@ -76,7 +76,23 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
   // is a decision to make on purpose, not a default to discover afterwards.
   // Left undefined rather than defaulted to the cwd here: this function is a
   // read of the environment, and the launch directory is not part of it.
-  const files = { enabled: env.FILES_TOOL === '1' || env.FILES_TOOL === 'true', root: env.FILES_ROOT || undefined }
+  // `FILES_DENY`/`FILES_ALLOW` add to the built-in secret list rather than
+  // replacing it: an operator naming one extra private directory should not
+  // silently lose the `.env` protection they never had to ask for.
+  const commaList = (value: string | undefined) => {
+    const items = (value ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    return items.length > 0 ? items : undefined
+  }
+  const files = {
+    enabled: env.FILES_TOOL === '1' || env.FILES_TOOL === 'true',
+    root: env.FILES_ROOT || undefined,
+    deny: commaList(env.FILES_DENY),
+    allow: commaList(env.FILES_ALLOW),
+    readOnly: env.FILES_READONLY === '1' || env.FILES_READONLY === 'true',
+  }
 
   const shell = loadShellToolConfig(env)
   if (!shell.ok) return { ok: false, error: shell.error }

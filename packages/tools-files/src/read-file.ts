@@ -2,7 +2,8 @@ import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import type { ToolDefinition, ToolResult } from '@open-agent/agent'
-import { WorkspaceError, resolveInWorkspace } from './workspace.js'
+import { FilePolicyError, checkAccess, type FilePolicy } from './file-policy.js'
+import { WorkspaceError, resolvePathInWorkspace } from './workspace.js'
 
 /** Enough for a whole source file, small enough not to evict the conversation. */
 const DEFAULT_MAX_BYTES = 64_000
@@ -14,6 +15,8 @@ const SNIFF_BYTES = 4_096
 export interface ReadFileToolOptions {
   /** Absolute path the tool may read under. Every argument resolves inside it. */
   root: string
+  /** Which files inside the root are off-limits. Defaults keep secrets unreadable. */
+  policy?: FilePolicy
   /** Content bytes returned before the read is cut off (default 64000). */
   maxBytes?: number
   /** Lines returned in one call (default 2000). */
@@ -129,9 +132,9 @@ function number(lines: string[], firstLine: number): string {
  *
  * `safe`: the capability is granted once, at configuration time, by handing
  * the tool a root — after that a read inside that root changes nothing and
- * prompting on every one would train the user to approve blindly. What the
- * root should exclude (a `.env`, a key file) is per-file policy and belongs
- * with the file-permission work, not here. See docs/security-model.md.
+ * prompting on every one would train the user to approve blindly. Which files
+ * inside that root are still off-limits is the file policy's job, applied
+ * here before anything is opened. See docs/security-model.md.
  */
 export function readFileTool(options: ReadFileToolOptions): ToolDefinition<ReadFileArgs> {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES
@@ -149,10 +152,13 @@ export function readFileTool(options: ReadFileToolOptions): ToolDefinition<ReadF
       let offset: number
       let limit: number
       try {
-        file = await resolveInWorkspace(options.root, args.path)
+        const resolved = await resolvePathInWorkspace(options.root, args.path)
+        checkAccess(resolved.relative, 'read', options.policy)
+        file = resolved.absolute
         offset = positiveInt(args.offset, 1, 'offset')
         limit = Math.min(positiveInt(args.limit, maxLines, 'limit'), maxLines)
       } catch (err) {
+        if (err instanceof FilePolicyError || err instanceof WorkspaceError) return fail(err.message)
         return fail(err instanceof Error ? err.message : String(err))
       }
 

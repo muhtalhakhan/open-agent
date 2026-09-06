@@ -26,6 +26,27 @@ export function isInside(root: string, target: string): boolean {
  * tool's decision, not this function's.
  */
 export async function resolveInWorkspace(root: string, requested: unknown): Promise<string> {
+  return (await resolvePathInWorkspace(root, requested)).absolute
+}
+
+/** A path proved to be inside the workspace, with the root-relative form the file policy matches on. */
+export interface ResolvedPath {
+  /** Absolute, symlinks resolved where the target exists. */
+  absolute: string
+  /**
+   * Relative to the workspace root, always with forward slashes so one set of
+   * glob patterns works on every platform. Empty string for the root itself.
+   */
+  relative: string
+}
+
+/**
+ * The same resolution as `resolveInWorkspace`, keeping the root-relative path
+ * it had to compute anyway. Tools need both: the absolute path to open, and
+ * the relative one to check against the file policy — and re-deriving the
+ * second would mean a second `realpath` of the root on every call.
+ */
+export async function resolvePathInWorkspace(root: string, requested: unknown): Promise<ResolvedPath> {
   if (typeof requested !== 'string' || requested.trim() === '') {
     throw new WorkspaceError('path is required')
   }
@@ -41,10 +62,15 @@ export async function resolveInWorkspace(root: string, requested: unknown): Prom
   try {
     real = await fs.realpath(absolute)
   } catch {
-    return absolute
+    return { absolute, relative: toPosix(path.relative(realRoot, absolute)) }
   }
   if (!isInside(realRoot, real)) {
     throw new WorkspaceError(`path "${requested}" resolves through a symlink to outside the workspace root`)
   }
-  return real
+  return { absolute: real, relative: toPosix(path.relative(realRoot, real)) }
+}
+
+/** Windows separators normalised away, so a glob written with `/` matches everywhere. */
+export function toPosix(relative: string): string {
+  return relative.split(path.sep).join('/')
 }

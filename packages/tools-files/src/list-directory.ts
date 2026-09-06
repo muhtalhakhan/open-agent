@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ToolDefinition, ToolResult } from '@open-agent/agent'
+import { isDenied, type FilePolicy } from './file-policy.js'
 import { shouldSkip } from './filters.js'
-import { WorkspaceError, resolveInWorkspace } from './workspace.js'
+import { WorkspaceError, resolvePathInWorkspace, toPosix } from './workspace.js'
 
 /** Enough to see a large source directory whole, small enough not to evict the conversation. */
 const DEFAULT_MAX_ENTRIES = 500
@@ -10,6 +11,8 @@ const DEFAULT_MAX_ENTRIES = 500
 export interface ListDirectoryToolOptions {
   /** Absolute path the tool may list under. Every argument resolves inside it. */
   root: string
+  /** Which files inside the root are off-limits. Denied entries are left out of the listing. */
+  policy?: FilePolicy
   /** Entries returned in one call (default 500). */
   maxEntries?: number
 }
@@ -68,14 +71,17 @@ async function describe(absolute: string): Promise<{ kind: Entry['kind']; size: 
  */
 async function walk(
   base: string,
+  baseRelative: string,
   recursive: boolean,
   all: boolean,
   maxEntries: number,
+  policy: FilePolicy | undefined,
   signal: AbortSignal,
-): Promise<{ entries: Entry[]; truncated: boolean }> {
+): Promise<{ entries: Entry[]; truncated: boolean; hidden: number }> {
   const entries: Entry[] = []
   const queue: string[] = ['']
   let truncated = false
+  let hidden = 0
 
   while (queue.length > 0) {
     const relativeDir = queue.shift()!
@@ -85,19 +91,26 @@ async function walk(
     for (const dirent of dirents) {
       if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('listing was cancelled')
       if (shouldSkip(dirent.name, all)) continue
-      if (entries.length >= maxEntries) {
-        truncated = true
-        return { entries, truncated }
-      }
 
       const relative = relativeDir ? path.join(relativeDir, dirent.name) : dirent.name
+      // Counted, not named. Saying "one entry is hidden" tells the model to
+      // stop looking without telling it what to go asking for.
+      if (isDenied(toPosix(baseRelative ? path.join(baseRelative, relative) : relative), policy)) {
+        hidden += 1
+        continue
+      }
+      if (entries.length >= maxEntries) {
+        truncated = true
+        return { entries, truncated, hidden }
+      }
+
       const { kind, size } = await describe(path.join(base, relative))
       entries.push({ relative, kind, size })
       if (recursive && kind === 'dir') queue.push(relative)
     }
   }
 
-  return { entries, truncated }
+  return { entries, truncated, hidden }
 }
 
 /** Directories first, then files, each alphabetically — the order `ls` trained everyone to expect. */
@@ -130,9 +143,13 @@ export function listDirectoryTool(options: ListDirectoryToolOptions): ToolDefini
     async execute(args, context) {
       const requested = args.path === undefined || args.path === '' ? '.' : args.path
       let directory: string
+      let directoryRelative: string
       try {
-        directory = await resolveInWorkspace(options.root, requested)
+        const resolved = await resolvePathInWorkspace(options.root, requested)
+        directory = resolved.absolute
+        directoryRelative = resolved.relative
       } catch (err) {
+        if (err instanceof WorkspaceError) return fail(err.message)
         return fail(err instanceof Error ? err.message : String(err))
       }
 
@@ -142,21 +159,28 @@ export function listDirectoryTool(options: ListDirectoryToolOptions): ToolDefini
         const stats = await fs.stat(directory)
         if (!stats.isDirectory()) return fail(`"${shown}" is not a directory`)
 
-        const { entries, truncated } = await walk(
+        const { entries, truncated, hidden } = await walk(
           directory,
+          directoryRelative,
           args.recursive === true,
           args.all === true,
           maxEntries,
+          options.policy,
           context.signal,
         )
-        if (entries.length === 0) return { ok: true, content: `${shown} is empty` }
+
+        const notes: string[] = []
+        if (truncated)
+          notes.push(`[stopped at ${maxEntries} entries; narrow the path or drop recursive to see the rest]`)
+        if (hidden > 0) notes.push(`[${hidden} ${hidden === 1 ? 'entry is' : 'entries are'} hidden by the file policy]`)
+
+        if (entries.length === 0) {
+          const empty = `${shown} is empty`
+          return { ok: true, content: notes.length ? `${empty}\n\n${notes.join('\n')}` : empty }
+        }
 
         const body = render(entries)
-        if (!truncated) return { ok: true, content: body }
-        return {
-          ok: true,
-          content: `${body}\n\n[stopped at ${maxEntries} entries; narrow the path or drop recursive to see the rest]`,
-        }
+        return { ok: true, content: notes.length ? `${body}\n\n${notes.join('\n')}` : body }
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code
         if (code === 'ENOENT') return fail(`no such directory: "${shown}"`)

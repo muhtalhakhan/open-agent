@@ -151,4 +151,23 @@ describe('readFileTool', () => {
     expect(result.ok).toBe(true)
     expect(result.content).toBe('1\thello')
   })
+
+  it('refuses to read a file the policy denies', async () => {
+    await write('.env', 'OPENAI_API_KEY=sk-live-secret')
+    const result = await readFileTool({ root }).execute({ path: '.env' }, ctx)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('excluded by the workspace file policy')
+    expect(result.content).not.toContain('sk-live-secret')
+  })
+
+  it('still reads .env.example, which holds names and no values', async () => {
+    await write('.env.example', 'OPENAI_API_KEY=')
+    expect((await readFileTool({ root }).execute({ path: '.env.example' }, ctx)).ok).toBe(true)
+  })
+
+  it('honours an extra deny pattern from the caller', async () => {
+    await write('internal/notes.md', 'private')
+    const tool = readFileTool({ root, policy: { deny: ['internal/**'] } })
+    expect((await tool.execute({ path: 'internal/notes.md' }, ctx)).error).toContain('file policy')
+  })
 })

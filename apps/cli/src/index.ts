@@ -169,10 +169,13 @@ async function main() {
     // One root for all four: the capability the user granted is "this
     // directory", not "this directory for reads and some other one for writes".
     const root = config.files.root ?? process.cwd()
-    tools.register(readFileTool({ root }))
-    tools.register(listDirectoryTool({ root }))
-    tools.register(searchFilesTool({ root }))
-    tools.register(writeFileTool({ root }))
+    // One policy object for all four, so a file that cannot be read also
+    // cannot be found by a search or listed by name.
+    const policy = { deny: config.files.deny, allow: config.files.allow, readOnly: config.files.readOnly }
+    tools.register(readFileTool({ root, policy }))
+    tools.register(listDirectoryTool({ root, policy }))
+    tools.register(searchFilesTool({ root, policy }))
+    tools.register(writeFileTool({ root, policy }))
   }
 
   if (config.shell.enabled) {

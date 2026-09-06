@@ -67,9 +67,11 @@ describe('listDirectoryTool', () => {
   })
 
   it('shows dot-files and vendor directories when all is set', async () => {
-    await seed('.env', 'SECRET=1')
+    // A dot-file the policy has no opinion about: `.env` is hidden whatever
+    // `all` says, which is the file policy's business rather than this test's.
+    await seed('.editorconfig', 'root = true')
     const result = await list({ all: true })
-    expect(result.content).toContain('.env')
+    expect(result.content).toContain('.editorconfig')
   })
 
   it('reports an empty directory rather than empty output', async () => {
@@ -107,5 +109,29 @@ describe('listDirectoryTool', () => {
     controller.abort()
     const result = await listDirectoryTool({ root }).execute({}, { taskId: 't1', signal: controller.signal })
     expect(result.ok).toBe(false)
+  })
+
+  it('leaves denied entries out of the listing and says how many', async () => {
+    await seed('.env', 'SECRET=1')
+    await seed('keep.txt')
+    const result = await list({ all: true })
+    expect(result.content).toContain('keep.txt')
+    expect(result.content).not.toContain('.env')
+    expect(result.content).toContain('[1 entry is hidden by the file policy]')
+  })
+
+  it('counts denied entries without naming them', async () => {
+    await seed('.env', 'x')
+    await seed('.npmrc', 'x')
+    const result = await list({ all: true })
+    expect(result.content).toContain('[2 entries are hidden by the file policy]')
+  })
+
+  it('applies the policy to a nested path, not just the listed directory', async () => {
+    await seed('packages/api/.env', 'SECRET=1')
+    await seed('packages/api/index.ts', '')
+    const result = await list({ path: 'packages/api', all: true })
+    expect(result.content).not.toContain('.env')
+    expect(result.content).toContain('index.ts')
   })
 })

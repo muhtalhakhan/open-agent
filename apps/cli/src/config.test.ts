@@ -19,7 +19,7 @@ describe('loadConfigFromEnv', () => {
         llm: { baseURL: 'https://api.openai.com/v1', apiKey: 'sk-x', model: 'gpt-4o-mini' },
         browserUse: false,
         http: { enabled: false, allowedHosts: undefined, secrets: {} },
-        files: { enabled: false, root: undefined },
+        files: { enabled: false, root: undefined, deny: undefined, allow: undefined, readOnly: false },
         shell: {
           enabled: false,
           root: undefined,
@@ -52,7 +52,13 @@ describe('loadConfigFromEnv', () => {
       FILES_TOOL: '1',
       FILES_ROOT: '/srv/workspace',
     })
-    expect(result.ok && result.config.files).toEqual({ enabled: true, root: '/srv/workspace' })
+    expect(result.ok && result.config.files).toEqual({
+      enabled: true,
+      root: '/srv/workspace',
+      deny: undefined,
+      allow: undefined,
+      readOnly: false,
+    })
   })
 
   it('leaves the file root unset so the caller can supply the launch directory', () => {
@@ -62,7 +68,13 @@ describe('loadConfigFromEnv', () => {
       OPENAI_MODEL: 'gpt-4o-mini',
       FILES_TOOL: 'true',
     })
-    expect(result.ok && result.config.files).toEqual({ enabled: true, root: undefined })
+    expect(result.ok && result.config.files).toEqual({
+      enabled: true,
+      root: undefined,
+      deny: undefined,
+      allow: undefined,
+      readOnly: false,
+    })
   })
 
   it('leaves the http tool off, unrestricted and secret-free by default', () => {
@@ -242,6 +254,22 @@ describe('loadConfigFromEnv', () => {
     expect(result.ok && [...result.config.secrets].sort()).toEqual(['m0-key', 'sk-live-1', 'sk-x', 'tvly-1'])
   })
 
+  it('reads the file policy lists and the read-only flag', () => {
+    const result = loadConfigFromEnv({
+      ...base(),
+      FILES_TOOL: '1',
+      FILES_DENY: 'internal/**, *.bak',
+      FILES_ALLOW: '.env.local',
+      FILES_READONLY: '1',
+    })
+    expect(result.ok && result.config.files).toEqual({
+      enabled: true,
+      root: undefined,
+      deny: ['internal/**', '*.bak'],
+      allow: ['.env.local'],
+      readOnly: true,
+    })
+  })
   it('leaves the shell tool off unless SHELL_TOOL is set', () => {
     const result = loadConfigFromEnv(base())
     expect(result.ok && result.config.shell.enabled).toBe(false)
