@@ -16,9 +16,9 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
-import { listDirectoryTool, readFileTool, searchFilesTool, writeFileTool } from '@open-agent/tools-files'
+import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
-import { runCommandTool } from '@open-agent/tools-terminal'
+import { mountTerminalTools } from '@open-agent/tools-terminal'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { Context } from '@open-agent/context'
 import { loadConfigFromEnv } from './config.js'
@@ -165,28 +165,32 @@ async function main() {
     disposeBrowserTools = await mountBrowserUseTools(tools)
   }
 
-  if (config.files.enabled) {
-    // One root for all four: the capability the user granted is "this
-    // directory", not "this directory for reads and some other one for writes".
-    const root = config.files.root ?? process.cwd()
-    // One policy object for all four, so a file that cannot be read also
-    // cannot be found by a search or listed by name.
-    const policy = { deny: config.files.deny, allow: config.files.allow, readOnly: config.files.readOnly }
-    tools.register(readFileTool({ root, policy }))
-    tools.register(listDirectoryTool({ root, policy }))
-    tools.register(searchFilesTool({ root, policy }))
-    tools.register(writeFileTool({ root, policy }))
-  }
+  // One workspace for the file and shell tools alike: the capability the user
+  // granted is "this directory", not "this directory for reads and some other
+  // one for commands". `WORKSPACE_SESSION=1` provisions a throwaway directory
+  // per run instead, which is what keeps two concurrent agents out of each
+  // other's files.
+  let workspace: Workspace | undefined
+  let disposeFileTools: (() => void) | undefined
+  let disposeTerminalTools: (() => void) | undefined
 
-  if (config.shell.enabled) {
-    tools.register(
-      runCommandTool({
-        root: config.shell.root ?? process.cwd(),
+  if (config.files.enabled || config.shell.enabled) {
+    const policy = { deny: config.files.deny, allow: config.files.allow, readOnly: config.files.readOnly }
+    workspace = config.workspace.session
+      ? await createSessionWorkspace({ base: config.workspace.base, policy })
+      : await openWorkspace({ root: config.files.root ?? config.shell.root ?? process.cwd(), policy })
+
+    if (config.workspace.session) {
+      io.write(`Working in a session workspace at ${workspace.root}\n`)
+    }
+    if (config.files.enabled) disposeFileTools = mountFileTools(tools, workspace)
+    if (config.shell.enabled) {
+      disposeTerminalTools = mountTerminalTools(tools, workspace, {
         allowedCommands: config.shell.allowedCommands,
         allowEnv: config.shell.allowEnv,
         timeoutMs: config.shell.timeoutMs,
-      }),
-    )
+      })
+    }
   }
 
   if (config.http.enabled) {
@@ -256,6 +260,12 @@ async function main() {
   } finally {
     teardown()
     disposeBrowserTools?.()
+    // Before the workspace goes: a background process outlives the task that
+    // started it, and a session workspace is about to be deleted out from
+    // under anything still running in it.
+    disposeTerminalTools?.()
+    disposeFileTools?.()
+    await workspace?.dispose()
   }
 }
 

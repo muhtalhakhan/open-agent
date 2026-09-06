@@ -20,6 +20,7 @@ describe('loadConfigFromEnv', () => {
         browserUse: false,
         http: { enabled: false, allowedHosts: undefined, secrets: {} },
         files: { enabled: false, root: undefined, deny: undefined, allow: undefined, readOnly: false },
+        workspace: { session: false, base: undefined },
         shell: {
           enabled: false,
           root: undefined,
@@ -269,6 +270,11 @@ describe('loadConfigFromEnv', () => {
       allow: ['.env.local'],
       readOnly: true,
     })
+  })
+
+  it('provisions a session workspace when WORKSPACE_SESSION is set', () => {
+    const result = loadConfigFromEnv({ ...base(), WORKSPACE_SESSION: '1', WORKSPACE_BASE: '/var/tmp/agents' })
+    expect(result.ok && result.config.workspace).toEqual({ session: true, base: '/var/tmp/agents' })
   })
   it('leaves the shell tool off unless SHELL_TOOL is set', () => {
     const result = loadConfigFromEnv(base())

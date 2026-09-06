@@ -4,3 +4,15 @@ export { ShellPolicyError, checkCommand, filterEnv, pipelineHeads } from './poli
 export type { CommandPolicy } from './policy.js'
 export { execute } from './execute.js'
 export type { ExecuteOptions, ExecuteResult } from './execute.js'
+export {
+  processTools,
+  startProcessTool,
+  listProcessesTool,
+  readProcessOutputTool,
+  stopProcessTool,
+} from './process-tools.js'
+export type { ProcessToolsOptions } from './process-tools.js'
+export { OutputBuffer, ProcessLimitError, ProcessRegistry } from './process-registry.js'
+export type { ProcessSnapshot, ProcessStatus, StartOptions } from './process-registry.js'
+export { mountTerminalTools } from './mount.js'
+export type { MountTerminalOptions } from './mount.js'

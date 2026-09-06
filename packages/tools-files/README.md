@@ -2,6 +2,30 @@
 
 Filesystem tools, all of them confined to one workspace root: `read_file`, `write_file`, `list_directory` and `search_files`. They share `workspace.ts` for path confinement, `file-policy.ts` for which files inside the root are off-limits, and `filters.ts` for what a walk skips by default.
 
+## Workspaces
+
+A workspace is the directory a session may touch, plus the file policy for what inside it is off-limits. Mounting the tools against one is what keeps them from disagreeing — configuring each separately made it possible to give `read_file` one root and `write_file` another, or to deny a path for reads and forget to deny it for search.
+
+```ts
+import { createSessionWorkspace, mountFileTools, openWorkspace } from '@open-agent/tools-files'
+
+// Work in a directory the user already has:
+const workspace = await openWorkspace({ root: process.cwd(), policy: { deny: ['internal/**'] } })
+
+// Or provision a throwaway one per session, so two concurrent agents
+// cannot see or clobber each other's files:
+const scratch = await createSessionWorkspace({ base: '/var/lib/open-agent' })
+
+const dispose = mountFileTools(tools, workspace)
+// ... later
+dispose()
+await workspace.dispose() // deletes a provisioned directory; never one you opened
+```
+
+`dispose()` on an opened workspace deliberately does nothing — deleting the user's checkout on exit would be an outrage. A provisioned one is removed unless you pass `cleanup: false` to inspect the aftermath. Re-entering a session by its id finds the existing directory rather than failing, so a run can be resumed.
+
+**A workspace is not a security boundary.** It is a directory and a set of path checks; `run_command` can still walk out of it. Isolation that survives a hostile command is #86's sandbox.
+
 ## Usage
 
 ```ts

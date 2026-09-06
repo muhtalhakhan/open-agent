@@ -5,6 +5,8 @@ export interface CliConfig {
   browserUse: boolean
   http: { enabled: boolean; allowedHosts?: string[]; secrets: Record<string, string> }
   files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
+  /** Where the file and shell tools work, and whether it is provisioned per run. */
+  workspace: { session: boolean; base?: string }
   shell: {
     enabled: boolean
     root?: string
@@ -94,6 +96,11 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
     readOnly: env.FILES_READONLY === '1' || env.FILES_READONLY === 'true',
   }
 
+  const workspace = {
+    session: env.WORKSPACE_SESSION === '1' || env.WORKSPACE_SESSION === 'true',
+    base: env.WORKSPACE_BASE || undefined,
+  }
+
   const shell = loadShellToolConfig(env)
   if (!shell.ok) return { ok: false, error: shell.error }
 
@@ -128,6 +135,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialL
       browserUse,
       http: http.config,
       files,
+      workspace,
       shell: shell.config,
       search,
       memory,
