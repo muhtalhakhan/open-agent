@@ -111,20 +111,29 @@ export function createNutJsWindowOperator(): WindowOperator {
       // Map whatever it provides onto our WindowInfo interface.
       // Adjust field names here once nut-js types are available locally.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const apps: any[] = (await (op as any).getWindows?.()) ?? []
-      return apps.map((w: any): WindowInfo => ({
-        id: String(w.id ?? w.hwnd ?? w.handle ?? ''),
-        title: String(w.title ?? w.text ?? ''),
-        appName: String(w.appName ?? w.processName ?? w.process?.name ?? ''),
-        bounds: {
-          x: w.bounds?.x ?? w.x ?? 0,
-          y: w.bounds?.y ?? w.y ?? 0,
-          width: w.bounds?.width ?? w.width ?? 0,
-          height: w.bounds?.height ?? w.height ?? 0,
-        },
-        isFocused: Boolean(w.isFocused ?? w.focused ?? w.isActive),
-        isMinimized: Boolean(w.isMinimized ?? w.minimized),
-      }))
+      const getWindows = (op as any).getWindows
+      if (typeof getWindows !== 'function') {
+        throw new Error(
+          'window_list is not supported by the installed @ui-tars/operator-nut-js version (missing getWindows).',
+        )
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const windows: any[] = (await getWindows.call(op)) ?? []
+      return windows
+        .map((w: any): WindowInfo => ({
+          id: String(w.id ?? w.hwnd ?? w.handle ?? ''),
+          title: String(w.title ?? w.text ?? ''),
+          appName: String(w.appName ?? w.processName ?? w.process?.name ?? ''),
+          bounds: {
+            x: w.bounds?.x ?? w.x ?? 0,
+            y: w.bounds?.y ?? w.y ?? 0,
+            width: w.bounds?.width ?? w.width ?? 0,
+            height: w.bounds?.height ?? w.height ?? 0,
+          },
+          isFocused: Boolean(w.isFocused ?? w.focused ?? w.isActive),
+          isMinimized: Boolean(w.isMinimized ?? w.minimized),
+        }))
+        .filter((w) => w.id.length > 0)
     },
 
     async screenshot(windowId: string): Promise<ScreenshotOutput> {
