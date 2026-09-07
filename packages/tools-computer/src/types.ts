@@ -45,8 +45,7 @@ export interface WindowInfo {
   bounds: { x: number; y: number; width: number; height: number }
   /** Whether this window is currently focused. */
   isFocused: boolean
-  /** Whether this window is minimised to the taskbar. */
-  isMinimized: boolean
+  /** Whether this window is minimized to the taskbar. */
 }
 
 /** The operations the window-management adapter must implement. */
