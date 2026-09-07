@@ -146,6 +146,7 @@ export function createNutJsWindowOperator(): WindowOperator {
         )
       }
       return (await screenshotWindow.call(op, windowId)) as ScreenshotOutput
+    },
 
     async focus(windowId: string): Promise<void> {
       // @ts-expect-error optional peer dependency, not installed by this package
