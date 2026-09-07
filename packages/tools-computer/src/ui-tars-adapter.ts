@@ -1,4 +1,12 @@
-import type { GuiAgentFactory, GuiAgentLike, GuiAgentUpdate, ScreenshotOperator, ScreenshotOutput } from './types.js'
+import type {
+  GuiAgentFactory,
+  GuiAgentLike,
+  GuiAgentUpdate,
+  ScreenshotOperator,
+  ScreenshotOutput,
+  WindowOperator,
+  WindowInfo,
+} from './types.js'
 
 export interface UiTarsModelConfig {
   baseURL: string
@@ -74,6 +82,99 @@ export function createNutJsScreenshotOperator(): ScreenshotOperator {
       // @ts-expect-error optional peer dependency, not installed by this package
       const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
       return (await new NutJSOperator().screenshot()) as ScreenshotOutput
+    },
+  }
+}
+
+/**
+ * A WindowOperator backed by `@ui-tars/operator-nut-js`'s native window-management
+ * APIs. Kept lazy for the same reason as `createNutJsScreenshotOperator`: the
+ * native bindings need a real display, so importing eagerly would break headless
+ * environments.
+ *
+ * If the peer isn't installed, the import rejects and the window tools surface
+ * that as a tool error rather than crashing the agent.
+ *
+ * Note: the actual API surface of `@ui-tars/operator-nut-js` for window
+ * operations is determined by what that package exposes — this adapter maps
+ * the `WindowOperator` interface onto whatever nut-js provides (window App,
+ * window title, etc.). Adjust the field-mapping below to match the actual
+ * nut-js API shape once it is installed.
+ */
+export function createNutJsWindowOperator(): WindowOperator {
+  return {
+    async list(): Promise<WindowInfo[]> {
+      // @ts-expect-error optional peer dependency, not installed by this package
+      const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
+      const op = new NutJSOperator()
+      // nut-js exposes window-management via its App/Window objects.
+      // Map whatever it provides onto our WindowInfo interface.
+      // Adjust field names here once nut-js types are available locally.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const apps: any[] = (await (op as any).getWindows?.()) ?? []
+      return apps.map((w: any): WindowInfo => ({
+        id: String(w.id ?? w.hwnd ?? w.handle ?? ''),
+        title: String(w.title ?? w.text ?? ''),
+        appName: String(w.appName ?? w.processName ?? w.process?.name ?? ''),
+        bounds: {
+          x: w.bounds?.x ?? w.x ?? 0,
+          y: w.bounds?.y ?? w.y ?? 0,
+          width: w.bounds?.width ?? w.width ?? 0,
+          height: w.bounds?.height ?? w.height ?? 0,
+        },
+        isFocused: Boolean(w.isFocused ?? w.focused ?? w.isActive),
+        isMinimized: Boolean(w.isMinimized ?? w.minimized),
+      }))
+    },
+
+    async screenshot(windowId: string): Promise<ScreenshotOutput> {
+      // @ts-expect-error optional peer dependency, not installed by this package
+      const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
+      const op = new NutJSOperator()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return ((await (op as any).screenshotWindow?.(windowId)) ?? op.screenshot()) as ScreenshotOutput
+    },
+
+    async focus(windowId: string): Promise<void> {
+      // @ts-expect-error optional peer dependency, not installed by this package
+      const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
+      const op = new NutJSOperator()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (typeof (op as any).focusWindow === 'function') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (op as any).focusWindow(windowId)
+      } else {
+        // Fallback: activate via mouse click at window center
+        const wins = await this.list()
+        const target = wins.find((w) => w.id === windowId)
+        if (!target) throw new Error(`Window ${windowId} not found`)
+        const cx = target.bounds.x + target.bounds.width / 2
+        const cy = target.bounds.y + target.bounds.height / 2
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (op as any).mouse?.click?.(cx, cy)
+      }
+    },
+
+    async setBounds(
+      windowId: string,
+      bounds: { x?: number; y?: number; width?: number; height?: number },
+    ): Promise<void> {
+      // @ts-expect-error optional peer dependency, not installed by this package
+      const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
+      const op = new NutJSOperator()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (typeof (op as any).setWindowBounds === 'function') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (op as any).setWindowBounds(windowId, bounds)
+      } else if (typeof (op as any).moveWindow === 'function') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (op as any).moveWindow(windowId, bounds)
+      } else {
+        throw new Error(
+          `setBounds is not supported by the installed @ui-tars/operator-nut-js version. ` +
+            `Please update to a version that exposes window move/resize APIs.`,
+        )
+      }
     },
   }
 }
