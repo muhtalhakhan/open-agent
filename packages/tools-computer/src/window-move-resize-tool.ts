@@ -25,6 +25,9 @@ export function windowMoveResizeTool(operator: WindowOperator): ToolDefinition<{
     permissionLevel: 'ask',
     async execute(args) {
       try {
+        if (args.x === undefined && args.y === undefined && args.width === undefined && args.height === undefined) {
+          return { ok: false, content: '', error: 'At least one of x, y, width, or height must be provided.' }
+        }
         await operator.setBounds(args.windowId, {
           x: args.x,
           y: args.y,
