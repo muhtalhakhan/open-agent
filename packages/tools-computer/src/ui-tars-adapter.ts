@@ -129,11 +129,14 @@ export function createNutJsWindowOperator(): WindowOperator {
 
     async screenshot(windowId: string): Promise<ScreenshotOutput> {
       // @ts-expect-error optional peer dependency, not installed by this package
-      const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
-      const op = new NutJSOperator()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return ((await (op as any).screenshotWindow?.(windowId)) ?? op.screenshot()) as ScreenshotOutput
-    },
+      const screenshotWindow = (op as any).screenshotWindow
+      if (typeof screenshotWindow !== 'function') {
+        throw new Error(
+          'window_screenshot is not supported by the installed @ui-tars/operator-nut-js version (missing screenshotWindow).',
+        )
+      }
+      return (await screenshotWindow.call(op, windowId)) as ScreenshotOutput
 
     async focus(windowId: string): Promise<void> {
       // @ts-expect-error optional peer dependency, not installed by this package
