@@ -110,14 +110,14 @@ export function createNutJsWindowOperator(): WindowOperator {
       // nut-js exposes window-management via its App/Window objects.
       // Map whatever it provides onto our WindowInfo interface.
       // Adjust field names here once nut-js types are available locally.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const getWindows = (op as any).getWindows
       if (typeof getWindows !== 'function') {
         throw new Error(
           'window_list is not supported by the installed @ui-tars/operator-nut-js version (missing getWindows).',
         )
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const windows: any[] = (await getWindows.call(op)) ?? []
       return windows
         .map((w: any): WindowInfo => ({
@@ -138,7 +138,9 @@ export function createNutJsWindowOperator(): WindowOperator {
 
     async screenshot(windowId: string): Promise<ScreenshotOutput> {
       // @ts-expect-error optional peer dependency, not installed by this package
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
+      const op = new NutJSOperator()
+
       const screenshotWindow = (op as any).screenshotWindow
       if (typeof screenshotWindow !== 'function') {
         throw new Error(
@@ -152,9 +154,8 @@ export function createNutJsWindowOperator(): WindowOperator {
       // @ts-expect-error optional peer dependency, not installed by this package
       const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
       const op = new NutJSOperator()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       if (typeof (op as any).focusWindow === 'function') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (op as any).focusWindow(windowId)
       } else {
         // Fallback: activate via mouse click at window center
@@ -163,7 +164,7 @@ export function createNutJsWindowOperator(): WindowOperator {
         if (!target) throw new Error(`Window ${windowId} not found`)
         const cx = target.bounds.x + target.bounds.width / 2
         const cy = target.bounds.y + target.bounds.height / 2
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         await (op as any).mouse?.click?.(cx, cy)
       }
     },
@@ -175,12 +176,10 @@ export function createNutJsWindowOperator(): WindowOperator {
       // @ts-expect-error optional peer dependency, not installed by this package
       const { NutJSOperator } = await import('@ui-tars/operator-nut-js')
       const op = new NutJSOperator()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       if (typeof (op as any).setWindowBounds === 'function') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (op as any).setWindowBounds(windowId, bounds)
       } else if (typeof (op as any).moveWindow === 'function') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (op as any).moveWindow(windowId, bounds)
       } else {
         throw new Error(

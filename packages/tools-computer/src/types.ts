@@ -46,6 +46,7 @@ export interface WindowInfo {
   /** Whether this window is currently focused. */
   isFocused: boolean
   /** Whether this window is minimized to the taskbar. */
+  isMinimized: boolean
 }
 
 /** The operations the window-management adapter must implement. */
