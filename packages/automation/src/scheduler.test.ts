@@ -4,6 +4,15 @@ import { MemoryTaskStore } from './store.js'
 import type { ScheduledTask, TaskDispatch, TaskRunner, TriggerEvaluator } from './types.js'
 
 /**
+ * Drains the microtask queue. A fired timer starts an async `tick()` whose
+ * chain of persists and runner calls is many microtasks deep, so awaiting a
+ * couple of resolved promises is not enough to see it through to the re-arm.
+ */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
+/**
  * A hand-driven clock plus timer pair. Nothing in these tests waits on real
  * time: `advance()` moves the clock and fires any timer that came due.
  */
@@ -19,16 +28,23 @@ function fakeClock(start = 1_000) {
     clearTimer: () => {
       pending = undefined
     },
-    /** Moves time forward and runs the armed timer if it is now due. */
+    /**
+     * Moves time forward, firing each armed timer at its own scheduled moment
+     * rather than all of them at the end of the span. Real timers behave this
+     * way, and the difference matters: a task that should fire ten times over
+     * ten seconds fires once if the clock teleports, because by the time it
+     * runs its next occurrence is already in the past.
+     */
     async advance(ms: number) {
-      now += ms
-      for (let i = 0; i < 100 && pending && pending.at <= now; i++) {
+      const target = now + ms
+      for (let i = 0; i < 1_000 && pending && pending.at <= target; i++) {
         const due = pending
         pending = undefined
+        now = Math.max(now, due.at)
         due.fn()
-        await Promise.resolve()
-        await Promise.resolve()
+        await flush()
       }
+      now = target
     },
     get armed() {
       return pending?.at
@@ -61,7 +77,12 @@ function staleTask(): ScheduledTask {
   }
 }
 
-/** Fires every `everyMs`, forever — stands in for the recurring triggers of #78. */
+/**
+ * A minimal unbounded interval evaluator. The real `every` trigger honours
+ * `until`; these tests only need the stepping behaviour, and keeping a local
+ * one means a change to the shipped trigger cannot quietly rewrite what the
+ * scheduler tests are asserting about the scheduler.
+ */
 const everyTrigger: TriggerEvaluator = (spec, from) => from + (spec.everyMs as number)
 
 describe('Scheduler', () => {
@@ -116,8 +137,7 @@ describe('Scheduler', () => {
     // The run drags on well past the next occurrence before finishing.
     await clock.advance(5_000)
     finishRun!()
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
 
     // Next fire is fire-time + interval (3000), not finish-time + interval.
     expect(scheduler.get(task.id)?.nextRunAt).toBe(3_000)
@@ -272,8 +292,8 @@ describe('Scheduler', () => {
   it('rejects an unknown trigger kind at add() rather than at fire time', async () => {
     const scheduler = new Scheduler({ runner: async () => {}, ...fakeClock() })
     await expect(
-      scheduler.add({ name: 'x', prompt: 'x', trigger: { kind: 'cron', expr: '* * * * *' } }),
-    ).rejects.toThrow(/unknown trigger kind "cron"/)
+      scheduler.add({ name: 'x', prompt: 'x', trigger: { kind: 'phase-of-moon', phase: 'full' } }),
+    ).rejects.toThrow(/unknown trigger kind "phase-of-moon"/)
   })
 
   it('lists the schedule soonest first, with never-firing entries last', async () => {
@@ -291,13 +311,13 @@ describe('Scheduler', () => {
 
   it('lets a plugin contribute a trigger kind and take it away again', async () => {
     const scheduler = new Scheduler({ runner: async () => {}, ...fakeClock() })
-    const remove = scheduler.registerTrigger('every', everyTrigger)
+    const remove = scheduler.registerTrigger('tidal', everyTrigger)
 
-    const task = await scheduler.add({ name: 'r', prompt: 'p', trigger: { kind: 'every', everyMs: 500 } })
+    const task = await scheduler.add({ name: 'r', prompt: 'p', trigger: { kind: 'tidal', everyMs: 500 } })
     expect(scheduler.get(task.id)?.nextRunAt).toBe(1_500)
 
     remove()
-    await expect(scheduler.add({ name: 'r2', prompt: 'p', trigger: { kind: 'every', everyMs: 500 } })).rejects.toThrow(
+    await expect(scheduler.add({ name: 'r2', prompt: 'p', trigger: { kind: 'tidal', everyMs: 500 } })).rejects.toThrow(
       /unknown trigger kind/,
     )
   })
@@ -457,5 +477,140 @@ describe('Scheduler grace window', () => {
 
     await scheduler.start()
     expect(scheduler.get('stale')?.status).toBe('missed')
+  })
+})
+
+describe('Scheduler recurring tasks', () => {
+  it('repeats on an interval written as a duration', async () => {
+    const clock = fakeClock()
+    const runner = recordingRunner()
+    const scheduler = new Scheduler({ runner, ...clock })
+
+    await scheduler.start()
+    const task = await scheduler.every({ name: 'poll', prompt: 'check the queue', interval: '30m' })
+    expect(task.trigger).toEqual({ kind: 'every', everyMs: 1_800_000 })
+
+    await clock.advance(1_800_000)
+    expect(runner.calls).toHaveLength(1)
+    await clock.advance(1_800_000)
+    expect(runner.calls).toHaveLength(2)
+    expect(scheduler.get(task.id)?.status).toBe('pending')
+  })
+
+  it('keeps an anchored interval on its grid rather than drifting', async () => {
+    const clock = fakeClock(1_000)
+    const runner = recordingRunner()
+    const scheduler = new Scheduler({ runner, ...clock })
+
+    await scheduler.start()
+    const task = await scheduler.every({ name: 'top of hour', prompt: 'p', interval: 1_000, anchor: 0 })
+    expect(scheduler.get(task.id)?.nextRunAt).toBe(2_000)
+
+    await clock.advance(1_000)
+    expect(scheduler.get(task.id)?.nextRunAt).toBe(3_000)
+  })
+
+  it('repeats on a cron expression, in the given zone', async () => {
+    const clock = fakeClock(Date.parse('2026-09-09T20:00:00Z'))
+    const scheduler = new Scheduler({ runner: async () => {}, ...clock })
+
+    await scheduler.start()
+    const task = await scheduler.cron({
+      name: 'weekday standup',
+      prompt: 'summarize overnight activity',
+      expr: '0 9 * * 1-5',
+      timeZone: 'America/New_York',
+    })
+
+    expect(task.nextRunAt).toBe(Date.parse('2026-09-10T13:00:00Z')) // Thu 9am EDT
+  })
+
+  it('rejects a bad cron expression at add time, not at some later fire', async () => {
+    const scheduler = new Scheduler({ runner: async () => {}, ...fakeClock() })
+    await expect(scheduler.cron({ name: 'x', prompt: 'p', expr: '0 99 * * *' })).rejects.toThrow(
+      /hour must be between 0 and 23/,
+    )
+    expect(scheduler.list()).toHaveLength(0)
+  })
+
+  it('rejects an interval it cannot read, or one that is not positive', async () => {
+    const scheduler = new Scheduler({ runner: async () => {}, ...fakeClock() })
+    await expect(scheduler.every({ name: 'x', prompt: 'p', interval: 'often' })).rejects.toThrow(/could not read/)
+    await expect(scheduler.every({ name: 'x', prompt: 'p', interval: 0 })).rejects.toThrow(/positive duration/)
+  })
+
+  it('stops recurring at the until bound', async () => {
+    const clock = fakeClock()
+    const runner = recordingRunner()
+    const scheduler = new Scheduler({ runner, ...clock })
+
+    await scheduler.start()
+    const task = await scheduler.every({ name: 'brief', prompt: 'p', interval: 1_000, until: 3_000 })
+
+    await clock.advance(1_000) // fires at 2_000
+    await clock.advance(1_000) // fires at 3_000
+    expect(runner.calls).toHaveLength(2)
+
+    await clock.advance(10_000)
+    expect(runner.calls).toHaveLength(2)
+    expect(scheduler.get(task.id)?.status).toBe('done')
+  })
+
+  it('stops after maxRuns, whatever the trigger would offer next', async () => {
+    const clock = fakeClock()
+    const runner = recordingRunner()
+    const scheduler = new Scheduler({ runner, ...clock })
+
+    await scheduler.start()
+    const task = await scheduler.every({ name: 'thrice', prompt: 'p', interval: 1_000, maxRuns: 3 })
+
+    await clock.advance(10_000)
+    expect(runner.calls).toHaveLength(3)
+    const after = scheduler.get(task.id)!
+    expect(after.runCount).toBe(3)
+    expect(after.status).toBe('done')
+    expect(after.nextRunAt).toBeUndefined()
+  })
+
+  it('counts a failed run against maxRuns, so a broken task cannot repeat forever', async () => {
+    const clock = fakeClock()
+    const scheduler = new Scheduler({
+      runner: async () => {
+        throw new Error('still broken')
+      },
+      ...clock,
+    })
+
+    await scheduler.start()
+    const task = await scheduler.every({ name: 'doomed', prompt: 'p', interval: 1_000, maxRuns: 2 })
+
+    await clock.advance(10_000)
+    const after = scheduler.get(task.id)!
+    expect(after.runCount).toBe(2)
+    expect(after.status).toBe('failed')
+    expect(after.lastError).toBe('still broken')
+  })
+
+  it('survives a restart, picking the schedule up from the store', async () => {
+    const store = new MemoryTaskStore()
+    const first = new Scheduler({ runner: async () => {}, store, ...fakeClock(1_000) })
+    await first.start()
+    const task = await first.every({ name: 'hourly', prompt: 'p', interval: 1_000, anchor: 0 })
+    await first.stop()
+
+    const clock = fakeClock(5_500)
+    const runner = recordingRunner()
+    const restarted = new Scheduler({ runner, store, ...clock })
+    await restarted.start()
+
+    // The 2_000 occurrence was missed while stopped, so it catches up once on
+    // startup — and then rejoins the anchor grid at 6_000 rather than counting
+    // an interval from the catch-up and drifting to 6_500.
+    expect(runner.calls.map((call) => call.firedAt)).toEqual([5_500])
+    expect(restarted.get(task.id)?.nextRunAt).toBe(6_000)
+
+    await clock.advance(500)
+    expect(runner.calls.map((call) => call.firedAt)).toEqual([5_500, 6_000])
+    expect(restarted.get(task.id)?.name).toBe('hourly')
   })
 })
