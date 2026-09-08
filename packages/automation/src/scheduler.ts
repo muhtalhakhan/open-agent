@@ -3,6 +3,7 @@ import type { Logger } from '@open-agent/agent'
 import { silentLogger } from '@open-agent/agent'
 import { builtinTriggers } from './triggers.js'
 import { MemoryTaskStore } from './store.js'
+import { parseWhen } from './when.js'
 import type { NewTask, ScheduledTask, TaskRunner, TaskStatus, TaskStore, TriggerEvaluator } from './types.js'
 
 /**
@@ -27,6 +28,26 @@ export interface SchedulerOptions {
   now?: () => number
   setTimer?: (fn: () => void, ms: number) => TimerHandle
   clearTimer?: (handle: TimerHandle) => void
+  /**
+   * How stale a fire time may be and still be worth running, in milliseconds.
+   *
+   * Catching up on a missed run is usually right — that is the whole point of
+   * a durable schedule — but not indefinitely: "post the Friday summary",
+   * fired the following Wednesday because a laptop was shut, is worse than not
+   * posting it. Defaults to `Infinity`, which always catches up.
+   */
+  graceMs?: number
+}
+
+/** What `once()` needs beyond the task itself. */
+export interface OnceTaskInput {
+  name: string
+  prompt: string
+  /** Any form `parseWhen` accepts, or an epoch-millisecond instant. */
+  when: string | number
+  /** IANA zone the wall-clock forms are read in (default: the host's zone). */
+  timeZone?: string
+  id?: string
 }
 
 /** Narrows `list()` to part of the schedule. */
@@ -53,6 +74,7 @@ export class Scheduler {
   private readonly now: () => number
   private readonly setTimer: (fn: () => void, ms: number) => TimerHandle
   private readonly clearTimer: (handle: TimerHandle) => void
+  private readonly graceMs: number
 
   private readonly tasks = new Map<string, ScheduledTask>()
   /** Tasks whose runner is in flight, so a slow run is never started twice. */
@@ -76,6 +98,32 @@ export class Scheduler {
         return handle
       })
     this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as NodeJS.Timeout))
+    this.graceMs = options.graceMs ?? Infinity
+  }
+
+  /** The scheduler's clock, so callers resolve times against the same one. */
+  currentTime(): number {
+    return this.now()
+  }
+
+  /**
+   * Schedules a task to run once, at a time written the way a person would
+   * write it — "tomorrow at 9am", "in 30 minutes", "2026-09-10T09:00:00Z".
+   *
+   * The instant is resolved once, at add time, and stored. A one-time task
+   * means a fixed moment, so re-resolving "tomorrow at 9am" on every restart
+   * would quietly move the task instead of keeping it.
+   */
+  async once(input: OnceTaskInput): Promise<ScheduledTask> {
+    const at =
+      typeof input.when === 'number' ? input.when : parseWhen(input.when, { now: this.now(), timeZone: input.timeZone })
+
+    return this.add({
+      id: input.id,
+      name: input.name,
+      prompt: input.prompt,
+      trigger: { kind: 'at', at },
+    })
   }
 
   /**
@@ -200,7 +248,7 @@ export class Scheduler {
    */
   async tick(): Promise<void> {
     const at = this.now()
-    const due = [...this.tasks.values()].filter(
+    const ready = [...this.tasks.values()].filter(
       (task) =>
         task.status === 'pending' &&
         task.nextRunAt !== undefined &&
@@ -208,8 +256,47 @@ export class Scheduler {
         !this.inFlight.has(task.id),
     )
 
+    const stale = ready.filter((task) => at - task.nextRunAt! > this.graceMs)
+    for (const task of stale) this.skipStale(task, at)
+    if (stale.length > 0) await this.persist()
+
+    const due = ready.filter((task) => !stale.includes(task))
     await Promise.all(due.map((task) => this.fire(task, at)))
     this.arm()
+  }
+
+  /**
+   * Steps a task past every fire time older than the grace window without
+   * running any of them.
+   *
+   * A recurring task lands on its next occurrence still in the window and
+   * carries on; a one-time task runs out of occurrences and ends as `missed`.
+   * The loop is bounded because a malformed evaluator that never advances
+   * would otherwise spin forever.
+   */
+  private skipStale(task: ScheduledTask, at: number): void {
+    let cursor = task.nextRunAt
+    let skipped = 0
+
+    for (let guard = 0; cursor !== undefined && at - cursor > this.graceMs && guard < 10_000; guard++) {
+      let next: number | undefined
+      try {
+        next = this.evaluate(task.trigger, cursor, cursor)
+      } catch (err) {
+        task.lastError = err instanceof Error ? err.message : String(err)
+        next = undefined
+      }
+      // An evaluator that will not move forward would loop forever; treat it
+      // as having no further occurrences rather than hanging the scheduler.
+      if (next !== undefined && next <= cursor) next = undefined
+      cursor = next
+      skipped++
+    }
+
+    task.missedCount = (task.missedCount ?? 0) + skipped
+    task.nextRunAt = cursor
+    task.status = cursor === undefined ? 'missed' : 'pending'
+    this.logger.warn('scheduler/missed', { id: task.id, skipped, nextRunAt: cursor })
   }
 
   /** Runs one task and re-arms it from the outcome. */

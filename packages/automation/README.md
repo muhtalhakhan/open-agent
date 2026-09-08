@@ -24,6 +24,30 @@ It answers "when does this fire next?", or `undefined` for "never again". One-ti
 
 Evaluators must be pure: the scheduler re-derives fire times on every re-arm, including after a restart.
 
+## One-time tasks
+
+`once()` takes a time written the way a person writes one:
+
+```ts
+await scheduler.once({ name: 'digest', prompt: 'summarize my inbox', when: 'tomorrow at 9am' })
+```
+
+`parseWhen` accepts ISO timestamps (`2026-09-10T09:00:00Z`, `2026-09-10 09:00`), durations (`in 30 minutes`, `+2h30m`, `45m`), clock times (`at 9am`, `21:30`, `noon`) and day-and-time phrases (`tomorrow at 9am`, `friday 17:00`, `next monday`). Anything else is refused with an error naming the forms that work.
+
+Wall-clock forms always land in the future: a time already past today rolls to tomorrow, and a weekday means its next occurrence — `friday` said on a Friday is the one coming. An explicit ISO timestamp is taken at face value, past or not, because naming a date is unambiguous.
+
+Times resolve against a real IANA zone, not a fixed offset, so `9am` stays `9am` across a DST change. A wall clock the clocks jump over — `02:30` on a spring-forward morning — resolves to the first real time after it. The instant is resolved **once, when the task is added**, and stored: re-reading "tomorrow at 9am" on every restart would quietly move the task instead of keeping it.
+
+### How stale is too stale
+
+Catching up on a missed run is usually right — that is the point of a durable schedule — but not indefinitely. "Post the Friday summary", fired the following Wednesday because a laptop was shut, is worse than not posting it. `graceMs` bounds it:
+
+```ts
+new Scheduler({ runner, graceMs: 6 * 3_600_000 })
+```
+
+A fire time staler than the window is passed over rather than run. A one-time task that runs out of occurrences ends as `missed`; a recurring one walks forward to its next live occurrence and fires once, not once per occurrence it slept through. The default is `Infinity` — always catch up.
+
 ## Usage
 
 ```ts
@@ -65,5 +89,5 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 
 ## Status
 
-- ✅ #76 Task scheduler
-- ⬜ #77 One-time tasks · #78 Recurring tasks · #79 Background execution · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history
+- ✅ #76 Task scheduler · #77 One-time tasks
+- ⬜ #78 Recurring tasks · #79 Background execution · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history

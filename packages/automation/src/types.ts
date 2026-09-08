@@ -10,6 +10,8 @@ export type TaskStatus =
   | 'failed'
   /** Kept in the schedule but skipped until resumed. */
   | 'paused'
+  /** Its fire time passed by more than the grace window, so it was not run. */
+  | 'missed'
   /** Removed from the schedule by hand. */
   | 'cancelled'
 
@@ -58,6 +60,8 @@ export interface ScheduledTask {
   lastRunAt?: number
   /** How many times it has fired. */
   runCount: number
+  /** How many fire times were passed over as too stale to be worth running. */
+  missedCount?: number
   /** The error from the most recent failed run, if any. */
   lastError?: string
 }
