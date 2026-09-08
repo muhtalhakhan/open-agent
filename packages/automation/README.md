@@ -48,6 +48,34 @@ new Scheduler({ runner, graceMs: 6 * 3_600_000 })
 
 A fire time staler than the window is passed over rather than run. A one-time task that runs out of occurrences ends as `missed`; a recurring one walks forward to its next live occurrence and fires once, not once per occurrence it slept through. The default is `Infinity` — always catch up.
 
+## Recurring tasks
+
+Two shapes, because people mean two different things by "repeating":
+
+```ts
+// Every N of something, measured from the last run.
+await scheduler.every({ name: 'poll', prompt: 'check the queue', interval: '30m' })
+
+// A wall-clock schedule.
+await scheduler.cron({
+  name: 'standup',
+  prompt: 'summarize overnight activity',
+  expr: '0 9 * * 1-5',
+  timeZone: 'America/New_York',
+})
+```
+
+`cron` takes the five crontab fields — `*`, `5`, `1-5`, `*/15`, `1-5/2`, lists, and month/weekday names — plus the `@daily`/`@hourly`/`@weekly`/`@monthly`/`@yearly` shorthands. Sunday is 0 or 7. When **both** day fields are restricted they combine by OR, as crontab defines: `0 0 1 * mon` is "the 1st, and every Monday", not their intersection. A malformed expression is rejected when the task is added, with the offending field named — a silently-wrong schedule is far worse than a refused one.
+
+Cron fire times are wall-clock, so `0 9 * * *` stays 9am through a DST change instead of drifting an hour. A daily time the clocks jump over still fires, at the first real instant after it, rather than being skipped for the day.
+
+`every` measures from the previous fire by default. Pass an `anchor` to pin occurrences to a grid from that instant instead, so an hourly task stays on the hour even when a restart lands it mid-interval.
+
+Both accept bounds:
+
+- `until` — stop after an instant, written any way `parseWhen` accepts.
+- `maxRuns` — stop after N runs. A run that threw still counts, so a task failing every time cannot repeat forever.
+
 ## Usage
 
 ```ts
@@ -89,5 +117,5 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 
 ## Status
 
-- ✅ #76 Task scheduler · #77 One-time tasks
-- ⬜ #78 Recurring tasks · #79 Background execution · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history
+- ✅ #76 Task scheduler · #77 One-time tasks · #78 Recurring tasks
+- ⬜ #79 Background execution · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history

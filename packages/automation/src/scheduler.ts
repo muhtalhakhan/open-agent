@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto'
 import type { Logger } from '@open-agent/agent'
 import { silentLogger } from '@open-agent/agent'
 import { builtinTriggers } from './triggers.js'
+import { parseCron } from './cron.js'
 import { MemoryTaskStore } from './store.js'
-import { parseWhen } from './when.js'
+import { parseInterval, parseWhen } from './when.js'
 import type { NewTask, ScheduledTask, TaskRunner, TaskStatus, TaskStore, TriggerEvaluator } from './types.js'
 
 /**
@@ -37,6 +38,19 @@ export interface SchedulerOptions {
    * posting it. Defaults to `Infinity`, which always catches up.
    */
   graceMs?: number
+}
+
+/** Shared shape of `every()` and `cron()`. */
+export interface RecurringTaskInput {
+  name: string
+  prompt: string
+  /** IANA zone for wall-clock schedules and for reading `until`. */
+  timeZone?: string
+  /** Stop recurring after this instant, or any phrasing `parseWhen` accepts. */
+  until?: string | number
+  /** Stop after this many runs. */
+  maxRuns?: number
+  id?: string
 }
 
 /** What `once()` needs beyond the task itself. */
@@ -174,6 +188,61 @@ export class Scheduler {
     this.logger.info('scheduler/stop', {})
   }
 
+  /**
+   * Schedules a task to repeat on a fixed interval — `'1h'`, `'30 minutes'`,
+   * or milliseconds.
+   *
+   * Without an `anchor` the interval runs from each fire; with one,
+   * occurrences are pinned to a grid from that instant, so an hourly task
+   * anchored to the top of the hour stays on the hour across a restart.
+   */
+  async every(
+    input: RecurringTaskInput & { interval: string | number; anchor?: string | number },
+  ): Promise<ScheduledTask> {
+    return this.add({
+      id: input.id,
+      name: input.name,
+      prompt: input.prompt,
+      maxRuns: input.maxRuns,
+      trigger: {
+        kind: 'every',
+        everyMs: parseInterval(input.interval),
+        ...(input.anchor === undefined ? {} : { anchor: this.resolveInstant(input.anchor, input.timeZone) }),
+        ...(input.until === undefined ? {} : { until: this.resolveInstant(input.until, input.timeZone) }),
+      },
+    })
+  }
+
+  /**
+   * Schedules a task on a crontab expression — `'0 9 * * 1-5'`, `'@daily'`.
+   *
+   * Fire times are wall-clock in `timeZone`, so `0 9 * * *` stays 9am through
+   * a DST change rather than drifting an hour.
+   */
+  async cron(input: RecurringTaskInput & { expr: string }): Promise<ScheduledTask> {
+    // Parse eagerly so a bad expression is rejected here, by the caller who
+    // can still fix it, rather than silently at some later fire time.
+    parseCron(input.expr)
+
+    return this.add({
+      id: input.id,
+      name: input.name,
+      prompt: input.prompt,
+      maxRuns: input.maxRuns,
+      trigger: {
+        kind: 'cron',
+        expr: input.expr,
+        ...(input.timeZone === undefined ? {} : { timeZone: input.timeZone }),
+        ...(input.until === undefined ? {} : { until: this.resolveInstant(input.until, input.timeZone) }),
+      },
+    })
+  }
+
+  /** Accepts either an instant or any phrasing `parseWhen` understands. */
+  private resolveInstant(value: string | number, timeZone?: string): number {
+    return typeof value === 'number' ? value : parseWhen(value, { now: this.now(), timeZone })
+  }
+
   /** Adds a task and computes its first fire time. */
   async add(input: NewTask): Promise<ScheduledTask> {
     const id = input.id ?? `task_${randomBytes(6).toString('hex')}`
@@ -190,6 +259,7 @@ export class Scheduler {
       createdAt,
       nextRunAt,
       runCount: 0,
+      maxRuns: input.maxRuns,
     }
 
     this.tasks.set(id, task)
@@ -327,6 +397,10 @@ export class Scheduler {
         task.lastError = err instanceof Error ? err.message : String(err)
         this.logger.error('scheduler/rearm-failed', { id: task.id, error: task.lastError })
       }
+
+      // A run budget outranks the trigger: "every hour, five times" stops at
+      // five whatever the trigger would offer next.
+      if (task.maxRuns !== undefined && task.runCount >= task.maxRuns) nextRunAt = undefined
 
       task.nextRunAt = nextRunAt
       task.status = nextRunAt !== undefined ? 'pending' : task.lastError ? 'failed' : 'done'
