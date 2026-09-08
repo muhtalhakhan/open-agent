@@ -6,6 +6,7 @@ import dotenv from 'dotenv'
 import {
   AgentLoop,
   SessionLog,
+  SessionStore,
   ToolRegistry,
   buildSystemPrompt,
   consoleLogger,
@@ -86,8 +87,50 @@ async function main() {
   // I/O — cli.integration.test.ts pins the behaviour.
   const instructions = await loadProjectInstructions()
 
-  const ctx = new Context()
+  // Handle session resume: load existing session log if --resume is given
+  const sessionStore = new SessionStore()
   const sessions = new SessionLog()
+  let resumedSessionId: string | undefined
+  let resumedTaskId: string | undefined
+
+  if (args.resume !== undefined) {
+    let sessionId: string | null = args.resume === true ? null : args.resume
+    if (sessionId === null) {
+      sessionId = await sessionStore.mostRecent()
+      if (!sessionId) {
+        console.error('No prior sessions found to resume.')
+        process.exitCode = 1
+        return
+      }
+    }
+
+    const stored = await sessionStore.load(sessionId)
+    if (!stored) {
+      console.error(`Session "${sessionId}" not found.`)
+      process.exitCode = 1
+      return
+    }
+
+    // Find the most recent task ID in the stored events
+    const taskIds = new Set<string>()
+    for (const event of stored.events) {
+      if (event.taskId) taskIds.add(event.taskId)
+    }
+    const taskIdArray = Array.from(taskIds)
+    if (taskIdArray.length === 0) {
+      console.error(`Session "${sessionId}" has no tasks to resume.`)
+      process.exitCode = 1
+      return
+    }
+    // Use the most recent task ID
+    resumedTaskId = taskIdArray[taskIdArray.length - 1]
+    resumedSessionId = sessionId
+
+    // Load all events into the session log
+    sessions.loadFrom(stored)
+  }
+
+  const ctx = new Context()
   const tools = new ToolRegistry()
   const activeAbort: AbortRef = { current: null }
 
@@ -319,6 +362,17 @@ async function main() {
       })
     } else {
       await runRepl(loop, sessions, io, activeAbort, memoryHook)
+    }
+
+    // Persist session events to disk
+    if (resumedSessionId !== undefined && resumedTaskId !== undefined) {
+      await sessionStore.save(resumedSessionId, sessions.allEvents(), Date.now())
+    } else {
+      const sessionId = SessionStore.generateId()
+      await sessionStore.save(sessionId, sessions.allEvents(), Date.now())
+      if (!headless) {
+        io.write(`Session ID: ${sessionId}\nUse 'open-agent --resume ${sessionId}' to resume this session.\n`)
+      }
     }
   } finally {
     teardown()

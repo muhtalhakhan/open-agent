@@ -1,4 +1,5 @@
 import type { Message, SessionEvent } from './types.js'
+import type { StoredSession } from './session-store.js'
 
 /** How much of the last assistant message a task summary carries. */
 const SUMMARY_LENGTH = 120
@@ -27,6 +28,11 @@ export class SessionLog {
 
   all(taskId: string): SessionEvent[] {
     return this.events.filter((e) => e.taskId === taskId)
+  }
+
+  /** All events, regardless of task. */
+  allEvents(): SessionEvent[] {
+    return this.events
   }
 
   /** Every task id in the durable log, oldest task first. */
@@ -66,5 +72,12 @@ export class SessionLog {
       }
     }
     return messages
+  }
+
+  /** Load events from an external source (e.g. session resume). */
+  loadFrom(stored: StoredSession): void {
+    for (const event of stored.events) {
+      this.events.push(event)
+    }
   }
 }

@@ -1,5 +1,6 @@
 export * from './types.js'
 export { SessionLog } from './session.js'
+export { SessionStore, type StoredSession } from './session-store.js'
 export type { TaskSummary } from './session.js'
 export { ToolRegistry } from './tools.js'
 export type {
