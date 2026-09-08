@@ -103,6 +103,7 @@ packages/
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
   tools/       🚧 Remaining built-in tools: shell (Milestone 5)
+  automation/  ✅ Task scheduler: durable schedule, pluggable trigger kinds, fires tasks into a runner seam (Milestone 8)
   memory/      ✅ Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider, in-memory)
   security/    🚧 Permission system, approval UI hooks, sandboxing, audit logs (Milestone 9)
 docs/          Architecture, agent design, security model
