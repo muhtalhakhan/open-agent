@@ -18,7 +18,7 @@ export interface ParseWhenOptions {
 }
 
 /** Wall-clock fields, with no zone attached. */
-interface WallClock {
+export interface WallClock {
   year: number
   month: number
   day: number
@@ -111,7 +111,7 @@ function offsetAt(instant: number, timeZone: string): number {
 }
 
 /** The wall-clock reading in `timeZone` at a given instant. */
-function wallClockAt(instant: number, timeZone: string): WallClock & { weekday: number } {
+export function wallClockAt(instant: number, timeZone: string): WallClock & { weekday: number } {
   const local = new Date(instant + offsetAt(instant, timeZone))
   return {
     year: local.getUTCFullYear(),
@@ -133,7 +133,7 @@ function wallClockAt(instant: number, timeZone: string): WallClock & { weekday: 
  * entirely has no exact instant — it resolves to the moment the clocks jumped
  * past it, which is the first real time at or after what was asked for.
  */
-function fromWallClock(wall: WallClock, timeZone: string): number {
+export function fromWallClock(wall: WallClock, timeZone: string): number {
   const asUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second)
   const first = asUtc - offsetAt(asUtc, timeZone)
   const second = asUtc - offsetAt(first, timeZone)
@@ -153,7 +153,7 @@ function fromWallClock(wall: WallClock, timeZone: string): number {
 }
 
 /** Sums a duration like "2h30m" or "1 day 6 hours"; undefined if it is not one. */
-function parseDuration(text: string): number | undefined {
+export function parseDuration(text: string): number | undefined {
   // Match against the whitespace-free form so "30 minutes" and "30m" are one
   // case, and so leftover words are detectable by length alone.
   const compact = text.replace(/\s+/g, '')
@@ -317,4 +317,23 @@ function addDays(wall: WallClock, days: number): WallClock {
     minute: wall.minute,
     second: wall.second,
   }
+}
+
+/**
+ * Reads an interval like "1h", "30 minutes" or "1 day 6 hours".
+ *
+ * A number is taken as milliseconds already. Zero and negative intervals are
+ * refused: a task that fires every 0ms is a busy loop, not a schedule.
+ *
+ * @throws if the interval cannot be read, or is not positive.
+ */
+export function parseInterval(input: string | number): number {
+  const ms = typeof input === 'number' ? input : parseDuration(input.trim().toLowerCase())
+  if (ms === undefined) {
+    throw new Error(
+      `could not read "${input}" as an interval — expected a duration like "1h", "30m" or "1 day 6 hours"`,
+    )
+  }
+  if (!Number.isFinite(ms) || ms <= 0) throw new Error(`an interval must be a positive duration, got ${input}`)
+  return ms
 }

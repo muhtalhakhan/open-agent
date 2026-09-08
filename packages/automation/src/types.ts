@@ -64,6 +64,8 @@ export interface ScheduledTask {
   missedCount?: number
   /** The error from the most recent failed run, if any. */
   lastError?: string
+  /** Stop after this many runs. Unbounded when absent. */
+  maxRuns?: number
 }
 
 /** What `schedule.add()` needs; everything else is derived. */
@@ -73,6 +75,8 @@ export interface NewTask {
   trigger: TriggerSpec
   /** Provide an id to make `add()` idempotent; one is generated otherwise. */
   id?: string
+  /** Stop after this many runs. Unbounded when absent. */
+  maxRuns?: number
 }
 
 /** Handed to the runner when a task fires. */
