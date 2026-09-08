@@ -109,7 +109,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 5 — Files + Terminal | 10 / 10 | ✅ Complete                                                                                                                            |
 | 6 — Memory           | 8 / 8   | ✅ Complete                                                                                                                            |
 | 7 — Tools/MCP        | 7 / 7   | ✅ Complete                                                                                                                            |
-| 8 — Automation       | 0 / 8   | 🚧 Not started — first up: Task scheduler (#76), One-time tasks (#77), +6 more                                                         |
+| 8 — Automation       | 3 / 8   | 🟡 In progress — Background execution (#79), Job queue (#80), +3 more left                                                             |
 | 9 — Security         | 7 / 10  | 🟡 In progress — Secret management (#88), Prompt-injection defenses (#91), +1 more left                                                |
 | 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                                  |
 | 11 — User Interfaces | 1 / 15  | 🟡 In progress — Streaming token output in the CLI (#102), Markdown rendering in terminal output (#103), +12 more left                 |
