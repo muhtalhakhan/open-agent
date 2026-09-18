@@ -147,6 +147,14 @@ describe('runRepl', () => {
     expect(io.output.join('')).toMatch(/provider down/)
   })
 
+  it('prints each final answer through formatAnswer when one is given', async () => {
+    const sessions = new SessionLog()
+    const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm: new EchoAdapter() })
+    const io = fakeIo(['**hi**'])
+    await runRepl(loop, sessions, io, { current: null }, { formatAnswer: (answer) => `<${answer}>` })
+    expect(io.output.join('')).toContain('\n<you said: **hi**>\n')
+  })
+
   describe('background jobs', () => {
     function withBackground(inputs: string[]) {
       const sessions = new SessionLog()

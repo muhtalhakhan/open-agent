@@ -19,6 +19,8 @@ export interface ReplOptions {
   background?: BackgroundJobs
   /** Enables `:history`, listing past tasks. */
   history?: () => Promise<TaskRecord[]>
+  /** Turns a final answer into what is printed — rendering its Markdown, say. Printed as-is when absent. */
+  formatAnswer?: (answer: string) => string
 }
 
 /** Lets the caller cancel whichever task is currently running (e.g. from a SIGINT handler). */
@@ -46,7 +48,7 @@ export async function runRepl(
   sessions: SessionLog,
   io: ReplIO,
   activeAbort: AbortRef,
-  { memory, background, history }: ReplOptions = {},
+  { memory, background, history, formatAnswer = (answer) => answer }: ReplOptions = {},
 ): Promise<void> {
   io.write(
     background
@@ -63,7 +65,7 @@ export async function runRepl(
       io.write(`${formatHistory(await history())}\n`)
       continue
     }
-    if (background && runBackgroundCommand(trimmed, background, io)) continue
+    if (background && runBackgroundCommand(trimmed, background, io, formatAnswer)) continue
 
     const controller = new AbortController()
     activeAbort.current = controller
@@ -73,7 +75,7 @@ export async function runRepl(
     io.setStatus?.(null)
 
     if (outcome.status === 'completed') {
-      io.write(`\n${outcome.answer}\n\n`)
+      io.write(`\n${formatAnswer(outcome.answer)}\n\n`)
     } else {
       io.write(`\n[${outcome.status}]${outcome.error ? ` ${outcome.error}` : ''}\n\n`)
     }
@@ -91,7 +93,12 @@ const BACKGROUND_HELP = `Background jobs:
  * Handles one of the background-job commands. Returns false for any other
  * line, which then runs as an ordinary task.
  */
-function runBackgroundCommand(line: string, background: BackgroundJobs, io: ReplIO): boolean {
+function runBackgroundCommand(
+  line: string,
+  background: BackgroundJobs,
+  io: ReplIO,
+  formatAnswer: (answer: string) => string,
+): boolean {
   const [command, ...rest] = line.split(/\s+/)
   const arg = rest.join(' ')
 
@@ -116,7 +123,8 @@ function runBackgroundCommand(line: string, background: BackgroundJobs, io: Repl
         io.write(arg ? `No background job matches "${arg}".\n\n` : 'Usage: :job <id>\n\n')
         return true
       }
-      const detail = job.status === 'failed' ? `Error: ${job.error}` : (job.result ?? '(no result yet)')
+      const detail =
+        job.status === 'failed' ? `Error: ${job.error}` : job.result ? formatAnswer(job.result) : '(no result yet)'
       io.write(`${describeJob(job)}\nPrompt: ${job.prompt}\n\n${detail}\n\n`)
       return true
     }

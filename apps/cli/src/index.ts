@@ -39,6 +39,7 @@ import { createBackgroundJobs, type BackgroundJobs } from './background.js'
 import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
 import { formatHistory, sessionHistory } from './history.js'
+import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -386,6 +387,7 @@ async function main() {
         memory: memoryHook,
         background,
         history: () => sessionHistory(sessionStore, sessions),
+        formatAnswer: shouldRenderMarkdown(process.stdout.isTTY, process.env) ? renderMarkdown : undefined,
       })
       // Before the session is saved, so what the jobs did so far is in it.
       const stopped = await background.close()

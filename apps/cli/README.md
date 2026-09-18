@@ -16,6 +16,10 @@ npm run cli
 
 When stdin/stdout are a real terminal, the CLI renders an [Ink](https://github.com/vadimdemedes/ink)-based TUI: a scrollable transcript (rendered once per entry via Ink's `<Static>`, so your terminal's own scrollback still works) with a fixed input line pinned below it, plus a transient "thinking…" status while a task is running. Piped input/output, CI, or anything else without a TTY on both ends falls back automatically to the plain `readline`-based REPL from before — set `CLI_NO_TUI=1` to force that fallback yourself. `:exit`, Ctrl+C (cancel the running task, or quit if idle), and Ctrl+D (quit) behave the same in both modes.
 
+## Rendered answers
+
+In a terminal, answers are shown with their Markdown rendered: headings, bold and italic, `code`, links as label and URL, bullet and numbered lists, task boxes, quotes, fenced code blocks, and tables with aligned columns. The renderer (`markdown.ts`) is small and line-based, with no dependencies. Anything it doesn't recognise is printed as written, so no text is ever dropped. Rendering is skipped when stdout isn't a TTY, when `NO_COLOR` is set, or when `TERM=dumb`. Print mode never renders, because a script capturing the answer wants the Markdown source, not escape codes.
+
 ## Headless / print mode
 
 `open-agent -p "<task>"` runs one task and exits instead of opening a session — no TUI, no readline, no prompts. The task can also arrive on stdin (`echo "<task>" | open-agent -p`). Only the final answer is written to stdout; the conventions notice, approval decisions and failures go to stderr, so the answer can be redirected on its own. Exit status is `0` completed, `1` failed, `130` cancelled.
@@ -54,6 +58,7 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
 - `task.ts` — one task end to end, shared by both modes
+- `markdown.ts` — Markdown to styled terminal text for answers (`markdown.test.ts`)
 - `history.ts` — `--history` and `:history` formatting, merging saved sessions with the live one (`history.test.ts`)
 - `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)
 - `headless.ts` — print mode: stream split and exit codes (`headless.test.ts`)
