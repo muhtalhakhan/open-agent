@@ -10,7 +10,7 @@ The scheduler decides **when** work happens. It never decides **what** the work 
 type TaskRunner = (dispatch: TaskDispatch, signal: AbortSignal) => Promise<void>
 ```
 
-That seam is where the job queue (#80) and background execution (#79) attach later. Keeping it out of the scheduler is what lets those land without the scheduler changing, and it is why the whole package tests without an LLM.
+That seam is where the job queue (#80) attaches, and background execution (#79) later. Keeping it out of the scheduler is what lets those land without the scheduler changing, and it is why the whole package tests without an LLM.
 
 ## Triggers
 
@@ -76,6 +76,26 @@ Both accept bounds:
 - `until` — stop after an instant, written any way `parseWhen` accepts.
 - `maxRuns` — stop after N runs. A run that threw still counts, so a task failing every time cannot repeat forever.
 
+## Job queue
+
+The scheduler fires a task the moment it is due; the job queue decides whether there is room to run it yet. Plug it in as the scheduler's runner:
+
+```ts
+import { JobQueue, agentExecutor, Scheduler } from '@open-agent/automation'
+
+const queue = new JobQueue({ executor: agentExecutor(ctx.get('agentLoop')!), concurrency: 1 })
+const scheduler = new Scheduler({ runner: queue.runner(), store })
+```
+
+or mount it with `ctx.plugin(jobQueuePlugin())`, which waits for `ctx.agentLoop` and exposes `ctx.jobQueue`. Work that did not come from the schedule goes straight in with `queue.enqueue({ name, prompt })`.
+
+- **Serial by default.** An agent run can stop to ask for approval, and two runs prompting on one terminal at once interleave into something nobody can answer safely. Raise `concurrency` for headless use.
+- **Jobs run in arrival order.** A job is `queued`, then `running`, then one of `succeeded`, `failed` or `cancelled`.
+- **The runner waits for the job, not just the enqueue.** A task still in line counts as in flight, so the scheduler never fires it a second time, and a failed job becomes the task's `lastError`.
+- **Cancelling asks; it does not force.** A queued job is dropped at once. A running one has its signal aborted and is `cancelled` when its executor lets go.
+- **The job id is the agent task id**, so a job's transcript is in the session log under the id the queue reports.
+- **The queue is in memory on purpose.** A task whose job was waiting when the process died is left `running` in the schedule, and the scheduler puts it back to `pending` on the next load, so it fires again instead of being lost.
+
 ## Usage
 
 ```ts
@@ -118,4 +138,5 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 ## Status
 
 - ✅ #76 Task scheduler · #77 One-time tasks · #78 Recurring tasks
-- ⬜ #79 Background execution · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history
+- ✅ #80 Job queue
+- ⬜ #79 Background execution · #81 Failed-job retry · #82 Notifications · #83 Task history

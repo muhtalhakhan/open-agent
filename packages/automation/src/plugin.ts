@@ -1,5 +1,7 @@
 import type { Context, Plugin } from '@open-agent/context'
+import type { AgentLoop } from '@open-agent/agent'
 import { Scheduler, type SchedulerOptions } from './scheduler.js'
+import { JobQueue, agentExecutor, type JobQueueOptions } from './queue.js'
 
 /**
  * Mounts `ctx.scheduler`.
@@ -17,6 +19,27 @@ export function schedulerPlugin(options: SchedulerOptions): Plugin {
       ctx.set('scheduler', scheduler)
       return () => {
         void scheduler.stop()
+      }
+    },
+  }
+}
+
+/**
+ * Mounts `ctx.jobQueue`, running each job as a turn of `ctx.agentLoop`.
+ *
+ * Waits on `agentLoop` through `inject` rather than reading it at mount time,
+ * so the order the two plugins are mounted in does not matter. Pass
+ * `jobQueue.runner()` as the scheduler's runner to send fired tasks through it.
+ */
+export function jobQueuePlugin(options: Omit<JobQueueOptions, 'executor'> = {}): Plugin {
+  return {
+    name: 'jobQueue',
+    inject: ['agentLoop'],
+    apply(ctx: Context) {
+      const queue = new JobQueue({ ...options, executor: agentExecutor(ctx.get<AgentLoop>('agentLoop')!) })
+      ctx.set('jobQueue', queue)
+      return () => {
+        void queue.close()
       }
     },
   }
