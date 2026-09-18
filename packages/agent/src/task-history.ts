@@ -27,6 +27,12 @@ export interface TaskHistoryOptions {
   limit?: number
   /** Only tasks that ended this way. */
   status?: TaskRecord['status'] | TaskRecord['status'][]
+  /**
+   * Told about a saved session that could not be read — truncated JSON, a
+   * permissions problem. The session is skipped rather than failing the whole
+   * history: one bad file should not hide every other task.
+   */
+  onUnreadable?: (sessionId: string, error: unknown) => void
 }
 
 /**
@@ -98,7 +104,13 @@ export async function readTaskHistory(
   const found: TaskRecord[] = []
 
   for (const id of await store.list()) {
-    const session = await store.load(id)
+    let session: Awaited<ReturnType<typeof store.load>>
+    try {
+      session = await store.load(id)
+    } catch (err) {
+      options.onUnreadable?.(id, err)
+      continue
+    }
     if (!session) continue
     found.push(...taskRecords(session.events, id).filter((r) => wanted === undefined || wanted.has(r.status)))
   }

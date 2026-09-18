@@ -81,6 +81,26 @@ describe('ToolRegistry', () => {
     expect(background.ok).toBe(false)
   })
 
+  it('does not let a remembered approval cover an unattended task', async () => {
+    const registry = new ToolRegistry()
+    registry.register(shellTool)
+    const asked: string[] = []
+    registry.onApproval((_call, _tool, { taskId }) => {
+      asked.push(taskId)
+      return taskId === 'foreground' ? { approved: true, scope: 'session', match: 'tool' } : false
+    })
+    registry.setUnattended((taskId) => taskId.startsWith('job_'))
+
+    await registry.execute({ id: 'u1', name: 'shell', args: { cmd: 'ls' } }, { taskId: 'foreground', signal: ctx() })
+    const background = await registry.execute(
+      { id: 'u2', name: 'shell', args: { cmd: 'ls' } },
+      { taskId: 'job_1', signal: ctx() },
+    )
+
+    expect(background.ok).toBe(false)
+    expect(asked).toEqual(['foreground', 'job_1'])
+  })
+
   it('denies a dangerous tool even if approval handler says yes, unless explicitly enabled', async () => {
     const registry = new ToolRegistry()
     registry.register({ ...shellTool, name: 'rm', permissionLevel: 'dangerous' })

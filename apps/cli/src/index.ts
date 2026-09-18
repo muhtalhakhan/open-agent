@@ -38,7 +38,7 @@ import {
 import { createBackgroundJobs, type BackgroundJobs } from './background.js'
 import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
-import { formatHistory, sessionHistory } from './history.js'
+import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
@@ -80,7 +80,10 @@ async function main() {
   // Before the provider config is read: looking at past tasks needs no API
   // key, and refusing to show them for want of one would be absurd.
   if (args.history) {
-    process.stdout.write(formatHistory(await readTaskHistory(new SessionStore())))
+    const records = await readTaskHistory(new SessionStore(), {
+      onUnreadable: (id, err) => void process.stderr.write(describeUnreadable(id, err)),
+    })
+    process.stdout.write(formatHistory(records))
     return
   }
   const headless = args.mode === 'print'
@@ -171,8 +174,9 @@ async function main() {
           tui.io.setStatus('[cancelling current task...]')
           activeAbort.current.abort()
         } else {
-          tui.unmount()
-          process.exit(0)
+          // Ends the session the way :exit does, so background jobs are
+          // stopped and the session saved rather than lost to process.exit.
+          tui.io.end()
         }
       },
     })
@@ -181,10 +185,14 @@ async function main() {
     teardown = () => tui.unmount()
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout })
+    // A question pending when readline closes is never settled, so with
+    // nothing else holding the event loop open the process would just drain
+    // away mid-session, unsaved. Treat close as EOF instead.
+    const closed = new Promise<null>((resolve) => rl.once('close', () => resolve(null)))
     io = {
       async prompt() {
         try {
-          return await rl.question('> ')
+          return await Promise.race([rl.question('> '), closed])
         } catch {
           return null // readline closed (e.g. Ctrl+D)
         }
@@ -197,8 +205,9 @@ async function main() {
         console.log('\n[cancelling current task...]')
         activeAbort.current.abort()
       } else {
+        // Closing readline ends input like Ctrl+D; the session then winds
+        // down as :exit does instead of dying with its jobs unsaved.
         rl.close()
-        process.exit(0)
       }
     })
     teardown = () => rl.close()
@@ -217,6 +226,7 @@ async function main() {
   // Background jobs exist only in the interactive session, and only once the
   // agent loop does; the router asks whichever set is live at call time.
   let background: BackgroundJobs | undefined
+  tools.setUnattended((taskId) => background?.owns(taskId) ?? false)
   tools.onApproval(
     headless
       ? createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg))
@@ -386,7 +396,8 @@ async function main() {
       await runRepl(loop, sessions, io, activeAbort, {
         memory: memoryHook,
         background,
-        history: () => sessionHistory(sessionStore, sessions),
+        history: () =>
+          sessionHistory(sessionStore, sessions, { onUnreadable: (id, err) => io.write(describeUnreadable(id, err)) }),
         formatAnswer: shouldRenderMarkdown(process.stdout.isTTY, process.env) ? renderMarkdown : undefined,
       })
       // Before the session is saved, so what the jobs did so far is in it.

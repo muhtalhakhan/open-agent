@@ -52,12 +52,17 @@ function preview(text: string): string {
 export async function sessionHistory(
   store: Pick<SessionStore, 'list' | 'load'>,
   current: SessionLog,
-  limit = 20,
+  { limit = 20, onUnreadable }: { limit?: number; onUnreadable?: (sessionId: string, error: unknown) => void } = {},
 ): Promise<TaskRecord[]> {
   const live = taskRecords(current.allEvents())
   const liveIds = new Set(live.map((record) => record.taskId))
-  const saved = (await readTaskHistory(store, { limit: limit + liveIds.size })).filter(
+  const saved = (await readTaskHistory(store, { limit: limit + liveIds.size, onUnreadable })).filter(
     (record) => !liveIds.has(record.taskId),
   )
   return [...live, ...saved].sort((a, b) => b.startedAt - a.startedAt).slice(0, limit)
+}
+
+/** One line naming a skipped session, for `onUnreadable`. */
+export function describeUnreadable(sessionId: string, error: unknown): string {
+  return `Skipped session ${sessionId}: it could not be read (${error instanceof Error ? error.message : String(error)}).\n`
 }

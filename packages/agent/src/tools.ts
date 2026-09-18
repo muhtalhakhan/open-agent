@@ -73,6 +73,7 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>()
   private readonly enabledDangerous = new Set<string>()
   private approvalHandler: ApprovalHandler = () => false
+  private isUnattended: (taskId: string) => boolean = () => false
   /** Remembered approvals, keyed by tool and (for `exact` grants) arguments. */
   private readonly grants = new Map<string, ApprovalGrant>()
   readonly auditLog: Array<{
@@ -113,6 +114,17 @@ export class ToolRegistry {
     this.approvalHandler = handler
   }
 
+  /**
+   * Names the tasks that run with nobody watching — background jobs, say.
+   * Remembered approvals do not cover them: an "always allow" was given by
+   * someone watching a task they could see, not a blank cheque for work they
+   * will never look at. Every call from such a task goes to the approval
+   * handler, which answers it by policy.
+   */
+  setUnattended(predicate: (taskId: string) => boolean): void {
+    this.isUnattended = predicate
+  }
+
   private grantKey(tool: string, match: ApprovalMatch, args: Record<string, unknown>): string {
     return match === 'tool' ? `${tool}|*` : `${tool}|${argumentKey(args)}`
   }
@@ -135,7 +147,9 @@ export class ToolRegistry {
     // A `dangerous` call is never covered by a remembered approval, and its
     // answer is never remembered. The whole point of the level is that each
     // one is looked at; a grant would quietly undo that.
-    if (tool.permissionLevel !== 'dangerous' && this.findGrant(call, taskId)) return 'remembered'
+    if (tool.permissionLevel !== 'dangerous' && !this.isUnattended(taskId) && this.findGrant(call, taskId)) {
+      return 'remembered'
+    }
 
     const decision = await this.approvalHandler(call, tool, { taskId })
     const {
