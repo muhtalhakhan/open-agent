@@ -163,6 +163,221 @@ describe('JobQueue', () => {
   })
 })
 
+/** Timers the test fires by hand, so a backoff never waits on real time. */
+function manualTimers() {
+  let now = 0
+  const pending = new Map<number, { fn: () => void; at: number }>()
+  let nextHandle = 1
+  return {
+    now: () => now,
+    setTimer: (fn: () => void, ms: number) => {
+      const handle = nextHandle++
+      pending.set(handle, { fn, at: now + ms })
+      return handle
+    },
+    clearTimer: (handle: unknown) => void pending.delete(handle as number),
+    /** Delays of the timers currently armed. */
+    get armed() {
+      return [...pending.values()].map((timer) => timer.at - now)
+    },
+    async advance(ms: number) {
+      now += ms
+      for (const [handle, timer] of [...pending]) {
+        if (timer.at > now) continue
+        pending.delete(handle)
+        timer.fn()
+      }
+      await flush()
+    },
+  }
+}
+
+/** An executor that fails the first `failures` attempts of every job, then succeeds. */
+function flakyExecutor(failures: number, message = 'rate limited') {
+  const attempts: number[] = []
+  const executor: JobExecutor = async (job) => {
+    attempts.push(job.attempts)
+    if (job.attempts <= failures) throw new Error(message)
+  }
+  return { executor, attempts }
+}
+
+describe('JobQueue retries', () => {
+  it('does not retry unless asked to', async () => {
+    const flaky = flakyExecutor(1)
+    const queue = new JobQueue({ executor: flaky.executor })
+    const job = await queue.wait(queue.enqueue({ name: 'a', prompt: 'a' }).id)
+    expect(job).toMatchObject({ status: 'failed', attempts: 1, maxAttempts: 1 })
+  })
+
+  it('retries a failed job with exponential backoff until it succeeds', async () => {
+    const timers = manualTimers()
+    const flaky = flakyExecutor(2)
+    const queue = new JobQueue({ executor: flaky.executor, retry: { maxAttempts: 5, backoffMs: 100 }, ...timers })
+    const { id } = queue.enqueue({ name: 'a', prompt: 'a' })
+    await flush()
+
+    expect(queue.get(id)).toMatchObject({ status: 'retrying', attempts: 1, error: 'rate limited', retryAt: 100 })
+    expect(timers.armed).toEqual([100])
+
+    await timers.advance(100)
+    expect(queue.get(id)).toMatchObject({ status: 'retrying', attempts: 2 })
+    expect(timers.armed).toEqual([200])
+
+    await timers.advance(200)
+    expect(queue.get(id)).toMatchObject({ status: 'succeeded', attempts: 3 })
+    expect(queue.get(id)?.error).toBeUndefined()
+    expect(flaky.attempts).toEqual([1, 2, 3])
+  })
+
+  it('gives up as failed once attempts run out', async () => {
+    const timers = manualTimers()
+    const queue = new JobQueue({
+      executor: flakyExecutor(Infinity).executor,
+      retry: { maxAttempts: 2, backoffMs: 10 },
+      ...timers,
+    })
+    const { id } = queue.enqueue({ name: 'a', prompt: 'a' })
+    await flush()
+    await timers.advance(10)
+
+    expect(queue.get(id)).toMatchObject({ status: 'failed', attempts: 2, error: 'rate limited' })
+    expect(timers.armed).toEqual([])
+  })
+
+  it('caps the backoff', async () => {
+    const timers = manualTimers()
+    const queue = new JobQueue({
+      executor: flakyExecutor(Infinity).executor,
+      retry: { maxAttempts: 10, backoffMs: 100, maxBackoffMs: 250 },
+      ...timers,
+    })
+    queue.enqueue({ name: 'a', prompt: 'a' })
+    await flush()
+    const delays: number[] = []
+    for (let i = 0; i < 4; i++) {
+      delays.push(...timers.armed)
+      await timers.advance(timers.armed[0])
+    }
+    expect(delays).toEqual([100, 200, 250, 250])
+  })
+
+  it('retries only the failures the policy calls retryable', async () => {
+    const timers = manualTimers()
+    const queue = new JobQueue({
+      executor: flakyExecutor(Infinity, 'invalid prompt').executor,
+      retry: { maxAttempts: 3, retryable: (error) => /rate limit/.test(error) },
+      ...timers,
+    })
+    const job = await queue.wait(queue.enqueue({ name: 'a', prompt: 'a' }).id)
+    expect(job).toMatchObject({ status: 'failed', attempts: 1, error: 'invalid prompt' })
+  })
+
+  it("keeps a job's real error when the retryable predicate itself throws", async () => {
+    const queue = new JobQueue({
+      executor: flakyExecutor(Infinity, 'real failure').executor,
+      retry: {
+        maxAttempts: 3,
+        retryable: () => {
+          throw new Error('predicate bug')
+        },
+      },
+    })
+    const job = await queue.wait(queue.enqueue({ name: 'a', prompt: 'a' }).id)
+    expect(job).toMatchObject({ status: 'failed', error: 'real failure' })
+  })
+
+  it("lets a job's own policy override the queue's", async () => {
+    const timers = manualTimers()
+    const queue = new JobQueue({ executor: flakyExecutor(1).executor, retry: { maxAttempts: 5 }, ...timers })
+    const job = await queue.wait(queue.enqueue({ name: 'a', prompt: 'a', retry: { maxAttempts: 1 } }).id)
+    expect(job).toMatchObject({ status: 'failed', attempts: 1 })
+  })
+
+  it('does not hold a slot while waiting out a backoff', async () => {
+    const timers = manualTimers()
+    const ran: string[] = []
+    const queue = new JobQueue({
+      executor: async (job) => {
+        ran.push(job.name)
+        if (job.name === 'flaky' && job.attempts === 1) throw new Error('transient')
+      },
+      retry: { maxAttempts: 2, backoffMs: 1000 },
+      ...timers,
+    })
+    queue.enqueue({ name: 'flaky', prompt: 'a' })
+    queue.enqueue({ name: 'other', prompt: 'b' })
+    await flush()
+
+    expect(ran).toEqual(['flaky', 'other'])
+    await timers.advance(1000)
+    expect(ran).toEqual(['flaky', 'other', 'flaky'])
+  })
+
+  it('cancels a job waiting out its backoff, and close() does too', async () => {
+    const timers = manualTimers()
+    const queue = new JobQueue({
+      executor: flakyExecutor(Infinity).executor,
+      retry: { maxAttempts: 3, backoffMs: 50 },
+      ...timers,
+    })
+    const a = queue.enqueue({ name: 'a', prompt: 'a' })
+    await flush()
+    expect(queue.cancel(a.id)).toBeDefined()
+    expect(queue.get(a.id)).toMatchObject({ status: 'cancelled', retryAt: undefined })
+
+    const b = queue.enqueue({ name: 'b', prompt: 'b' })
+    await flush()
+    expect(queue.get(b.id)?.status).toBe('retrying')
+    await queue.close()
+    expect(queue.get(b.id)?.status).toBe('cancelled')
+    expect(timers.armed).toEqual([])
+  })
+
+  it('only reports a failure to the scheduler once retries are spent', async () => {
+    const timers = manualTimers()
+    const flaky = flakyExecutor(1)
+    const queue = new JobQueue({ executor: flaky.executor, retry: { maxAttempts: 2, backoffMs: 10 }, ...timers })
+    const run = queue.runner()(
+      {
+        task: {
+          id: 't',
+          name: 't',
+          prompt: 'p',
+          trigger: { kind: 'at' },
+          status: 'running',
+          createdAt: 0,
+          runCount: 0,
+        },
+        firedAt: 0,
+      },
+      new AbortController().signal,
+    )
+    await flush()
+    await timers.advance(10)
+    await expect(run).resolves.toBeUndefined()
+    expect(flaky.attempts).toEqual([1, 2])
+  })
+
+  it('retryNow() gives a failed job one more immediate attempt', async () => {
+    const flaky = flakyExecutor(1)
+    const queue = new JobQueue({ executor: flaky.executor })
+    const { id } = queue.enqueue({ name: 'a', prompt: 'a' })
+    expect((await queue.wait(id)).status).toBe('failed')
+
+    // With a free slot the retry starts at once rather than sitting in line.
+    expect(queue.retryNow(id)).toMatchObject({ status: 'running', maxAttempts: 2 })
+    expect(await queue.wait(id)).toMatchObject({ status: 'succeeded', attempts: 2 })
+    expect(queue.retryNow(id)).toBeUndefined()
+  })
+
+  it('rejects a nonsensical retry policy', () => {
+    const queue = new JobQueue({ executor: async () => {} })
+    expect(() => queue.enqueue({ name: 'a', prompt: 'a', retry: { maxAttempts: 0 } })).toThrow(/maxAttempts/)
+    expect(() => queue.enqueue({ name: 'a', prompt: 'a', retry: { backoffMs: -1 } })).toThrow(/negative/)
+  })
+})
+
 describe('JobQueue.runner', () => {
   it('sends fired tasks through the queue and records where each job came from', async () => {
     const jobs: Job[] = []
@@ -274,6 +489,22 @@ describe('agentExecutor', () => {
     }
   }
 
+  it('runs each retry as its own turn, so a failed attempt is not replayed into the next', async () => {
+    let calls = 0
+    const taskIds: string[] = []
+    const loop = {
+      run: async (_input: string, _signal: AbortSignal, taskId = 'unused'): Promise<TaskState> => {
+        taskIds.push(taskId)
+        calls++
+        return { id: taskId, status: calls === 1 ? 'error' : 'completed', createdAt: 0, updatedAt: 0, error: 'flaky' }
+      },
+    }
+    const queue = new JobQueue({ executor: agentExecutor(loop), retry: { maxAttempts: 2, backoffMs: 0 } })
+    const job = queue.enqueue({ name: 'a', prompt: 'a' })
+    expect((await queue.wait(job.id)).status).toBe('succeeded')
+    expect(taskIds).toEqual([job.id, `${job.id}.2`])
+  })
+
   it('runs the prompt as a turn keyed by the job id', async () => {
     const { loop, calls } = loopReturning('completed')
     const queue = new JobQueue({ executor: agentExecutor(loop) })
@@ -293,7 +524,10 @@ describe('agentExecutor', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(
-      exec({ id: 'j', name: 'a', prompt: 'a', status: 'running', enqueuedAt: 0 }, controller.signal),
+      exec(
+        { id: 'j', name: 'a', prompt: 'a', status: 'running', enqueuedAt: 0, attempts: 1, maxAttempts: 1 },
+        controller.signal,
+      ),
     ).rejects.toThrow(/cancelled/)
   })
 })

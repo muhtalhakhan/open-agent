@@ -4,7 +4,14 @@ import { CancelledError, silentLogger } from '@open-agent/agent'
 import type { TaskRunner } from './types.js'
 
 /** Lifecycle of a queued job. */
-export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type JobStatus =
+  | 'queued'
+  | 'running'
+  /** An attempt failed and the job is waiting out its backoff before the next. */
+  | 'retrying'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
 
 /** One unit of work waiting for, or holding, an execution slot. */
 export interface Job {
@@ -15,8 +22,14 @@ export interface Job {
   enqueuedAt: number
   startedAt?: number
   finishedAt?: number
-  /** Why the job failed, when it did. */
+  /** Why the most recent attempt failed. Cleared if a later attempt succeeds. */
   error?: string
+  /** Attempts started so far, including one in progress. */
+  attempts: number
+  /** Attempts allowed before the job is given up as `failed`. */
+  maxAttempts: number
+  /** When the next attempt is due, while the job is `retrying`. */
+  retryAt?: number
   /** The scheduled task this job was fired from, if any. */
   source?: { taskId: string; firedAt: number }
 }
@@ -27,7 +40,33 @@ export interface NewJob {
   prompt: string
   id?: string
   source?: Job['source']
+  /** Overrides the queue's retry policy for this job. */
+  retry?: RetryPolicy
 }
+
+/**
+ * When a failed job is worth another attempt.
+ *
+ * Off by default (`maxAttempts: 1`). An agent run is not idempotent: a run
+ * that failed on step five had already made the tool calls of steps one to
+ * four, and running it again makes them again. Turn retries on for work where
+ * that is harmless, and use `retryable` to retry only the failures a second
+ * attempt can fix — a rate limit, not a malformed prompt.
+ */
+export interface RetryPolicy {
+  /** Total attempts, counting the first (default 1: never retry). */
+  maxAttempts?: number
+  /** Wait before the first retry, doubling for each one after (default 1000 ms). */
+  backoffMs?: number
+  /** Ceiling on that wait (default 60 000 ms). */
+  maxBackoffMs?: number
+  /** Whether a failure is worth retrying, given its message (default: every failure). */
+  retryable?: (error: string) => boolean
+}
+
+type ResolvedRetryPolicy = Required<RetryPolicy>
+
+type TimerHandle = unknown
 
 /**
  * Does the work of one job. Resolving means it succeeded; throwing means it
@@ -45,8 +84,13 @@ export interface JobQueueOptions {
   concurrency?: number
   /** How many finished jobs `list()` remembers before dropping the oldest (default 1000). */
   historyLimit?: number
+  /** The default retry policy; a job's own `retry` is merged over it. */
+  retry?: RetryPolicy
   logger?: Logger
+  /** Clock and timers, injectable so tests can step through backoffs by hand. */
   now?: () => number
+  setTimer?: (fn: () => void, ms: number) => TimerHandle
+  clearTimer?: (handle: TimerHandle) => void
 }
 
 /** Narrows `list()` to part of the queue. */
@@ -71,12 +115,17 @@ export class JobQueue {
   private readonly executor: JobExecutor
   private readonly concurrency: number
   private readonly historyLimit: number
+  private readonly retry: RetryPolicy
   private readonly logger: Logger
   private readonly now: () => number
+  private readonly setTimer: (fn: () => void, ms: number) => TimerHandle
+  private readonly clearTimer: (handle: TimerHandle) => void
 
   private readonly jobs = new Map<string, Job>()
   private readonly waiting: Job[] = []
   private readonly controllers = new Map<string, AbortController>()
+  private readonly policies = new Map<string, ResolvedRetryPolicy>()
+  private readonly backoffs = new Map<string, TimerHandle>()
   private readonly settled = new Map<string, Array<(job: Job) => void>>()
   private closed = false
 
@@ -88,8 +137,14 @@ export class JobQueue {
     this.executor = options.executor
     this.concurrency = concurrency
     this.historyLimit = options.historyLimit ?? 1000
+    this.retry = options.retry ?? {}
     this.logger = options.logger ?? silentLogger
     this.now = options.now ?? (() => Date.now())
+    // Not unref'd, unlike the scheduler's timer: a pending retry is work
+    // someone may be awaiting, and letting the process exit under it would
+    // leave that promise hanging forever.
+    this.setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
+    this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as NodeJS.Timeout))
   }
 
   /** Adds a job to the back of the line, starting it at once if a slot is free. */
@@ -98,15 +153,19 @@ export class JobQueue {
     const id = input.id ?? `job_${randomBytes(6).toString('hex')}`
     if (this.jobs.has(id)) throw new Error(`job "${id}" already exists`)
 
+    const policy = resolvePolicy({ ...this.retry, ...input.retry })
     const job: Job = {
       id,
       name: input.name,
       prompt: input.prompt,
       status: 'queued',
       enqueuedAt: this.now(),
+      attempts: 0,
+      maxAttempts: policy.maxAttempts,
       ...(input.source ? { source: input.source } : {}),
     }
     this.jobs.set(id, job)
+    this.policies.set(id, policy)
     this.waiting.push(job)
     this.logger.info('queue/enqueue', { id, name: job.name, waiting: this.waiting.length })
     this.pump()
@@ -138,9 +197,33 @@ export class JobQueue {
     if (job.status === 'queued') {
       this.waiting.splice(this.waiting.indexOf(job), 1)
       this.settle(job, 'cancelled')
+    } else if (job.status === 'retrying') {
+      this.clearBackoff(job)
+      this.settle(job, 'cancelled')
     } else {
       this.controllers.get(id)?.abort()
     }
+    return { ...job }
+  }
+
+  /**
+   * Gives a failed or cancelled job one more attempt, straight away and at the
+   * back of the line. For a person deciding a failure was transient; automatic
+   * retries are the `retry` policy's job.
+   *
+   * A job that came from the schedule has already been reported back to the
+   * scheduler as failed, so a manual retry does not change the task's record.
+   */
+  retryNow(id: string): Job | undefined {
+    if (this.closed) throw new Error('job queue is closed')
+    const job = this.jobs.get(id)
+    if (!job || (job.status !== 'failed' && job.status !== 'cancelled')) return undefined
+    job.maxAttempts = job.attempts + 1
+    job.status = 'queued'
+    job.finishedAt = undefined
+    this.waiting.push(job)
+    this.logger.info('queue/retry-now', { id, attempt: job.attempts + 1 })
+    this.pump()
     return { ...job }
   }
 
@@ -163,6 +246,11 @@ export class JobQueue {
   async close(): Promise<void> {
     this.closed = true
     for (const job of this.waiting.splice(0)) this.settle(job, 'cancelled')
+    for (const job of this.jobs.values()) {
+      if (job.status !== 'retrying') continue
+      this.clearBackoff(job)
+      this.settle(job, 'cancelled')
+    }
     const running = [...this.controllers.keys()]
     for (const controller of this.controllers.values()) controller.abort()
     await Promise.all(running.map((id) => this.wait(id)))
@@ -174,7 +262,8 @@ export class JobQueue {
    * It waits for the job to finish instead of returning once it is queued, so
    * the scheduler keeps its own guarantees: a task still in line is still
    * in flight and is not fired a second time, and a failed job surfaces as the
-   * task's `lastError`.
+   * task's `lastError`. Retries happen inside that wait, so the scheduler only
+   * hears about a failure once the job has run out of attempts.
    */
   runner(): TaskRunner {
     return async ({ task, firedAt }, signal) => {
@@ -202,18 +291,62 @@ export class JobQueue {
     this.controllers.set(job.id, controller)
     job.status = 'running'
     job.startedAt = this.now()
-    this.logger.info('queue/start', { id: job.id })
+    job.attempts += 1
+    this.logger.info('queue/start', { id: job.id, attempt: job.attempts })
 
     try {
       await this.executor({ ...job }, controller.signal)
+      job.error = undefined
       this.settle(job, 'succeeded')
     } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
       if (controller.signal.aborted) this.settle(job, 'cancelled')
-      else this.settle(job, 'failed', err instanceof Error ? err.message : String(err))
+      else if (this.shouldRetry(job, error)) this.backOff(job, error)
+      else this.settle(job, 'failed', error)
     } finally {
       this.controllers.delete(job.id)
       this.pump()
     }
+  }
+
+  private shouldRetry(job: Job, error: string): boolean {
+    const policy = this.policies.get(job.id)!
+    if (this.closed || job.attempts >= job.maxAttempts) return false
+    try {
+      return policy.retryable(error)
+    } catch {
+      // A predicate that throws cannot vouch for the retry; fail the job
+      // with its real error instead of losing it to the predicate's.
+      return false
+    }
+  }
+
+  /** Parks a failed job for its backoff, then puts it back at the end of the line. */
+  private backOff(job: Job, error: string): void {
+    const policy = this.policies.get(job.id)!
+    const delay = Math.min(policy.backoffMs * 2 ** (job.attempts - 1), policy.maxBackoffMs)
+    job.status = 'retrying'
+    job.error = error
+    job.retryAt = this.now() + delay
+    this.logger.warn('queue/retrying', { id: job.id, attempt: job.attempts, delay, error })
+
+    this.backoffs.set(
+      job.id,
+      this.setTimer(() => {
+        this.backoffs.delete(job.id)
+        job.retryAt = undefined
+        job.status = 'queued'
+        this.waiting.push(job)
+        this.pump()
+      }, delay),
+    )
+  }
+
+  private clearBackoff(job: Job): void {
+    const handle = this.backoffs.get(job.id)
+    if (handle !== undefined) this.clearTimer(handle)
+    this.backoffs.delete(job.id)
+    job.retryAt = undefined
   }
 
   private settle(job: Job, status: JobStatus, error?: string): void {
@@ -231,21 +364,41 @@ export class JobQueue {
   /** Drops the oldest finished jobs past `historyLimit`, so a long-lived queue does not grow forever. */
   private forgetOldest(): void {
     const finished = [...this.jobs.values()].filter((job) => FINISHED.has(job.status))
-    for (const job of finished.slice(0, Math.max(0, finished.length - this.historyLimit))) this.jobs.delete(job.id)
+    for (const job of finished.slice(0, Math.max(0, finished.length - this.historyLimit))) {
+      this.jobs.delete(job.id)
+      this.policies.delete(job.id)
+    }
   }
+}
+
+function resolvePolicy(policy: RetryPolicy): ResolvedRetryPolicy {
+  const resolved = {
+    maxAttempts: policy.maxAttempts ?? 1,
+    backoffMs: policy.backoffMs ?? 1000,
+    maxBackoffMs: policy.maxBackoffMs ?? 60_000,
+    retryable: policy.retryable ?? (() => true),
+  }
+  if (!Number.isInteger(resolved.maxAttempts) || resolved.maxAttempts < 1) {
+    throw new Error(`maxAttempts must be a positive integer, got ${resolved.maxAttempts}`)
+  }
+  if (resolved.backoffMs < 0 || resolved.maxBackoffMs < 0) throw new Error('backoff must not be negative')
+  return resolved
 }
 
 /**
  * Runs each job as an agent turn. The job id doubles as the task id, so a
  * job's transcript is found in the session log under the same id the queue
- * reports.
+ * reports. A retry runs as `<job id>.<attempt>`: reusing the id would append
+ * the prompt a second time to the failed attempt's conversation, and the
+ * model would read it as the user repeating themselves.
  *
  * `AgentLoop.run` reports failure and cancellation as a status rather than by
  * throwing; this turns them back into the throw the queue reads outcomes from.
  */
 export function agentExecutor(loop: Pick<AgentLoop, 'run'>): JobExecutor {
   return async (job, signal) => {
-    const state = await loop.run(job.prompt, signal, job.id)
+    const taskId = job.attempts > 1 ? `${job.id}.${job.attempts}` : job.id
+    const state = await loop.run(job.prompt, signal, taskId)
     if (state.status === 'cancelled') throw new CancelledError()
     if (state.status === 'error') throw new Error(state.error ?? 'agent run failed')
   }
