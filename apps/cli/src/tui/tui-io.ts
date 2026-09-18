@@ -15,10 +15,15 @@ export class TuiIo implements ReplIO {
   private handlers: TuiHandlers | null = null
   private readonly ready: Promise<void>
   private resolveReady!: () => void
+  private readonly ended: Promise<null>
+  private resolveEnded!: (value: null) => void
 
   constructor() {
     this.ready = new Promise((resolve) => {
       this.resolveReady = resolve
+    })
+    this.ended = new Promise((resolve) => {
+      this.resolveEnded = resolve
     })
   }
 
@@ -30,7 +35,16 @@ export class TuiIo implements ReplIO {
 
   async prompt(): Promise<string | null> {
     const handlers = await this.handlersReady()
-    return handlers.requestInput('> ')
+    return Promise.race([handlers.requestInput('> '), this.ended])
+  }
+
+  /**
+   * Ends input as Ctrl+D would: the pending prompt, and every one after it,
+   * answers EOF. Quitting this way rather than exiting the process lets the
+   * session finish like `:exit` does — background jobs stopped, session saved.
+   */
+  end(): void {
+    this.resolveEnded(null)
   }
 
   write(text: string): void {

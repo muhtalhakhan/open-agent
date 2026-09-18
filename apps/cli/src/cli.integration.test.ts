@@ -125,6 +125,25 @@ describe('CLI end to end', () => {
     expect(stdout).not.toContain('Loaded project conventions')
   })
 
+  // Regression: Ctrl+C at an idle prompt called process.exit(0), which killed
+  // background jobs and skipped saving the session.
+  it('saves the session when interrupted at an idle prompt', async () => {
+    const child = spawn(process.execPath, ['--import', 'tsx', cliEntry], {
+      cwd: repo,
+      env: { ...process.env, ...env(), CLI_NO_TUI: '1', TMPDIR: repo },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+      if (stdout.includes('> ') && !child.killed) child.kill('SIGINT')
+    })
+    const code = await new Promise<number | null>((resolve) => child.on('close', resolve))
+
+    expect(code).toBe(0)
+    expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
+  })
+
   describe('print mode', () => {
     it('prints only the answer on stdout and exits 0', async () => {
       const { stdout, stderr, code } = await runCli('', env(), repo, ['-p', 'what indentation?'])

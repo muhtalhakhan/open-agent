@@ -129,6 +129,46 @@ describe('createRoutingApprovalHandler', () => {
     expect(logs.join('')).toMatch(/denied "shell"/)
   })
 
+  it('does not let a foreground "always allow" run a background job\'s call', async () => {
+    const sessions = new SessionLog()
+    const tools = new ToolRegistry()
+    let runs = 0
+    tools.register({ ...tool, execute: async () => (runs++, { ok: true, content: 'ran' }) })
+    const jobs: { current?: ReturnType<typeof createBackgroundJobs> } = {}
+    tools.setUnattended((taskId) => jobs.current?.owns(taskId) ?? false)
+    tools.onApproval(
+      createRoutingApprovalHandler(
+        (taskId) => jobs.current?.owns(taskId) ?? false,
+        async () => ({ approved: true, scope: 'session', match: 'tool' }),
+        createNonInteractiveApprovalHandler(false, () => {}),
+      ),
+    )
+    const callsShellOnce = (): LlmAdapter => {
+      let step = 0
+      return {
+        name: 'calls-shell-once',
+        async generate() {
+          return step++ === 0
+            ? { message: { role: 'assistant', content: '', toolCalls: [call] } }
+            : { message: { role: 'assistant', content: 'done' } }
+        },
+      }
+    }
+
+    // The user approves the tool for the whole session, in the foreground.
+    await new AgentLoop({ sessions, tools, llm: callsShellOnce() }).run('list files', new AbortController().signal)
+    expect(runs).toBe(1)
+
+    const background = createBackgroundJobs(
+      new AgentLoop({ sessions, tools, llm: callsShellOnce() }),
+      sessions,
+      () => {},
+    )
+    jobs.current = background
+    await settled(background, background.start('list files again').id)
+    expect(runs).toBe(1)
+  })
+
   it('denies an "ask" tool inside a real background run, without prompting', async () => {
     const sessions = new SessionLog()
     const tools = new ToolRegistry()
