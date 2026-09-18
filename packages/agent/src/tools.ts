@@ -65,6 +65,8 @@ export class ToolRegistry {
   private approvalHandler: ApprovalHandler = () => false
   /** Remembered approvals, keyed by tool and (for `exact` grants) arguments. */
   private readonly grants = new Map<string, ApprovalGrant>()
+  /** Tasks that have read output from an `untrustedOutput` tool. */
+  private readonly tainted = new Set<string>()
   readonly auditLog: Array<{
     call: ToolCall
     permissionLevel: PermissionLevel
@@ -125,7 +127,15 @@ export class ToolRegistry {
     // A `dangerous` call is never covered by a remembered approval, and its
     // answer is never remembered. The whole point of the level is that each
     // one is looked at; a grant would quietly undo that.
-    if (tool.permissionLevel !== 'dangerous' && this.findGrant(call, taskId)) return 'remembered'
+    //
+    // Nor is any call from a task that has read untrusted content. The user
+    // who said "always allow" was deciding about calls *they* would cause; once
+    // a web page has had its say, the next call may be the page's idea. Asking
+    // again is how untrusted content is kept from borrowing the user's standing
+    // approval — the same threshold holds, it just cannot be pre-paid.
+    if (tool.permissionLevel !== 'dangerous' && !this.tainted.has(taskId) && this.findGrant(call, taskId)) {
+      return 'remembered'
+    }
 
     const decision = await this.approvalHandler(call, tool)
     const {
@@ -145,6 +155,19 @@ export class ToolRegistry {
       })
     }
     return 'granted'
+  }
+
+  /** Whether a task has read output from a tool marked `untrustedOutput`. */
+  isTainted(taskId: string): boolean {
+    return this.tainted.has(taskId)
+  }
+
+  /**
+   * Marks a task as having read untrusted content without running a tool —
+   * for a task resumed with that content already in its history.
+   */
+  taint(taskId: string): void {
+    this.tainted.add(taskId)
   }
 
   /** What is currently remembered, so a user can see what will not prompt again. */
@@ -169,6 +192,7 @@ export class ToolRegistry {
    * session-scoped one the user never agreed to.
    */
   endTask(taskId: string): void {
+    this.tainted.delete(taskId)
     for (const [key, grant] of this.grants) {
       if (grant.scope === 'task' && grant.taskId === taskId) this.grants.delete(key)
     }
@@ -205,6 +229,9 @@ export class ToolRegistry {
     } catch (err) {
       result = { ok: false, content: '', error: err instanceof Error ? err.message : String(err) }
     }
+    // Tainted whatever the outcome: an error can carry the remote side's text
+    // just as well as a success can.
+    if (tool.untrustedOutput) this.tainted.add(context.taskId)
     this.auditLog.push({ call, permissionLevel: tool.permissionLevel, approved: true, approvalSource, result })
     return result
   }

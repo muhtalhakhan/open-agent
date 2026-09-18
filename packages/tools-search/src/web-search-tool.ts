@@ -65,6 +65,8 @@ export function webSearchTool(
       required: ['query'],
     },
     permissionLevel: 'safe',
+    // Titles and snippets are written by whoever wrote the pages.
+    untrustedOutput: true,
     async execute(args, context) {
       const query = typeof args.query === 'string' ? args.query.trim() : ''
       if (!query) return { ok: false, content: '', error: 'query is required' }

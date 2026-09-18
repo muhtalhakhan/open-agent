@@ -5,6 +5,7 @@ The agent runtime: the turn/step loop, the tool registry and execution pipeline,
 ## Pieces
 
 - **`SessionLog`** (`src/session.ts`) — the append-only, durable fact log for a task. `deriveMessages()` projects the model-visible history from it. Nothing reaches the model unless it was appended here first.
+- **Untrusted output** (`src/untrusted.ts`): a tool with `untrustedOutput: true` has its results fenced as data (`fenceUntrusted`, with a random boundary per result) before they are logged. `UNTRUSTED_CONTENT_GUIDANCE` joins the system message whenever such a tool is registered. A task that has read untrusted output is _tainted_: `ToolRegistry` stops applying remembered approvals to it, so every `ask` call asks again. See the prompt-injection section of `docs/security-model.md`.
 - **`ToolRegistry`** (`src/tools.ts`) — registers tools, each declaring a `permissionLevel` (`safe` / `ask` / `dangerous`), and guards execution behind an approval handler. Every call is recorded in `auditLog`.
 - **`AgentLoop`** (`src/agent-loop.ts`) — a turn is the whole run; a step is one model request plus the tools it calls. Handles retries on transient provider errors, cancellation via `AbortSignal`, and a `maxSteps` safety valve against runaway tool-calling.
 - **`plugins.ts`** — mounts the above onto a `Context` as `ctx.sessions`, `ctx.tools`, `ctx.llm`, `ctx.agentLoop`, demonstrating the "everything is a plugin" pattern from `docs/architecture.md`.

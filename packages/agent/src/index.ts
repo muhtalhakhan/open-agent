@@ -22,6 +22,7 @@ export {
 } from './instructions.js'
 export type { ProjectInstructions, LoadInstructionsOptions } from './instructions.js'
 export { filterEnv } from './env-policy.js'
+export { UNTRUSTED_CONTENT_GUIDANCE, fenceUntrusted } from './untrusted.js'
 export { NetworkPolicyError, checkResolvedAddresses, checkUrl, hostMatches, isPrivateHost } from './network-policy.js'
 export type { NetworkPolicy } from './network-policy.js'
 export { consoleLogger, silentLogger } from './logger.js'

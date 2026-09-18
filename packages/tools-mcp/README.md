@@ -6,7 +6,7 @@ A minimal MCP client for the stdio transport: spawn a server, do the `initialize
 
 - **`McpStdioClient`** (`src/client.ts`) — newline-delimited JSON-RPC 2.0 over a process's stdin/stdout. `connect()`, `listTools()`, `callTool()`, `close()`.
 - **`spawnMcpServer()`** (`src/spawn.ts`) — spawns a subprocess and connects a client to it in one call.
-- **`mcpToolDefinition()`** (`src/tool-adapter.ts`) — wraps one MCP tool descriptor as a `ToolDefinition`. The caller picks the `permissionLevel` — MCP has no concept of our `safe`/`ask`/`dangerous` levels.
+- **`mcpToolDefinition()`** (`src/tool-adapter.ts`) — wraps one MCP tool descriptor as a `ToolDefinition`. The caller picks the `permissionLevel` — MCP has no concept of our `safe`/`ask`/`dangerous` levels. Its output is marked `untrustedOutput` by default, because a server relays whatever its backend returns. Pass `{ untrustedOutput: false }` as the fourth argument only for a server you know reports nothing but its own state.
 
 ## Example
 

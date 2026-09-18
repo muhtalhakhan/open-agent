@@ -3,7 +3,8 @@ import type { SessionLog } from './session.js'
 import type { ToolRegistry } from './tools.js'
 import type { Logger } from './logger.js'
 import { silentLogger } from './logger.js'
-import type { LlmAdapter, LlmResponse, TaskState } from './types.js'
+import type { LlmAdapter, LlmResponse, TaskState, ToolResult } from './types.js'
+import { UNTRUSTED_CONTENT_GUIDANCE, fenceUntrusted, isFenced } from './untrusted.js'
 
 export class CancelledError extends Error {
   constructor() {
@@ -80,7 +81,10 @@ export class AgentLoop {
     // Appended before the user message so it lands first in the derived
     // history, and only when this task has no system message yet: a resumed
     // taskId would otherwise accumulate a copy per run().
-    const systemContent = [this.options.systemPrompt, options.context]
+    // The fence guidance rides along only when some tool can produce fenced
+    // output; otherwise it would describe markers the model never sees.
+    const guidance = tools.list().some((tool) => tool.untrustedOutput) ? UNTRUSTED_CONTENT_GUIDANCE : undefined
+    const systemContent = [this.options.systemPrompt, guidance, options.context]
       .map((part) => part?.trim())
       .filter((part): part is string => Boolean(part))
       .join('\n\n')
@@ -94,6 +98,11 @@ export class AgentLoop {
     }
     sessions.append({ type: 'user/message', taskId, at: Date.now(), message: { role: 'user', content: input } })
     this.logger.info('turn/start', { taskId })
+
+    // The registry forgets a task's taint when its turn ends, but the content
+    // stays in the conversation. A task continued from its log — a follow-up
+    // turn, or a session resumed in a new process — has read it all the same.
+    if (sessions.all(taskId).some((e) => e.type === 'tool/result' && isFenced(e.result))) tools.taint(taskId)
 
     try {
       for (let step = 0; step < this.maxSteps; step++) {
@@ -119,7 +128,10 @@ export class AgentLoop {
         for (const call of toolCalls) {
           if (signal.aborted) throw new CancelledError()
           sessions.append({ type: 'tool/call', taskId, at: Date.now(), call })
-          const result = await tools.execute(call, { taskId, signal })
+          const raw = await tools.execute(call, { taskId, signal })
+          // Fenced before it is logged, so the log holds exactly what the
+          // model will be shown; the registry's audit log keeps the raw output.
+          const result = tools.get(call.name)?.untrustedOutput ? fenceResult(raw, call.name) : raw
           sessions.append({ type: 'tool/result', taskId, at: Date.now(), callId: call.id, result })
           this.logger.info('tool/result', { taskId, tool: call.name, ok: result.ok })
         }
@@ -162,4 +174,10 @@ export class AgentLoop {
       }
     }
   }
+}
+
+/** Fences whichever part of a result carries the remote side's text. */
+function fenceResult(result: ToolResult, source: string): ToolResult {
+  if (result.ok) return { ...result, content: fenceUntrusted(result.content, source) }
+  return result.error === undefined ? result : { ...result, error: fenceUntrusted(result.error, source) }
 }

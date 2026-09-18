@@ -248,3 +248,53 @@ describe('scoped approvals', () => {
     expect(registry.listApprovals()).toEqual([])
   })
 })
+
+describe('tainted tasks', () => {
+  const ctx = (taskId = 't1') => ({ taskId, signal: new AbortController().signal })
+
+  function setup() {
+    const registry = new ToolRegistry()
+    let prompts = 0
+    registry.register({ ...echoTool, name: 'fetch', untrustedOutput: true })
+    registry.register(shellTool)
+    registry.onApproval(() => {
+      prompts++
+      return { approved: true, scope: 'session', match: 'tool' }
+    })
+    return { registry, prompts: () => prompts }
+  }
+
+  it('stops honouring remembered approvals in a task that read untrusted output', async () => {
+    const { registry, prompts } = setup()
+    await registry.execute({ id: '1', name: 'shell', args: { cmd: 'ls' } }, ctx())
+    await registry.execute({ id: '2', name: 'shell', args: { cmd: 'ls' } }, ctx())
+    expect(prompts()).toBe(1)
+
+    await registry.execute({ id: '3', name: 'fetch', args: { text: 'page' } }, ctx())
+    expect(registry.isTainted('t1')).toBe(true)
+    await registry.execute({ id: '4', name: 'shell', args: { cmd: 'ls' } }, ctx())
+    await registry.execute({ id: '5', name: 'shell', args: { cmd: 'ls' } }, ctx())
+    expect(prompts()).toBe(3)
+  })
+
+  it('leaves other tasks, and the same task after it ends, as they were', async () => {
+    const { registry, prompts } = setup()
+    await registry.execute({ id: '1', name: 'shell', args: { cmd: 'ls' } }, ctx('t1'))
+    await registry.execute({ id: '2', name: 'fetch', args: { text: 'page' } }, ctx('t1'))
+
+    await registry.execute({ id: '3', name: 'shell', args: { cmd: 'ls' } }, ctx('t2'))
+    expect(prompts()).toBe(1)
+
+    registry.endTask('t1')
+    expect(registry.isTainted('t1')).toBe(false)
+    await registry.execute({ id: '4', name: 'shell', args: { cmd: 'ls' } }, ctx('t1'))
+    expect(prompts()).toBe(1)
+  })
+
+  it('is not tainted by an untrusted tool that was never allowed to run', async () => {
+    const registry = new ToolRegistry()
+    registry.register({ ...shellTool, name: 'fetch_ask', untrustedOutput: true })
+    await registry.execute({ id: '1', name: 'fetch_ask', args: { cmd: 'x' } }, ctx())
+    expect(registry.isTainted('t1')).toBe(false)
+  })
+})

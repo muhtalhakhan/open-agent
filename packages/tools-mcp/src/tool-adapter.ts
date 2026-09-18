@@ -12,6 +12,16 @@ function renderContent(result: McpCallToolResult): string {
   return parts.join('\n')
 }
 
+export interface McpToolOptions {
+  /**
+   * Whether the tool's output is fenced as untrusted (default true). An MCP
+   * server relays whatever its backend returns — a page, an inbox, a ticket
+   * someone else wrote — so its output is untrusted unless the caller knows
+   * better, for instance a local server that only reports on its own state.
+   */
+  untrustedOutput?: boolean
+}
+
 /**
  * Wraps one MCP tool as a `ToolDefinition` so it can be registered on our
  * ToolRegistry like any native tool. The permission level is a policy
@@ -22,12 +32,14 @@ export function mcpToolDefinition(
   client: McpStdioClient,
   descriptor: McpToolDescriptor,
   permissionLevel: PermissionLevel = 'safe',
+  options: McpToolOptions = {},
 ): ToolDefinition {
   return {
     name: descriptor.name,
     description: descriptor.description ?? '',
     schema: descriptor.inputSchema,
     permissionLevel,
+    untrustedOutput: options.untrustedOutput ?? true,
     async execute(args): Promise<ToolResult> {
       try {
         const result = await client.callTool(descriptor.name, args)
