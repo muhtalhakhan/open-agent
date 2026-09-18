@@ -171,6 +171,21 @@ describe('CLI end to end', () => {
       expect(provider.requests).toHaveLength(0)
     })
 
+    it('lists past tasks with --history, without needing a provider configured', async () => {
+      // Sessions are saved under the OS temp dir; point it somewhere private.
+      const tmp = path.join(repo, 'tmp')
+      await mkdir(tmp)
+      await runCli('', { ...env(), TMPDIR: tmp }, repo, ['-p', 'what indentation?'])
+
+      const { stdout, code } = await runCli('', { TMPDIR: tmp, OPENAI_API_KEY: '', OPENAI_BASE_URL: '' }, repo, [
+        '--history',
+      ])
+
+      expect(code).toBe(0)
+      expect(stdout).toMatch(/completed +what indentation\?\n {4}ack\n {4}session_[0-9a-f]+ · 0 tool calls/)
+      expect(provider.requests).toHaveLength(1)
+    })
+
     it('prints usage for --help without contacting a provider', async () => {
       const { stdout, code } = await runCli('', env(), repo, ['--help'])
 

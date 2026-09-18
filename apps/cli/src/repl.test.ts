@@ -76,7 +76,7 @@ describe('runRepl', () => {
     await memory.remember({ content: 'the user prefers concise answers', containerTag: 'cli-user' })
 
     const io = fakeIo(['concise please'])
-    await runRepl(loop, sessions, io, { current: null }, { provider: memory, containerTag: 'cli-user' })
+    await runRepl(loop, sessions, io, { current: null }, { memory: { provider: memory, containerTag: 'cli-user' } })
 
     // the recalled memory should have reached the model
     const system = llm.requests[0].messages.find((m) => m.role === 'system')
@@ -95,7 +95,7 @@ describe('runRepl', () => {
     await memory.remember({ content: 'the user prefers concise answers', containerTag: 'cli-user' })
 
     const io = fakeIo(['concise please'])
-    await runRepl(loop, sessions, io, { current: null }, { provider: memory, containerTag: 'cli-user' })
+    await runRepl(loop, sessions, io, { current: null }, { memory: { provider: memory, containerTag: 'cli-user' } })
 
     // The logged user message must be exactly what was typed — context rides
     // in the system message, so the transcript stays faithful.
@@ -111,7 +111,7 @@ describe('runRepl', () => {
     const memory = new InMemoryMemoryProvider()
 
     const io = fakeIo(['first thing i ever said'])
-    await runRepl(loop, sessions, io, { current: null }, { provider: memory, containerTag: 'cli-user' })
+    await runRepl(loop, sessions, io, { current: null }, { memory: { provider: memory, containerTag: 'cli-user' } })
 
     expect(llm.requests[0].messages.some((m) => m.role === 'system')).toBe(false)
   })
@@ -159,7 +159,7 @@ describe('runRepl', () => {
 
     it(':bg runs a task off to the side and the session carries on', async () => {
       const { loop, sessions, io, background, llm } = withBackground([':bg tidy the logs', 'hello'])
-      await runRepl(loop, sessions, io, { current: null }, undefined, background)
+      await runRepl(loop, sessions, io, { current: null }, { background })
       await new Promise((resolve) => setImmediate(resolve))
 
       const out = io.output.join('')
@@ -186,7 +186,7 @@ describe('runRepl', () => {
       const io = fakeIo([':jobs', `:job ${job.id}`, `:cancel ${job.id}`, ':job nope', ':cancel', ':bg'])
       output.io = io
 
-      await runRepl(loop, sessions, io, { current: null }, undefined, background)
+      await runRepl(loop, sessions, io, { current: null }, { background })
 
       const out = io.output.join('')
       expect(out).toMatch(new RegExp(`${job.id} +running +slow one`))

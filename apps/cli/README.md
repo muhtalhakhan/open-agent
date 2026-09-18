@@ -24,6 +24,10 @@ Because nothing can answer an approval prompt, `ask`-level tool calls are denied
 
 Both modes share one task path (`task.ts`): recall memories, run the loop, store the answer. `repl.ts` and `headless.ts` differ only in the IO wrapped around it.
 
+## Task history
+
+`open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, and the session id to pass to `--resume`. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
+
 ## Background jobs
 
 In the interactive session, `:bg <task>` sends a task off to run while you keep working. When it finishes, its result (or error) is printed above the prompt. `:jobs` lists background jobs, `:job <id>` shows one in full, and `:cancel <id>` stops one. An id can be shortened to any unambiguous prefix. Jobs run one at a time, next to the foreground task rather than behind it, and `:exit` cancels any that are unfinished before the session is saved.
@@ -50,6 +54,7 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
 - `task.ts` — one task end to end, shared by both modes
+- `history.ts` — `--history` and `:history` formatting, merging saved sessions with the live one (`history.test.ts`)
 - `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)
 - `headless.ts` — print mode: stream split and exit codes (`headless.test.ts`)
 - `approval.ts` — the y/N prompt, given an injectable `ask()` function, and the router that keeps background jobs from prompting (`approval.test.ts`, `background.test.ts`)

@@ -5,6 +5,7 @@ The agent runtime: the turn/step loop, the tool registry and execution pipeline,
 ## Pieces
 
 - **`SessionLog`** (`src/session.ts`) — the append-only, durable fact log for a task. `deriveMessages()` projects the model-visible history from it. Nothing reaches the model unless it was appended here first.
+- **Task history** (`src/task-history.ts`): `taskRecords(events)` projects one record per task out of a session's events (prompt, outcome, start and end, final answer, tool-call count), and `readTaskHistory(store)` gathers the newest ones across every saved session. The records are derived from the log instead of kept beside it, so they cannot disagree with the transcript. A task whose last turn started but never ended is `interrupted`. Provider error messages are deliberately left out of the log, because an error body can echo a credential, so a failed task shows `error` without the reason.
 - **`ToolRegistry`** (`src/tools.ts`) — registers tools, each declaring a `permissionLevel` (`safe` / `ask` / `dangerous`), and guards execution behind an approval handler. Every call is recorded in `auditLog`.
 - **`AgentLoop`** (`src/agent-loop.ts`) — a turn is the whole run; a step is one model request plus the tools it calls. Handles retries on transient provider errors, cancellation via `AbortSignal`, and a `maxSteps` safety valve against runaway tool-calling.
 - **`plugins.ts`** — mounts the above onto a `Context` as `ctx.sessions`, `ctx.tools`, `ctx.llm`, `ctx.agentLoop`, demonstrating the "everything is a plugin" pattern from `docs/architecture.md`.

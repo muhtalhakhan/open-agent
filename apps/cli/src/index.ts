@@ -11,6 +11,7 @@ import {
   buildSystemPrompt,
   consoleLogger,
   loadProjectInstructions,
+  readTaskHistory,
   silentLogger,
 } from '@open-agent/agent'
 import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
@@ -37,6 +38,7 @@ import {
 import { createBackgroundJobs, type BackgroundJobs } from './background.js'
 import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
+import { formatHistory, sessionHistory } from './history.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -72,6 +74,12 @@ async function main() {
   const args = parsedArgs.args
   if (args.help) {
     console.log(USAGE)
+    return
+  }
+  // Before the provider config is read: looking at past tasks needs no API
+  // key, and refusing to show them for want of one would be absurd.
+  if (args.history) {
+    process.stdout.write(formatHistory(await readTaskHistory(new SessionStore())))
     return
   }
   const headless = args.mode === 'print'
@@ -374,7 +382,11 @@ async function main() {
       })
     } else {
       background = createBackgroundJobs(loop, sessions, (text) => io.write(text))
-      await runRepl(loop, sessions, io, activeAbort, memoryHook, background)
+      await runRepl(loop, sessions, io, activeAbort, {
+        memory: memoryHook,
+        background,
+        history: () => sessionHistory(sessionStore, sessions),
+      })
       // Before the session is saved, so what the jobs did so far is in it.
       const stopped = await background.close()
       if (stopped > 0) io.write(`Cancelled ${stopped} unfinished background job${stopped === 1 ? '' : 's'}.\n`)

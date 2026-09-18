@@ -1,6 +1,7 @@
-import type { AgentLoop, SessionLog } from '@open-agent/agent'
+import type { AgentLoop, SessionLog, TaskRecord } from '@open-agent/agent'
 import type { Job } from '@open-agent/automation'
 import type { BackgroundJobs } from './background.js'
+import { formatHistory } from './history.js'
 import { executeTask, type MemoryHook } from './task.js'
 
 export interface ReplIO {
@@ -9,6 +10,15 @@ export interface ReplIO {
   write(text: string): void
   /** Optional transient status line (e.g. a TUI's "thinking…" indicator) shown while a task runs. */
   setStatus?(text: string | null): void
+}
+
+export interface ReplOptions {
+  /** Recalls memories before each task and stores its answer after. */
+  memory?: MemoryHook
+  /** Enables `:bg`, `:jobs`, `:job` and `:cancel`. */
+  background?: BackgroundJobs
+  /** Enables `:history`, listing past tasks. */
+  history?: () => Promise<TaskRecord[]>
 }
 
 /** Lets the caller cancel whichever task is currently running (e.g. from a SIGINT handler). */
@@ -29,14 +39,14 @@ export interface AbortRef {
  *
  * When `background` is given, `:bg <task>` sends a task off to run while the
  * session carries on, and `:jobs`, `:job <id>` and `:cancel <id>` manage it.
+ * When `history` is given, `:history` lists past tasks.
  */
 export async function runRepl(
   agentLoop: AgentLoop,
   sessions: SessionLog,
   io: ReplIO,
   activeAbort: AbortRef,
-  memory?: MemoryHook,
-  background?: BackgroundJobs,
+  { memory, background, history }: ReplOptions = {},
 ): Promise<void> {
   io.write(
     background
@@ -49,6 +59,10 @@ export async function runRepl(
     const trimmed = input.trim()
     if (!trimmed) continue
     if (trimmed === ':exit') return
+    if (history && trimmed === ':history') {
+      io.write(`${formatHistory(await history())}\n`)
+      continue
+    }
     if (background && runBackgroundCommand(trimmed, background, io)) continue
 
     const controller = new AbortController()

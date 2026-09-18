@@ -9,6 +9,8 @@ export interface CliArgs {
   approveAsk: boolean
   /** If `repl`, resume the most recent (or named) session instead of starting fresh. */
   resume?: string | true
+  /** Print recent past tasks and exit. */
+  history: boolean
   help: boolean
 }
 
@@ -22,14 +24,17 @@ Usage
   echo "<task>" | open-agent -p  same, reading the task from stdin
   open-agent --resume            reopen the most recent session
   open-agent --resume <id>       reopen a specific session by id
+  open-agent --history           list recent tasks from past sessions
 
 Options
   -p, --print [task]   non-interactive: run a single task and exit
   -y, --yes            approve "ask"-level tool calls without prompting
   --resume [id]        resume the most recent or named session
+  --history            list recent past tasks and exit
   -h, --help           show this help
 
 In the interactive session
+  :history             list recent tasks, this session's included
   :bg <task>           run a task in the background and keep working
   :jobs                list background jobs; :job <id> shows one in full
   :cancel <id>         cancel a background job
@@ -61,19 +66,31 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     print: { type: 'boolean', short: 'p', default: false },
     yes: { type: 'boolean', short: 'y', default: false },
     resume: { type: 'string' },
+    history: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
   let positionals: string[]
-  let values: { print: boolean; yes: boolean; resume?: string | undefined; help: boolean }
+  let values: { print: boolean; yes: boolean; resume?: string | undefined; history: boolean; help: boolean }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
-    values = parsed.values as { print: boolean; yes: boolean; resume?: string | undefined; help: boolean }
+    values = parsed.values as {
+      print: boolean
+      yes: boolean
+      resume?: string | undefined
+      history: boolean
+      help: boolean
+    }
     positionals = parsed.positionals
   } catch (err) {
     return { ok: false, error: `${err instanceof Error ? err.message : String(err)}\n\n${USAGE}` }
   }
-  if (values.help) return { ok: true, args: { mode: 'repl', approveAsk: false, resume: undefined, help: true } }
+  if (values.help) {
+    return { ok: true, args: { mode: 'repl', approveAsk: false, resume: undefined, history: false, help: true } }
+  }
+  if (values.history) {
+    return { ok: true, args: { mode: 'repl', approveAsk: false, resume: undefined, history: true, help: false } }
+  }
 
   // parseArgs always returns a string for `resume`. Treat `--resume` (no value)
   // as `true` (resume most recent) by leaving the value undefined; treat a
@@ -85,7 +102,10 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     if (positionals.length > 0) {
       return { ok: false, error: `Unexpected argument "${positionals[0]}". Did you mean -p "${positionals[0]}"?` }
     }
-    return { ok: true, args: { mode: 'repl', approveAsk: values.yes, resume: resumeValue, help: false } }
+    return {
+      ok: true,
+      args: { mode: 'repl', approveAsk: values.yes, resume: resumeValue, history: false, help: false },
+    }
   }
 
   if (positionals.length > 1) {
@@ -94,6 +114,13 @@ export function parseCliArgs(argv: string[]): ArgsResult {
 
   return {
     ok: true,
-    args: { mode: 'print', prompt: positionals[0], approveAsk: values.yes, resume: resumeValue, help: false },
+    args: {
+      mode: 'print',
+      prompt: positionals[0],
+      approveAsk: values.yes,
+      resume: resumeValue,
+      history: false,
+      help: false,
+    },
   }
 }

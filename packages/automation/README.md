@@ -184,5 +184,4 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 ## Status
 
 - ✅ #76 Task scheduler · #77 One-time tasks · #78 Recurring tasks
-- ✅ #79 Background execution (`:bg` in the CLI) · #80 Job queue · #81 Failed-job retry · #82 Notifications
-- ⬜ #83 Task history
+- ✅ #79 Background execution (`:bg` in the CLI) · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history (`--history` in the CLI)
