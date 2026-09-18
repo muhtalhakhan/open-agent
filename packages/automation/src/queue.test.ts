@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@open-agent/context'
-import type { TaskState } from '@open-agent/agent'
+import { SessionLog, type TaskState } from '@open-agent/agent'
 import { JobQueue, agentExecutor, type Job, type JobExecutor } from './queue.js'
 import { jobQueuePlugin } from './plugin.js'
 import { Scheduler } from './scheduler.js'
@@ -201,6 +201,38 @@ function flakyExecutor(failures: number, message = 'rate limited') {
   }
   return { executor, attempts }
 }
+
+describe('JobQueue.onChange', () => {
+  it('reports every transition, retries included, and stops when unsubscribed', async () => {
+    const timers = manualTimers()
+    const queue = new JobQueue({
+      executor: flakyExecutor(1).executor,
+      retry: { maxAttempts: 2, backoffMs: 5 },
+      ...timers,
+    })
+    const seen: string[] = []
+    const stop = queue.onChange((job) => seen.push(`${job.status}#${job.attempts}`))
+
+    const { id } = queue.enqueue({ name: 'a', prompt: 'a' })
+    await flush()
+    await timers.advance(5)
+    expect(seen).toEqual(['queued#0', 'running#1', 'retrying#1', 'queued#1', 'running#2', 'succeeded#2'])
+
+    stop()
+    queue.retryNow(id) // not failed, so a no-op either way; nothing more is reported
+    queue.enqueue({ name: 'b', prompt: 'b' })
+    expect(seen).toHaveLength(6)
+  })
+
+  it('keeps running when a listener throws', async () => {
+    const queue = new JobQueue({ executor: async () => 'done' })
+    queue.onChange(() => {
+      throw new Error('listener bug')
+    })
+    const job = await queue.wait(queue.enqueue({ name: 'a', prompt: 'a' }).id)
+    expect(job).toMatchObject({ status: 'succeeded', result: 'done' })
+  })
+})
 
 describe('JobQueue retries', () => {
   it('does not retry unless asked to', async () => {
@@ -505,6 +537,19 @@ describe('agentExecutor', () => {
     expect(taskIds).toEqual([job.id, `${job.id}.2`])
   })
 
+  it("takes the job's result from the run's final answer when given the session log", async () => {
+    const sessions = new SessionLog()
+    const loop = {
+      run: async (input: string, _signal: AbortSignal, taskId = 'unused'): Promise<TaskState> => {
+        sessions.append({ type: 'user/message', taskId, at: 0, message: { role: 'user', content: input } })
+        sessions.append({ type: 'assistant/message', taskId, at: 0, message: { role: 'assistant', content: '42' } })
+        return { id: taskId, status: 'completed', createdAt: 0, updatedAt: 0 }
+      },
+    }
+    const queue = new JobQueue({ executor: agentExecutor(loop, sessions) })
+    expect((await queue.wait(queue.enqueue({ name: 'a', prompt: 'meaning?' }).id)).result).toBe('42')
+  })
+
   it('runs the prompt as a turn keyed by the job id', async () => {
     const { loop, calls } = loopReturning('completed')
     const queue = new JobQueue({ executor: agentExecutor(loop) })
@@ -533,7 +578,7 @@ describe('agentExecutor', () => {
 })
 
 describe('jobQueuePlugin', () => {
-  it('mounts ctx.jobQueue once an agent loop exists', async () => {
+  it('mounts ctx.jobQueue once an agent loop and session log exist', async () => {
     const ctx = new Context()
     ctx.plugin(jobQueuePlugin())
     expect(ctx.get('jobQueue')).toBeUndefined()
@@ -551,6 +596,8 @@ describe('jobQueuePlugin', () => {
       }
     })()
     ctx.set('agentLoop', loop)
+    expect(ctx.get('jobQueue')).toBeUndefined()
+    ctx.set('sessions', new SessionLog())
 
     const queue = ctx.get<JobQueue>('jobQueue')!
     await queue.wait(queue.enqueue({ name: 'a', prompt: 'hello' }).id)

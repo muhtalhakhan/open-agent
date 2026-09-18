@@ -119,6 +119,29 @@ queue.enqueue({ name: 'digest', prompt: '…', retry: { maxAttempts: 5 } }) // p
 - **Each attempt is its own agent turn**, under `<job id>.<attempt>` from the second attempt on. Reusing the id would replay the prompt into the failed attempt's conversation.
 - **`retryNow(id)`** gives a `failed` or `cancelled` job one more attempt straight away, for when a person decides the failure was transient.
 
+## Notifications
+
+`notifyOnFinish` tells a `Notifier` when a job finishes:
+
+```ts
+import { notifyOnFinish, streamNotifier, webhookNotifier } from '@open-agent/automation'
+
+notifyOnFinish(
+  queue,
+  streamNotifier((text) => process.stderr.write(text)),
+)
+notifyOnFinish(queue, webhookNotifier({ url: process.env.NOTIFY_WEBHOOK_URL! }), { on: ['failed'] })
+```
+
+A `Notifier` is just `(notification) => void | Promise<void>`, so a desktop toast or a chat message is one function. Each notification carries a one-line `title`, a `body` holding the job's result or error (trimmed to 500 characters), the attempt count, and the scheduled task it came from, if any. The body is the run's final answer when the queue was built with `agentExecutor(loop, sessions)`.
+
+- **Only final outcomes.** A `retrying` job has not failed yet, and announcing every attempt would train people to ignore the one that matters.
+- **Successes and failures by default.** A cancelled job was cancelled by someone, who already knows. Pass `on` to choose.
+- **A broken notifier cannot break the queue.** A throw or rejection is logged and dropped.
+- **The webhook URL is configuration, not a tool argument.** The body carries whatever the agent produced, so where it goes is decided by whoever runs the process, never by the model.
+
+For lower-level needs, `queue.onChange(listener)` reports every status change, retries included.
+
 ## Usage
 
 ```ts
@@ -161,5 +184,5 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 ## Status
 
 - ✅ #76 Task scheduler · #77 One-time tasks · #78 Recurring tasks
-- ✅ #80 Job queue · #81 Failed-job retry
-- ⬜ #79 Background execution · #82 Notifications · #83 Task history
+- ✅ #80 Job queue · #81 Failed-job retry · #82 Notifications
+- ⬜ #79 Background execution · #83 Task history

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { AgentLoop, Logger } from '@open-agent/agent'
+import type { AgentLoop, Logger, SessionLog } from '@open-agent/agent'
 import { CancelledError, silentLogger } from '@open-agent/agent'
 import type { TaskRunner } from './types.js'
 
@@ -30,6 +30,8 @@ export interface Job {
   maxAttempts: number
   /** When the next attempt is due, while the job is `retrying`. */
   retryAt?: number
+  /** What a successful job produced, when its executor returned anything. */
+  result?: string
   /** The scheduled task this job was fired from, if any. */
   source?: { taskId: string; firedAt: number }
 }
@@ -69,10 +71,14 @@ type ResolvedRetryPolicy = Required<RetryPolicy>
 type TimerHandle = unknown
 
 /**
- * Does the work of one job. Resolving means it succeeded; throwing means it
- * failed — or, if the signal was aborted first, that it was cancelled.
+ * Does the work of one job. Resolving means it succeeded, and a string it
+ * resolves with becomes the job's `result`; throwing means it failed — or, if
+ * the signal was aborted first, that it was cancelled.
  */
-export type JobExecutor = (job: Job, signal: AbortSignal) => Promise<void>
+export type JobExecutor = (job: Job, signal: AbortSignal) => Promise<string | void>
+
+/** Told about every status change of every job. */
+export type JobListener = (job: Job) => void
 
 export interface JobQueueOptions {
   executor: JobExecutor
@@ -126,6 +132,7 @@ export class JobQueue {
   private readonly controllers = new Map<string, AbortController>()
   private readonly policies = new Map<string, ResolvedRetryPolicy>()
   private readonly backoffs = new Map<string, TimerHandle>()
+  private readonly listeners = new Set<JobListener>()
   private readonly settled = new Map<string, Array<(job: Job) => void>>()
   private closed = false
 
@@ -168,6 +175,7 @@ export class JobQueue {
     this.policies.set(id, policy)
     this.waiting.push(job)
     this.logger.info('queue/enqueue', { id, name: job.name, waiting: this.waiting.length })
+    this.emit(job)
     this.pump()
     return { ...job }
   }
@@ -223,8 +231,18 @@ export class JobQueue {
     job.finishedAt = undefined
     this.waiting.push(job)
     this.logger.info('queue/retry-now', { id, attempt: job.attempts + 1 })
+    this.emit(job)
     this.pump()
     return { ...job }
+  }
+
+  /**
+   * Subscribes to every status change — queued, running, retrying, and the
+   * final one. Returns an unsubscribe function.
+   */
+  onChange(listener: JobListener): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
   }
 
   /** Resolves with the job once it has finished, however it finished. */
@@ -293,10 +311,12 @@ export class JobQueue {
     job.startedAt = this.now()
     job.attempts += 1
     this.logger.info('queue/start', { id: job.id, attempt: job.attempts })
+    this.emit(job)
 
     try {
-      await this.executor({ ...job }, controller.signal)
+      const result = await this.executor({ ...job }, controller.signal)
       job.error = undefined
+      if (typeof result === 'string') job.result = result
       this.settle(job, 'succeeded')
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
@@ -329,6 +349,7 @@ export class JobQueue {
     job.error = error
     job.retryAt = this.now() + delay
     this.logger.warn('queue/retrying', { id: job.id, attempt: job.attempts, delay, error })
+    this.emit(job)
 
     this.backoffs.set(
       job.id,
@@ -337,6 +358,7 @@ export class JobQueue {
         job.retryAt = undefined
         job.status = 'queued'
         this.waiting.push(job)
+        this.emit(job)
         this.pump()
       }, delay),
     )
@@ -355,10 +377,29 @@ export class JobQueue {
     if (error !== undefined) job.error = error
     if (status === 'failed') this.logger.error('queue/failed', { id: job.id, error })
     else this.logger.info(`queue/${status}`, { id: job.id })
+    this.emit(job)
 
     for (const resolve of this.settled.get(job.id) ?? []) resolve({ ...job })
     this.settled.delete(job.id)
     this.forgetOldest()
+  }
+
+  /**
+   * Tells listeners about a change. A listener that throws is logged and
+   * skipped: a broken notifier must not be able to wedge the queue midway
+   * through a transition.
+   */
+  private emit(job: Job): void {
+    for (const listener of this.listeners) {
+      try {
+        listener({ ...job })
+      } catch (err) {
+        this.logger.error('queue/listener-failed', {
+          id: job.id,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
   }
 
   /** Drops the oldest finished jobs past `historyLimit`, so a long-lived queue does not grow forever. */
@@ -394,12 +435,17 @@ function resolvePolicy(policy: RetryPolicy): ResolvedRetryPolicy {
  *
  * `AgentLoop.run` reports failure and cancellation as a status rather than by
  * throwing; this turns them back into the throw the queue reads outcomes from.
+ * Given the session log, the job's `result` is the run's final answer.
  */
-export function agentExecutor(loop: Pick<AgentLoop, 'run'>): JobExecutor {
+export function agentExecutor(
+  loop: Pick<AgentLoop, 'run'>,
+  sessions?: Pick<SessionLog, 'deriveMessages'>,
+): JobExecutor {
   return async (job, signal) => {
     const taskId = job.attempts > 1 ? `${job.id}.${job.attempts}` : job.id
     const state = await loop.run(job.prompt, signal, taskId)
     if (state.status === 'cancelled') throw new CancelledError()
     if (state.status === 'error') throw new Error(state.error ?? 'agent run failed')
+    return sessions?.deriveMessages(taskId).at(-1)?.content
   }
 }
