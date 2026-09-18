@@ -11,8 +11,8 @@ TypeScript monorepo on npm workspaces. `apps/cli` (the terminal app) and
 `packages/providers` (LLM adapters), `packages/memory`, `packages/context`
 (a plugin kernel — _not_ prompt context), and the `tools-*` packages.
 
-`packages/tools` and `packages/security` are README-only placeholders — nothing
-is implemented in either; the filesystem tools live in `packages/tools-files`. The permission and approval system lives in
+`packages/tools` is a README-only placeholder; the filesystem tools live in
+`packages/tools-files`. `packages/security` holds the secret stores (OS keychain). The permission and approval system lives in
 `packages/agent/src/tools.ts`; the built tools are the `tools-*` packages.
 
 ## Invariants worth knowing before editing

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { loadConfigFromEnv } from './config.js'
+import { MemorySecretStore } from '@open-agent/security'
+import { loadConfigFromEnv, type OpenKeychain } from './config.js'
 
 describe('loadConfigFromEnv', () => {
   it('fails when the required OpenAI-compatible env vars are missing', () => {
@@ -411,3 +412,87 @@ function base(): NodeJS.ProcessEnv {
 function raiseMissing(path: string): never {
   throw new Error(`ENOENT: no such file or directory, open '${path}'`)
 }
+
+describe('loadConfigFromEnv with SECRET_STORE=keychain', () => {
+  const base = { OPENAI_BASE_URL: 'https://api.openai.com/v1', OPENAI_MODEL: 'gpt-4o-mini' }
+  /** A keychain holding `secrets`, recording the service it was opened with. */
+  function keychain(secrets: Record<string, string>) {
+    const opened: Array<string | undefined> = []
+    const open: OpenKeychain = ({ service }) => {
+      opened.push(service)
+      return Object.assign(new MemorySecretStore(secrets), { name: 'keychain' })
+    }
+    return { open, opened }
+  }
+
+  it('takes a credential missing from the environment out of the keychain, and redacts it', () => {
+    const { open, opened } = keychain({ OPENAI_API_KEY: 'sk-from-keychain', BRAVE_SEARCH_API_KEY: 'brave-k' })
+    const result = loadConfigFromEnv({ ...base, SECRET_STORE: 'keychain' }, undefined, open)
+
+    expect(result.ok && result.config.llm.apiKey).toBe('sk-from-keychain')
+    expect(result.ok && result.config.search).toEqual({ provider: 'brave', apiKey: 'brave-k' })
+    expect(result.ok && result.config.secrets).toEqual(expect.arrayContaining(['sk-from-keychain', 'brave-k']))
+    expect(opened).toEqual([undefined])
+  })
+
+  it('lets a variable in the environment win over the keychain', () => {
+    const { open } = keychain({ OPENAI_API_KEY: 'sk-from-keychain' })
+    const result = loadConfigFromEnv({ ...base, OPENAI_API_KEY: 'sk-env', SECRET_STORE: 'keychain' }, undefined, open)
+    expect(result.ok && result.config.llm.apiKey).toBe('sk-env')
+  })
+
+  it('never opens the keychain unless asked to', () => {
+    const { open, opened } = keychain({ OPENAI_API_KEY: 'sk-from-keychain' })
+    const result = loadConfigFromEnv({ ...base }, undefined, open)
+    expect(result.ok).toBe(false)
+    expect(opened).toEqual([])
+  })
+
+  it('fetches HTTP_SECRETS placeholders from the keychain under HTTP_SECRET_<NAME>', () => {
+    const { open } = keychain({ OPENAI_API_KEY: 'sk', HTTP_SECRET_GITHUB_TOKEN: 'ghp-stored' })
+    const result = loadConfigFromEnv(
+      { ...base, SECRET_STORE: 'keychain', HTTP_TOOL: '1', HTTP_SECRETS: 'GITHUB_TOKEN, ' },
+      undefined,
+      open,
+    )
+    expect(result.ok && result.config.http.secrets).toEqual({ GITHUB_TOKEN: 'ghp-stored' })
+  })
+
+  it('fails when a named HTTP secret is in neither the environment nor the keychain', () => {
+    const { open } = keychain({ OPENAI_API_KEY: 'sk' })
+    const result = loadConfigFromEnv({ ...base, SECRET_STORE: 'keychain', HTTP_SECRETS: 'MISSING' }, undefined, open)
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('HTTP_SECRET_MISSING') })
+  })
+
+  it('passes SECRET_STORE_SERVICE through', () => {
+    const { open, opened } = keychain({ OPENAI_API_KEY: 'sk' })
+    loadConfigFromEnv({ ...base, SECRET_STORE: 'keychain', SECRET_STORE_SERVICE: 'work' }, undefined, open)
+    expect(opened).toEqual(['work'])
+  })
+
+  it('reports a keychain that cannot be opened or read', () => {
+    const unsupported: OpenKeychain = () => {
+      throw new Error('The keychain secret store supports macOS and Linux, not win32.')
+    }
+    expect(loadConfigFromEnv({ ...base, SECRET_STORE: 'keychain' }, undefined, unsupported)).toEqual({
+      ok: false,
+      error: 'SECRET_STORE=keychain: The keychain secret store supports macOS and Linux, not win32.',
+    })
+
+    const locked: OpenKeychain = () => ({
+      name: 'keychain',
+      get() {
+        throw new Error('the Secret Service refused OPENAI_API_KEY: Cannot autolaunch D-Bus')
+      },
+    })
+    const result = loadConfigFromEnv({ ...base, SECRET_STORE: 'keychain' }, undefined, locked)
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('could not be read from the keychain') })
+  })
+
+  it('rejects an unknown SECRET_STORE rather than ignoring it', () => {
+    expect(loadConfigFromEnv({ ...base, OPENAI_API_KEY: 'sk', SECRET_STORE: 'vault' })).toEqual({
+      ok: false,
+      error: 'SECRET_STORE must be "keychain" or "none", got "vault".',
+    })
+  })
+})

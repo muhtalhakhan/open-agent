@@ -16,6 +16,7 @@
     "@open-agent/agent": "*",
     "@open-agent/memory": "*",
     "@open-agent/providers": "*",
+    "@open-agent/security": "*",
     "@open-agent/tools-browser": "*",
     "@open-agent/tools-computer": "*",
     "@open-agent/tools-files": "*",

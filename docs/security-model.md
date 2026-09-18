@@ -1,6 +1,6 @@
 # Security Model
 
-> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Shell sandboxing (#86) and the on-disk secret policy (#59) are implemented too, in `packages/tools-terminal` and `packages/tools-files` respectively; each carries a status note below. The rest (approval UI, secret store, prompt-injection defenses, audit logs) is design-only, and `packages/security` still has no implementation. Don't go looking for code that isn't there.
+> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Shell sandboxing (#86) and the on-disk secret policy (#59) are implemented too, in `packages/tools-terminal` and `packages/tools-files` respectively; each carries a status note below. So is the OS-keychain secret store (#88), in `packages/security`. The rest (approval UI, network secret stores, prompt-injection defenses, audit logs) is design-only. Don't go looking for code that isn't there.
 
 ## Threat surface
 
@@ -99,8 +99,14 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > secret file, rejects one carrying whitespace or control characters, and reports
 > failures by variable name rather than by value; `createRedactingLogger` filters
 > the resolved values back out of everything the agent loop logs, and `redactUrl`
-> covers the keys providers take as a query parameter. A pluggable secret store
-> (OS keychain, Vault) is a design target, not code.
+> covers the keys providers take as a query parameter. With `SECRET_STORE=keychain`,
+> any credential not set in the environment is read from the OS keychain (macOS
+> Keychain, or the Linux Secret Service via `secret-tool`) through
+> `KeychainSecretStore` in `packages/security`, so keys need not sit in a
+> plaintext `.env`. The environment still wins, and the keychain is only
+> consulted when asked for, since a lookup can raise an OS unlock dialog. Vault
+> and other network stores remain a design target: credential resolution is
+> synchronous, and they would need it to become async.
 >
 > Secrets on disk are covered separately by the file policy in
 > `packages/tools-files` (#59): `.env`, private keys, `.ssh/**`, `.aws/credentials`

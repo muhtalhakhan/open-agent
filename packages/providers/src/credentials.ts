@@ -2,7 +2,7 @@
  * Credential resolution for provider API keys and any other secret a package
  * needs at construction time.
  *
- * Two things distinguish this from reading `process.env` directly:
+ * Three things distinguish this from reading `process.env` directly:
  *
  * 1. `<NAME>_FILE` indirection. Docker secrets, Kubernetes secret volumes and
  *    systemd's `LoadCredential=` all deliver a credential as a file, not an
@@ -14,6 +14,8 @@
  *    here — and the rejection names the variable it came from, never the
  *    value, because config errors are exactly the strings that end up in logs
  *    and issue reports.
+ * 3. An optional secret store (the OS keychain, from `@open-agent/security`),
+ *    so a key can live somewhere encrypted rather than in a plaintext `.env`.
  */
 import { readFileSync } from 'node:fs'
 
@@ -21,6 +23,12 @@ export interface CredentialLookup {
   env: NodeJS.ProcessEnv
   /** Injectable for tests; defaults to reading the path as UTF-8. */
   readFile?: (path: string) => string
+  /**
+   * Consulted after `<NAME>` and `<NAME>_FILE`, under the same name — the OS
+   * keychain, say. Structurally typed so this package does not depend on
+   * whichever one is plugged in.
+   */
+  store?: { readonly name: string; get(key: string): string | undefined }
 }
 
 export type CredentialResult =
@@ -42,9 +50,11 @@ export type CredentialResult =
 const ILLEGAL_IN_CREDENTIAL = /[\s\u0000-\u001F\u007F]/
 
 /**
- * Resolves the first configured credential among `names`, trying `<NAME>` and
- * then `<NAME>_FILE` for each before moving on to the next name. Earlier names
- * win, so callers list the most specific variable first.
+ * Resolves the first configured credential among `names`, trying `<NAME>`,
+ * then `<NAME>_FILE`, then the secret store for each before moving on to the
+ * next name. Earlier names win, so callers list the most specific variable
+ * first. The environment outranks the store so a one-off override needs no
+ * keychain edit.
  *
  * An empty or whitespace-only variable counts as unset: `.env` files routinely
  * carry `SOME_API_KEY=` placeholders, and treating those as a configured empty
@@ -59,7 +69,11 @@ export function resolveCredential(names: string | string[], lookup: CredentialLo
 
     const fileVar = `${name}_FILE`
     const rawPath = lookup.env[fileVar]
-    if (rawPath === undefined || rawPath.trim() === '') continue
+    if (rawPath === undefined || rawPath.trim() === '') {
+      const stored = fromStore(name, lookup)
+      if (stored) return stored
+      continue
+    }
 
     const filePath = rawPath.trim()
     const read = lookup.readFile ?? ((path: string) => readFileSync(path, 'utf8'))
@@ -81,11 +95,35 @@ export function resolveCredential(names: string | string[], lookup: CredentialLo
   }
 
   const listed = candidates.join(' or ')
+  const elsewhere = lookup.store ? `, or store it in the ${lookup.store.name} under ${candidates[0]}` : ''
   return {
     ok: false,
     reason: 'missing',
-    error: `Set ${listed} (or ${candidates[0]}_FILE to read the value from a file).`,
+    error: `Set ${listed} (or ${candidates[0]}_FILE to read the value from a file${elsewhere}).`,
   }
+}
+
+/**
+ * Asks the secret store for `name`. Nothing stored falls through to the next
+ * candidate; a store that could not be read is an operator error, reported by
+ * the store's name and the key — the store's own message never includes a
+ * value, and neither does this one.
+ */
+function fromStore(name: string, lookup: CredentialLookup): CredentialResult | undefined {
+  if (!lookup.store) return undefined
+  let value: string | undefined
+  try {
+    value = lookup.store.get(name)
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    return {
+      ok: false,
+      reason: 'unreadable',
+      error: `${name} could not be read from the ${lookup.store.name}: ${detail}`,
+    }
+  }
+  if (value === undefined || value.trim() === '') return undefined
+  return validate(value, `${name} in the ${lookup.store.name}`)
 }
 
 /**

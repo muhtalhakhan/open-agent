@@ -1,4 +1,5 @@
 import { apiKeyVarsFor, resolveCredential, type CredentialLookup, type CredentialResult } from '@open-agent/providers'
+import { KeychainSecretStore, type KeychainOptions, type SecretStore } from '@open-agent/security'
 
 export interface CliConfig {
   llm: { baseURL: string; apiKey: string; model: string }
@@ -40,6 +41,11 @@ export interface CliConfig {
 
 export type ConfigResult = { ok: true; config: CliConfig } | { ok: false; error: string }
 
+/** Opens the OS keychain. Injectable so config tests never touch a real one. */
+export type OpenKeychain = (options: Pick<KeychainOptions, 'service'>) => SecretStore
+
+const openRealKeychain: OpenKeychain = (options) => new KeychainSecretStore(options)
+
 /**
  * Parses the environment into a `CliConfig`. See .env.example for the full list.
  *
@@ -48,8 +54,28 @@ export type ConfigResult = { ok: true; config: CliConfig } | { ok: false; error:
  * Docker and Kubernetes secrets arrive in. `readFile` is injectable so tests
  * stay off the disk; with it stubbed the function is as pure as it was before.
  */
-export function loadConfigFromEnv(env: NodeJS.ProcessEnv, readFile?: CredentialLookup['readFile']): ConfigResult {
-  const lookup: CredentialLookup = { env, readFile }
+export function loadConfigFromEnv(
+  env: NodeJS.ProcessEnv,
+  readFile?: CredentialLookup['readFile'],
+  openKeychain: OpenKeychain = openRealKeychain,
+): ConfigResult {
+  // SECRET_STORE=keychain adds the OS keychain as a last place to look for
+  // every credential below. Opt-in, not automatic: looking spawns a process
+  // per credential and can raise an OS unlock dialog, which nobody should get
+  // from a CLI they never told to use their keychain.
+  const storeKind = env.SECRET_STORE?.trim() || 'none'
+  let store: SecretStore | undefined
+  if (storeKind === 'keychain') {
+    try {
+      store = openKeychain({ service: env.SECRET_STORE_SERVICE?.trim() || undefined })
+    } catch (err) {
+      return { ok: false, error: `SECRET_STORE=keychain: ${err instanceof Error ? err.message : String(err)}` }
+    }
+  } else if (storeKind !== 'none') {
+    return { ok: false, error: `SECRET_STORE must be "keychain" or "none", got "${storeKind}".` }
+  }
+
+  const lookup: CredentialLookup = { env, readFile, store }
   const secrets: string[] = []
 
   /**
@@ -250,6 +276,12 @@ function loadHttpToolConfig(
     if (!key.startsWith('HTTP_SECRET_') || !value) continue
     const name = key.slice('HTTP_SECRET_'.length)
     names.add(name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name)
+  }
+  // A secret kept in the keychain has no variable to be discovered by, so
+  // HTTP_SECRETS names the placeholders to go and fetch. Each is looked up as
+  // HTTP_SECRET_<NAME>, the same name the variable would have had.
+  for (const name of (env.HTTP_SECRETS ?? '').split(',')) {
+    if (name.trim()) names.add(name.trim())
   }
 
   const resolved: Record<string, string> = {}
