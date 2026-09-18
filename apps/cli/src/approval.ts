@@ -57,3 +57,21 @@ export function createNonInteractiveApprovalHandler(approveAsk: boolean, log: (m
     return false
   }
 }
+
+/**
+ * Sends each approval question to whoever can answer it: the terminal for the
+ * task in the foreground, the unattended policy for a background job.
+ *
+ * A background job prompting on the terminal would put its question in front
+ * of someone answering a different task's — they could approve one while
+ * believing they were approving the other. So it gets the same answer print
+ * mode does: denied, unless the session was started with `--yes`.
+ */
+export function createRoutingApprovalHandler(
+  isBackground: (taskId: string) => boolean,
+  foreground: ApprovalHandler,
+  background: ApprovalHandler,
+): ApprovalHandler {
+  return (call, tool, context) =>
+    isBackground(context.taskId) ? background(call, tool, context) : foreground(call, tool, context)
+}

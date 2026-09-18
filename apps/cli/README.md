@@ -24,6 +24,14 @@ Because nothing can answer an approval prompt, `ask`-level tool calls are denied
 
 Both modes share one task path (`task.ts`): recall memories, run the loop, store the answer. `repl.ts` and `headless.ts` differ only in the IO wrapped around it.
 
+## Background jobs
+
+In the interactive session, `:bg <task>` sends a task off to run while you keep working. When it finishes, its result (or error) is printed above the prompt. `:jobs` lists background jobs, `:job <id>` shows one in full, and `:cancel <id>` stops one. An id can be shortened to any unambiguous prefix. Jobs run one at a time, next to the foreground task rather than behind it, and `:exit` cancels any that are unfinished before the session is saved.
+
+A background job cannot stop and ask you anything, because its question would appear while you might be answering a different task's. It gets print mode's policy instead: `ask`-level tool calls are denied (and the refusal is printed with a `[background]` tag) unless the session was started with `--yes`. `ToolRegistry` tells the approval handler which task is asking, and `createRoutingApprovalHandler` in `approval.ts` sends each question to the right policy.
+
+Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packages/automation/README.md`.
+
 ## What it wires up
 
 - **Provider**: `OpenAiCompatibleProvider` from `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` — point it at OpenAI, OpenRouter, Ollama, or LM Studio. Pointed at a vendor with its own conventional variable, that name wins: `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`. Every credential also accepts a `<NAME>_FILE` variant naming a file holding the value, for Docker/Kubernetes secrets, and each resolved value is filtered out of the agent's logs.
@@ -42,7 +50,8 @@ Both modes share one task path (`task.ts`): recall memories, run the loop, store
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
 - `task.ts` — one task end to end, shared by both modes
+- `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)
 - `headless.ts` — print mode: stream split and exit codes (`headless.test.ts`)
-- `approval.ts` — the y/N prompt, given an injectable `ask()` function (`approval.test.ts`)
+- `approval.ts` — the y/N prompt, given an injectable `ask()` function, and the router that keeps background jobs from prompting (`approval.test.ts`, `background.test.ts`)
 - `repl.ts` — the read-task-print loop, given fake `ReplIO` and a real `AgentLoop` with a scripted `LlmAdapter` (`repl.test.ts`)
 - `tui/` — the Ink TUI: `App.tsx` (the component), `tui-io.ts` (bridges Ink to the `ReplIO`/approval-`ask` shapes the rest of the CLI is written against, tested without rendering anything in `tui-io.test.ts`), `mount.tsx` (wires the two together)

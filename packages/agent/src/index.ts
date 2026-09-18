@@ -4,6 +4,7 @@ export { SessionStore, type StoredSession } from './session-store.js'
 export type { TaskSummary } from './session.js'
 export { ToolRegistry } from './tools.js'
 export type {
+  ApprovalContext,
   ApprovalDecision,
   ApprovalGrant,
   ApprovalHandler,

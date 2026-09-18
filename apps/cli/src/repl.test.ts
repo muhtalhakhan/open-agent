@@ -3,6 +3,7 @@ import { AgentLoop, SessionLog, ToolRegistry } from '@open-agent/agent'
 import type { LlmAdapter, LlmRequest, LlmResponse } from '@open-agent/agent'
 import { InMemoryMemoryProvider } from '@open-agent/memory'
 import { runRepl } from './repl.js'
+import { createBackgroundJobs } from './background.js'
 import type { AbortRef, ReplIO } from './repl.js'
 
 function fakeIo(inputs: string[]): ReplIO & { output: string[] } {
@@ -144,5 +145,65 @@ describe('runRepl', () => {
     await runRepl(loop, sessions, io, { current: null })
     expect(io.output.join('')).toMatch(/\[error\]/)
     expect(io.output.join('')).toMatch(/provider down/)
+  })
+
+  describe('background jobs', () => {
+    function withBackground(inputs: string[]) {
+      const sessions = new SessionLog()
+      const llm = new RecordingEchoAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm })
+      const io = fakeIo(inputs)
+      const background = createBackgroundJobs(loop, sessions, (text) => io.write(text))
+      return { sessions, llm, loop, io, background }
+    }
+
+    it(':bg runs a task off to the side and the session carries on', async () => {
+      const { loop, sessions, io, background, llm } = withBackground([':bg tidy the logs', 'hello'])
+      await runRepl(loop, sessions, io, { current: null }, undefined, background)
+      await new Promise((resolve) => setImmediate(resolve))
+
+      const out = io.output.join('')
+      expect(out).toMatch(/Started job_[0-9a-f]+ in the background/)
+      expect(out).toMatch(/you said: hello/)
+      expect(out).toMatch(/\[succeeded\] Job "tidy the logs" finished/)
+      const prompts = llm.requests.map((r) => r.messages.find((m) => m.role === 'user')?.content)
+      expect(prompts).toEqual(expect.arrayContaining(['tidy the logs', 'hello']))
+    })
+
+    it(':jobs, :job and :cancel manage what is running', async () => {
+      const sessions = new SessionLog()
+      const neverAnswers: LlmAdapter = {
+        name: 'never-answers',
+        generate: (_request, signal) =>
+          new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))),
+      }
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm: neverAnswers })
+      // The IO is built once the job exists, since the commands name its id;
+      // until then there is nothing for the background to write.
+      const output: { io?: ReturnType<typeof fakeIo> } = {}
+      const background = createBackgroundJobs(loop, sessions, (text) => output.io?.write(text))
+      const job = background.start('slow one')
+      const io = fakeIo([':jobs', `:job ${job.id}`, `:cancel ${job.id}`, ':job nope', ':cancel', ':bg'])
+      output.io = io
+
+      await runRepl(loop, sessions, io, { current: null }, undefined, background)
+
+      const out = io.output.join('')
+      expect(out).toMatch(new RegExp(`${job.id} +running +slow one`))
+      expect(out).toMatch(/Prompt: slow one/)
+      expect(out).toMatch(new RegExp(`Cancelling ${job.id}`))
+      expect(out).toMatch(/No background job matches "nope"/)
+      expect(out).toMatch(/Usage: :cancel <id>/)
+      expect(out).toMatch(/Background jobs:\n {2}:bg <task>/)
+    })
+
+    it('treats ":bg" as an ordinary task when background jobs are off', async () => {
+      const sessions = new SessionLog()
+      const llm = new RecordingEchoAdapter()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm })
+      const io = fakeIo([':bg something'])
+      await runRepl(loop, sessions, io, { current: null })
+      expect(io.output.join('')).toMatch(/you said: :bg something/)
+    })
   })
 })

@@ -29,6 +29,15 @@ Options
   --resume [id]        resume the most recent or named session
   -h, --help           show this help
 
+In the interactive session
+  :bg <task>           run a task in the background and keep working
+  :jobs                list background jobs; :job <id> shows one in full
+  :cancel <id>         cancel a background job
+  :exit                quit (cancels unfinished background jobs)
+
+Background jobs cannot stop to ask for approval, so "ask"-level tool
+calls in them are denied unless the session was started with --yes.
+
 Exit codes (print mode)
   0  the task completed
   1  the task failed

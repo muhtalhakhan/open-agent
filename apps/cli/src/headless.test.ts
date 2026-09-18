@@ -5,6 +5,9 @@ import { EXIT_CANCELLED, EXIT_ERROR, EXIT_OK, runHeadless } from './headless.js'
 import { createNonInteractiveApprovalHandler } from './approval.js'
 import type { ToolCall, ToolDefinition } from '@open-agent/agent'
 
+/** The approval context the registry passes; these handlers answer the same for any task. */
+const task = { taskId: 't1' }
+
 class AnswerAdapter implements LlmAdapter {
   name = 'answer'
   constructor(private readonly answer: string) {}
@@ -107,7 +110,7 @@ describe('createNonInteractiveApprovalHandler', () => {
     const logs: string[] = []
     const handler = createNonInteractiveApprovalHandler(false, (m) => logs.push(m))
 
-    expect(await handler(call, askTool)).toBe(false)
+    expect(await handler(call, askTool, task)).toBe(false)
     expect(logs.join('')).toContain('--yes')
   })
 
@@ -115,7 +118,7 @@ describe('createNonInteractiveApprovalHandler', () => {
     const logs: string[] = []
     const handler = createNonInteractiveApprovalHandler(true, (m) => logs.push(m))
 
-    expect(await handler(call, askTool)).toBe(true)
+    expect(await handler(call, askTool, task)).toBe(true)
     expect(logs.join('')).toContain('auto-approved')
   })
 

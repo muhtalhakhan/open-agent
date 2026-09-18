@@ -42,4 +42,6 @@ Anything above `safe` goes through the `ApprovalHandler` before it runs. The han
 
 A `dangerous` call is never covered by a remembered approval and its answer is never remembered — the point of the level is that each one gets looked at.
 
+The handler is called as `(call, tool, { taskId })`. A host running several tasks at once uses the task id to route the question, for example so a background job never prompts in front of someone answering the foreground task.
+
 `auditLog` records `approvalSource` (`safe` / `granted` / `remembered` / `denied`), so a call that ran on an earlier answer is distinguishable from one a human just saw. `listApprovals()` shows what is remembered and `revokeApprovals(tool?)` forgets it.

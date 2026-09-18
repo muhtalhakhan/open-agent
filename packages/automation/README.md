@@ -10,7 +10,7 @@ The scheduler decides **when** work happens. It never decides **what** the work 
 type TaskRunner = (dispatch: TaskDispatch, signal: AbortSignal) => Promise<void>
 ```
 
-That seam is where the job queue (#80) attaches, and background execution (#79) later. Keeping it out of the scheduler is what lets those land without the scheduler changing, and it is why the whole package tests without an LLM.
+That seam is where the job queue (#80) attaches. Keeping it out of the scheduler is what lets those land without the scheduler changing, and it is why the whole package tests without an LLM.
 
 ## Triggers
 
@@ -184,5 +184,5 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 ## Status
 
 - ✅ #76 Task scheduler · #77 One-time tasks · #78 Recurring tasks
-- ✅ #80 Job queue · #81 Failed-job retry · #82 Notifications
-- ⬜ #79 Background execution · #83 Task history
+- ✅ #79 Background execution (`:bg` in the CLI) · #80 Job queue · #81 Failed-job retry · #82 Notifications
+- ⬜ #83 Task history

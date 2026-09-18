@@ -58,6 +58,29 @@ describe('ToolRegistry', () => {
     expect(result).toEqual({ ok: true, content: 'ran: ls' })
   })
 
+  it('tells the approval handler which task is asking', async () => {
+    const registry = new ToolRegistry()
+    registry.register(shellTool)
+    const asked: string[] = []
+    registry.onApproval((_call, _tool, { taskId }) => {
+      asked.push(taskId)
+      return taskId === 'foreground'
+    })
+
+    const foreground = await registry.execute(
+      { id: '3a', name: 'shell', args: { cmd: 'ls' } },
+      { taskId: 'foreground', signal: ctx() },
+    )
+    const background = await registry.execute(
+      { id: '3b', name: 'shell', args: { cmd: 'ls' } },
+      { taskId: 'job_1', signal: ctx() },
+    )
+
+    expect(asked).toEqual(['foreground', 'job_1'])
+    expect(foreground.ok).toBe(true)
+    expect(background.ok).toBe(false)
+  })
+
   it('denies a dangerous tool even if approval handler says yes, unless explicitly enabled', async () => {
     const registry = new ToolRegistry()
     registry.register({ ...shellTool, name: 'rm', permissionLevel: 'dangerous' })

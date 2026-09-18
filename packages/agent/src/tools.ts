@@ -22,13 +22,23 @@ export interface ApprovalDecision {
   match?: ApprovalMatch
 }
 
+/** Which run a call belongs to, for a handler that answers differently per task. */
+export interface ApprovalContext {
+  taskId: string
+}
+
 /**
  * Returns `true`/`false` for a one-off decision, or an `ApprovalDecision` to
  * have the answer remembered for the rest of the task or the session.
+ *
+ * `context` names the task asking. A host running several tasks at once needs
+ * it to route the question: a task in the background has nobody watching it,
+ * and must not put a prompt in front of someone answering a different one.
  */
 export type ApprovalHandler = (
   call: ToolCall,
   tool: ToolDefinition,
+  context: ApprovalContext,
 ) => boolean | ApprovalDecision | Promise<boolean | ApprovalDecision>
 
 /** Why a call was allowed to run, as recorded in the audit log. */
@@ -127,7 +137,7 @@ export class ToolRegistry {
     // one is looked at; a grant would quietly undo that.
     if (tool.permissionLevel !== 'dangerous' && this.findGrant(call, taskId)) return 'remembered'
 
-    const decision = await this.approvalHandler(call, tool)
+    const decision = await this.approvalHandler(call, tool, { taskId })
     const {
       approved,
       scope = 'once',

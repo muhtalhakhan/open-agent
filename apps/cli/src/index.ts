@@ -29,7 +29,12 @@ import {
   createUiTarsGuiAgentFactory,
 } from '@open-agent/tools-computer'
 import { loadConfigFromEnv } from './config.js'
-import { createNonInteractiveApprovalHandler, createTerminalApprovalHandler } from './approval.js'
+import {
+  createNonInteractiveApprovalHandler,
+  createRoutingApprovalHandler,
+  createTerminalApprovalHandler,
+} from './approval.js'
+import { createBackgroundJobs, type BackgroundJobs } from './background.js'
 import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
@@ -200,10 +205,17 @@ async function main() {
     )
   }
 
+  // Background jobs exist only in the interactive session, and only once the
+  // agent loop does; the router asks whichever set is live at call time.
+  let background: BackgroundJobs | undefined
   tools.onApproval(
     headless
       ? createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg))
-      : createTerminalApprovalHandler(ask),
+      : createRoutingApprovalHandler(
+          (taskId) => background?.owns(taskId) ?? false,
+          createTerminalApprovalHandler(ask),
+          createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(`[background] ${msg}`)),
+        ),
   )
 
   let disposeBrowserTools: (() => void) | undefined
@@ -361,7 +373,11 @@ async function main() {
         memory: memoryHook,
       })
     } else {
-      await runRepl(loop, sessions, io, activeAbort, memoryHook)
+      background = createBackgroundJobs(loop, sessions, (text) => io.write(text))
+      await runRepl(loop, sessions, io, activeAbort, memoryHook, background)
+      // Before the session is saved, so what the jobs did so far is in it.
+      const stopped = await background.close()
+      if (stopped > 0) io.write(`Cancelled ${stopped} unfinished background job${stopped === 1 ? '' : 's'}.\n`)
     }
 
     // Persist session events to disk
@@ -375,6 +391,8 @@ async function main() {
       }
     }
   } finally {
+    // Idempotent; covers the path where the session ended by throwing.
+    await background?.close()
     teardown()
     disposeBrowserTools?.()
     // Before the workspace goes: a background process outlives the task that

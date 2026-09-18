@@ -1,4 +1,6 @@
 import type { AgentLoop, SessionLog } from '@open-agent/agent'
+import type { Job } from '@open-agent/automation'
+import type { BackgroundJobs } from './background.js'
 import { executeTask, type MemoryHook } from './task.js'
 
 export interface ReplIO {
@@ -24,6 +26,9 @@ export interface AbortRef {
  * passes them to the agent loop as turn context, then stores the task's
  * final answer as a new memory — a minimal, real use of the MemoryProvider
  * seam, not just mounted-and-unused.
+ *
+ * When `background` is given, `:bg <task>` sends a task off to run while the
+ * session carries on, and `:jobs`, `:job <id>` and `:cancel <id>` manage it.
  */
 export async function runRepl(
   agentLoop: AgentLoop,
@@ -31,14 +36,20 @@ export async function runRepl(
   io: ReplIO,
   activeAbort: AbortRef,
   memory?: MemoryHook,
+  background?: BackgroundJobs,
 ): Promise<void> {
-  io.write('OpenAgent CLI — type a task, or ":exit" to quit.\n\n')
+  io.write(
+    background
+      ? 'OpenAgent CLI — type a task, ":bg <task>" to run one in the background, or ":exit" to quit.\n\n'
+      : 'OpenAgent CLI — type a task, or ":exit" to quit.\n\n',
+  )
   for (;;) {
     const input = await io.prompt()
     if (input === null) return
     const trimmed = input.trim()
     if (!trimmed) continue
     if (trimmed === ':exit') return
+    if (background && runBackgroundCommand(trimmed, background, io)) continue
 
     const controller = new AbortController()
     activeAbort.current = controller
@@ -53,4 +64,64 @@ export async function runRepl(
       io.write(`\n[${outcome.status}]${outcome.error ? ` ${outcome.error}` : ''}\n\n`)
     }
   }
+}
+
+const BACKGROUND_HELP = `Background jobs:
+  :bg <task>     run a task in the background
+  :jobs          list background jobs
+  :job <id>      show a job's full result or error
+  :cancel <id>   cancel a queued or running job
+`
+
+/**
+ * Handles one of the background-job commands. Returns false for any other
+ * line, which then runs as an ordinary task.
+ */
+function runBackgroundCommand(line: string, background: BackgroundJobs, io: ReplIO): boolean {
+  const [command, ...rest] = line.split(/\s+/)
+  const arg = rest.join(' ')
+
+  switch (command) {
+    case ':bg': {
+      if (!arg) {
+        io.write(BACKGROUND_HELP)
+        return true
+      }
+      const job = background.start(arg)
+      io.write(`Started ${job.id} in the background. ":jobs" to check on it.\n\n`)
+      return true
+    }
+    case ':jobs': {
+      const jobs = background.list()
+      io.write(jobs.length === 0 ? 'No background jobs.\n\n' : `${jobs.map(describeJob).join('\n')}\n\n`)
+      return true
+    }
+    case ':job': {
+      const job = arg ? background.find(arg) : undefined
+      if (!job) {
+        io.write(arg ? `No background job matches "${arg}".\n\n` : 'Usage: :job <id>\n\n')
+        return true
+      }
+      const detail = job.status === 'failed' ? `Error: ${job.error}` : (job.result ?? '(no result yet)')
+      io.write(`${describeJob(job)}\nPrompt: ${job.prompt}\n\n${detail}\n\n`)
+      return true
+    }
+    case ':cancel': {
+      const job = arg ? background.cancel(arg) : undefined
+      io.write(
+        job
+          ? `Cancelling ${job.id}.\n\n`
+          : arg
+            ? `No queued or running job matches "${arg}".\n\n`
+            : 'Usage: :cancel <id>\n\n',
+      )
+      return true
+    }
+    default:
+      return false
+  }
+}
+
+function describeJob(job: Job): string {
+  return `${job.id}  ${job.status.padEnd(9)}  ${job.name}`
 }
