@@ -38,7 +38,7 @@ import {
 import { createBackgroundJobs, type BackgroundJobs } from './background.js'
 import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
-import { formatHistory, sessionHistory } from './history.js'
+import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -79,7 +79,10 @@ async function main() {
   // Before the provider config is read: looking at past tasks needs no API
   // key, and refusing to show them for want of one would be absurd.
   if (args.history) {
-    process.stdout.write(formatHistory(await readTaskHistory(new SessionStore())))
+    const records = await readTaskHistory(new SessionStore(), {
+      onUnreadable: (id, err) => void process.stderr.write(describeUnreadable(id, err)),
+    })
+    process.stdout.write(formatHistory(records))
     return
   }
   const headless = args.mode === 'print'
@@ -392,7 +395,8 @@ async function main() {
       await runRepl(loop, sessions, io, activeAbort, {
         memory: memoryHook,
         background,
-        history: () => sessionHistory(sessionStore, sessions),
+        history: () =>
+          sessionHistory(sessionStore, sessions, { onUnreadable: (id, err) => io.write(describeUnreadable(id, err)) }),
       })
       // Before the session is saved, so what the jobs did so far is in it.
       const stopped = await background.close()

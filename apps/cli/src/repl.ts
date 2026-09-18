@@ -60,7 +60,13 @@ export async function runRepl(
     if (!trimmed) continue
     if (trimmed === ':exit') return
     if (history && trimmed === ':history') {
-      io.write(`${formatHistory(await history())}\n`)
+      // A failure here must not end the session: the current session's work
+      // is only saved when runRepl returns normally.
+      try {
+        io.write(`${formatHistory(await history())}\n`)
+      } catch (err) {
+        io.write(`Could not read task history: ${err instanceof Error ? err.message : String(err)}\n\n`)
+      }
       continue
     }
     if (background && runBackgroundCommand(trimmed, background, io)) continue

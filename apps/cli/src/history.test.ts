@@ -106,6 +106,29 @@ describe('sessionHistory', () => {
     expect(records.map((r) => r.prompt)).toEqual(['resumed task'])
   })
 
+  it('keeps the session going when :history fails', async () => {
+    const sessions = new SessionLog()
+    const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm: echo })
+    const inputs = [':history', 'after']
+    const output: string[] = []
+    const io = { prompt: async () => inputs.shift() ?? null, write: (text: string) => void output.push(text) }
+
+    await runRepl(
+      loop,
+      sessions,
+      io,
+      { current: null },
+      {
+        history: async () => {
+          throw new Error('EACCES: permission denied')
+        },
+      },
+    )
+
+    expect(output.join('')).toContain('Could not read task history: EACCES: permission denied')
+    expect(output.join('')).toContain('you said: after')
+  })
+
   it('backs :history in the interactive session', async () => {
     const store = new SessionStore({ base })
     await store.save('session_old', task('old', 100, 'from before'), 100)

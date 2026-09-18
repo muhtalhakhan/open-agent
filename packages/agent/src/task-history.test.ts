@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -149,6 +149,19 @@ describe('readTaskHistory', () => {
     )
     const history = await readTaskHistory(store, { status: 'error' })
     expect(history.map((r) => r.prompt)).toEqual(['broken'])
+  })
+
+  it('skips a session it cannot read, says which, and still returns the rest', async () => {
+    const store = new SessionStore({ base })
+    await store.save('session_good', event('a', 1, 'still here'), 1)
+    await store.save('session_bad', event('b', 2, 'lost'), 2)
+    await writeFile(path.join(base, 'session_bad', 'session.json'), '{"id": "session_bad", "events": [', 'utf8')
+
+    const skipped: string[] = []
+    const history = await readTaskHistory(store, { onUnreadable: (id) => void skipped.push(id) })
+
+    expect(history.map((r) => r.prompt)).toEqual(['still here'])
+    expect(skipped).toEqual(['session_bad'])
   })
 
   it('is empty when nothing has been saved', async () => {
