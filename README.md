@@ -21,15 +21,18 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🔧  | Use external tools and MCP servers            | ✅ Built — generic MCP stdio client in `tools-mcp`, used by both browser and computer tools                                                                                    |
 | 🔎  | Search the web                                | ✅ Built — `tools-search`'s `web_search`, over Brave or Tavily, standalone (no browser needed)                                                                                 |
 | 🔌  | Call any HTTP API directly                    | ✅ Built — `tools-http`'s `http_request`, with a host allowlist, secret placeholders, and a response-size ceiling                                                              |
-| 📄  | Read files from a workspace                   | ✅ Built — `tools-files`'s `read_file`, confined to one root, streamed and paged; write/list/search are next in Milestone 5                                                    |
+| 📄  | Read and edit files in a workspace            | ✅ Built — `tools-files`: read, write, list and search, confined to one root, with a policy that keeps secrets (`.env`, keys) unreadable                                       |
 | 🧠  | Remember information across tasks             | ✅ Built — `memory` package, pluggable across Supermemory / mem0 / in-memory                                                                                                   |
 | 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                                                                     |
 | 🧠  | Use any model                                 | ✅ Built — Anthropic and Gemini adapters, any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...), and `ProviderFallbackAdapter` for multi-provider failover |
 | 📋  | Follow project-specific conventions           | ✅ Built — an `AGENTS.md` at the repo root is loaded into the system prompt automatically                                                                                      |
-| 💻  | Run code and terminal commands                | 🚧 Planned — see Milestone 5 (Files + Terminal)                                                                                                                                |
+| 💻  | Run code and terminal commands                | ✅ Built — `tools-terminal`: `run_command` plus background processes, sandboxed with bubblewrap or Docker (read-only filesystem, no network by default)                        |
 | 🤖  | Run non-interactively in CI                   | ✅ Built — `open-agent -p "<task>"` prints the answer to stdout and exits with a status code                                                                                   |
-| ⏰  | Run scheduled tasks                           | 🚧 Planned — see Milestone 8 (Automation)                                                                                                                                      |
-| 🤖  | Operate autonomously with configurable limits | 🚧 Planned — see Milestone 9 (Security) / Milestone 10 (Cloud)                                                                                                                 |
+| 🧵  | Work in the background                        | ✅ Built — `:bg <task>` in the CLI runs a task while you keep working; `:jobs` and `:cancel` manage it                                                                         |
+| 🕘  | Look back at past tasks                       | ✅ Built — `open-agent --history` and `:history` list recent tasks across saved sessions                                                                                       |
+| 🔑  | Keep API keys out of plain files              | ✅ Built — `SECRET_STORE=keychain` reads credentials from the macOS Keychain or the Linux Secret Service                                                                       |
+| ⏰  | Run scheduled tasks                           | 🟡 Library — `@open-agent/automation`: one-time and recurring (cron/interval) tasks, a job queue with retries, and notifications; not yet a CLI command                        |
+| 🤖  | Operate autonomously with configurable limits | 🟡 Partly — permission levels, approvals, sandboxing and prompt-injection defenses are in (Milestone 9); remote/cloud agents are Milestone 10                                  |
 
 A CLI is available today (`npm run cli`); the web UI described below is still a design doc, not code.
 
@@ -93,7 +96,7 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, and pluggable memory. Filesystem/terminal tools, scheduling, sandboxing, and the web UI are still ahead.
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. The web UI, streaming output, agent profiles and remote/cloud agents are still ahead.
 
 Progress by milestone (issues closed / total), regenerated from the tracker by [`docs-status.yml`](.github/workflows/docs-status.yml) — edit the issues, not the table:
 
@@ -117,11 +120,11 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 
 <!-- END GENERATED: milestone-status -->
 
-Recently landed: `web_search` (#143), `http_request` (#145), headless `-p` mode (#124), `AGENTS.md` project conventions (#127), permission system and approval UI (#84, #85), audit logs (#90), provider fallback (#30).
+Recently landed: the automation stack (job queue #80, retries #81, notifications #82, background jobs #79, task history #83), Markdown rendering in the terminal (#103), prompt-injection defenses (#91) and the OS keychain secret store (#88).
 
-Nearest up next: the Files + Terminal milestone (#51–#60) — the reason "run code and terminal commands" is still the one big gap in the capability table — followed by the Security milestone's sandboxing work (#86–#89), which it depends on.
+Nearest up next: dangerous-action detection (#92), the last Security item; then the CLI side of Milestone 11: streaming output (#102), a live tool-call view (#104), and a fix for piped input being dropped (#234). Human takeover (#50) is open again, since its code never landed.
 
-Security caveat: permission levels, approvals, and audit logging are enforced by the agent loop today, but `packages/security` is still a design doc — there is no shell sandbox (#86), browser isolation (#87), secret management (#88), or network restriction (#89) yet. Treat the agent as running with your own privileges.
+Security caveat: permission levels, approvals, audit logs, the shell sandbox (#86), throwaway browser profiles (#87), network restrictions (#89), keychain secrets (#88) and prompt-injection fencing (#91) are in place, but they are defenses, not a guarantee. Setting `SHELL_SANDBOX=none` or approving `ask` calls with `--yes` hands the agent your own privileges, and a model can still be misled by content it reads. Review approvals like you would a colleague's command.
 
 See [docs/architecture.md](docs/architecture.md), [docs/agent-design.md](docs/agent-design.md), and [docs/security-model.md](docs/security-model.md) for the design docs, and the [milestones](../../milestones) for the live issue-by-issue view.
 
