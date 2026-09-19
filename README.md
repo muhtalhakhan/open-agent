@@ -109,10 +109,10 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 5 — Files + Terminal | 10 / 10 | ✅ Complete                                                                                                                            |
 | 6 — Memory           | 8 / 8   | ✅ Complete                                                                                                                            |
 | 7 — Tools/MCP        | 7 / 7   | ✅ Complete                                                                                                                            |
-| 8 — Automation       | 3 / 8   | 🟡 In progress — Background execution (#79), Job queue (#80), +3 more left                                                             |
-| 9 — Security         | 7 / 10  | 🟡 In progress — Secret management (#88), Prompt-injection defenses (#91), +1 more left                                                |
+| 8 — Automation       | 8 / 8   | ✅ Complete                                                                                                                            |
+| 9 — Security         | 9 / 10  | 🟢 Nearly done — Dangerous-action detection (#92) left                                                                                 |
 | 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                                  |
-| 11 — User Interfaces | 1 / 15  | 🟡 In progress — Streaming token output in the CLI (#102), Markdown rendering in terminal output (#103), +12 more left                 |
+| 11 — User Interfaces | 2 / 15  | 🟡 In progress — Streaming token output in the CLI (#102), Live tool-call activity view in the CLI (#104), +11 more left               |
 | 12 — Backlog         | 5 / 26  | 🟡 In progress — Plan mode: diff review & approval workflow (#120), Git-aware tooling (status/diff/commit/branc… (#121), +19 more left |
 
 <!-- END GENERATED: milestone-status -->
