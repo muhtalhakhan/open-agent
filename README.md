@@ -108,7 +108,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 1 — Agent Runtime    | 10 / 10 | ✅ Complete                                                                                                                            |
 | 2 — Model Providers  | 10 / 10 | ✅ Complete                                                                                                                            |
 | 3 — Browser          | 10 / 10 | ✅ Complete                                                                                                                            |
-| 4 — Computer Use     | 10 / 10 | ✅ Complete                                                                                                                            |
+| 4 — Computer Use     | 9 / 10  | 🟢 Nearly done — Human takeover (#50) left                                                                                             |
 | 5 — Files + Terminal | 10 / 10 | ✅ Complete                                                                                                                            |
 | 6 — Memory           | 8 / 8   | ✅ Complete                                                                                                                            |
 | 7 — Tools/MCP        | 7 / 7   | ✅ Complete                                                                                                                            |
