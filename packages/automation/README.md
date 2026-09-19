@@ -10,7 +10,7 @@ The scheduler decides **when** work happens. It never decides **what** the work 
 type TaskRunner = (dispatch: TaskDispatch, signal: AbortSignal) => Promise<void>
 ```
 
-That seam is where the job queue (#80) attaches, and background execution (#79) later. Keeping it out of the scheduler is what lets those land without the scheduler changing, and it is why the whole package tests without an LLM.
+That seam is where the job queue (#80) attaches. Keeping it out of the scheduler is what lets those land without the scheduler changing, and it is why the whole package tests without an LLM.
 
 ## Triggers
 
@@ -96,6 +96,52 @@ or mount it with `ctx.plugin(jobQueuePlugin())`, which waits for `ctx.agentLoop`
 - **The job id is the agent task id**, so a job's transcript is in the session log under the id the queue reports.
 - **The queue is in memory on purpose.** A task whose job was waiting when the process died is left `running` in the schedule, and the scheduler puts it back to `pending` on the next load, so it fires again instead of being lost.
 
+### Retries
+
+A failed job can get more attempts, with exponential backoff between them:
+
+```ts
+new JobQueue({
+  executor,
+  retry: {
+    maxAttempts: 3,
+    backoffMs: 1_000,
+    maxBackoffMs: 60_000,
+    retryable: (error) => /rate limit|timeout/i.test(error),
+  },
+})
+queue.enqueue({ name: 'digest', prompt: '…', retry: { maxAttempts: 5 } }) // per-job override
+```
+
+- **Off by default.** An agent run is not idempotent: a run that failed on step five already made the tool calls of steps one to four, and a retry makes them again. Turn retries on for work where that is harmless, and use `retryable` to retry only the failures another attempt can fix.
+- **Backoff doubles from `backoffMs`, capped at `maxBackoffMs`.** While it waits the job is `retrying` with a `retryAt`, and it does not hold a slot, so other jobs keep running.
+- **The scheduler only hears the final outcome.** The runner's wait spans every attempt, so a task is marked failed only once the job has run out of them.
+- **Each attempt is its own agent turn**, under `<job id>.<attempt>` from the second attempt on. Reusing the id would replay the prompt into the failed attempt's conversation.
+- **`retryNow(id)`** gives a `failed` or `cancelled` job one more attempt straight away, for when a person decides the failure was transient.
+
+## Notifications
+
+`notifyOnFinish` tells a `Notifier` when a job finishes:
+
+```ts
+import { notifyOnFinish, streamNotifier, webhookNotifier } from '@open-agent/automation'
+
+notifyOnFinish(
+  queue,
+  streamNotifier((text) => process.stderr.write(text)),
+)
+notifyOnFinish(queue, webhookNotifier({ url: process.env.NOTIFY_WEBHOOK_URL! }), { on: ['failed'] })
+```
+
+A `Notifier` is just `(notification) => void | Promise<void>`, so a desktop toast or a chat message is one function. Each notification carries a one-line `title`, a `body` holding the job's result or error (trimmed to 500 characters), the attempt count, and the scheduled task it came from, if any. The body is the run's final answer when the queue was built with `agentExecutor(loop, sessions)`.
+
+- **Only final outcomes.** A `retrying` job has not failed yet, and announcing every attempt would train people to ignore the one that matters.
+- **Successes and failures by default.** A cancelled job was cancelled by someone, who already knows. Pass `on` to choose.
+- **A broken notifier cannot break the queue.** A throw or rejection is logged and dropped.
+- **The webhook URL is configuration, not a tool argument.** The body carries whatever the agent produced, so where it goes is decided by whoever runs the process, never by the model.
+
+For lower-level needs, `queue.onChange(listener)` reports every status change, retries included.
+
 ## Usage
 
 ```ts
@@ -138,5 +184,4 @@ Time enters only through the injected `now`/`setTimer`/`clearTimer` seam, so the
 ## Status
 
 - ✅ #76 Task scheduler · #77 One-time tasks · #78 Recurring tasks
-- ✅ #80 Job queue
-- ⬜ #79 Background execution · #81 Failed-job retry · #82 Notifications · #83 Task history
+- ✅ #79 Background execution (`:bg` in the CLI) · #80 Job queue · #81 Failed-job retry · #82 Notifications · #83 Task history (`--history` in the CLI)

@@ -38,6 +38,9 @@ describe('McpStdioClient (against a real spawned fake MCP server)', () => {
 
     expect(tool.name).toBe('echo')
     expect(tool.permissionLevel).toBe('safe')
+    // Untrusted unless the caller vouches for the server.
+    expect(tool.untrustedOutput).toBe(true)
+    expect(mcpToolDefinition(client, echoDescriptor, 'safe', { untrustedOutput: false }).untrustedOutput).toBe(false)
     const result = await tool.execute(
       { text: 'via ToolDefinition' },
       { taskId: 't1', signal: new AbortController().signal },

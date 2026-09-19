@@ -30,6 +30,15 @@ describe('TuiIo', () => {
     expect(await promptPromise).toBe('typed answer')
   })
 
+  it('end() answers the pending prompt, and every later one, with EOF', async () => {
+    const io = new TuiIo()
+    io.bind({ ...fakeHandlers(), requestInput: () => new Promise<string | null>(() => {}) })
+    const pending = io.prompt()
+    io.end()
+    expect(await pending).toBeNull()
+    expect(await io.prompt()).toBeNull()
+  })
+
   it('write() appends a trimmed output entry and drops blank writes', () => {
     const io = new TuiIo()
     const handlers = fakeHandlers()

@@ -151,6 +151,8 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
       (options.allowedHosts ? ` Reachable hosts: ${options.allowedHosts.join(', ') || '(none)'}.` : ''),
     schema: SCHEMA,
     permissionLevel: 'ask',
+    // The response body is whatever the remote server chose to send.
+    untrustedOutput: true,
     async execute(args, context) {
       const fetchFn = options.fetchFn ?? fetch
 

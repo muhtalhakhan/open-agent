@@ -1,6 +1,6 @@
 # Security Model
 
-> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Shell sandboxing (#86) and the on-disk secret policy (#59) are implemented too, in `packages/tools-terminal` and `packages/tools-files` respectively; each carries a status note below. So is the OS-keychain secret store (#88), in `packages/security`. The rest (approval UI, network secret stores, prompt-injection defenses, audit logs) is design-only. Don't go looking for code that isn't there.
+> **Status:** this document describes the target design (tracked as Milestone 9). The `permissionLevel` (`safe`/`ask`/`dangerous`) on every `ToolDefinition` is implemented and enforced today in `packages/agent`'s tool registry — see `docs/agent-design.md`. Shell sandboxing (#86) and the on-disk secret policy (#59) are implemented too, in `packages/tools-terminal` and `packages/tools-files` respectively; each carries a status note below. So is the OS-keychain secret store (#88), in `packages/security`. Prompt-injection defenses (#91) are partly implemented in `packages/agent`; see the status note in that section. The rest (approval UI, network secret stores, audit logs) is design-only. Don't go looking for code that isn't there.
 
 ## Threat surface
 
@@ -122,6 +122,24 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 - Content fetched from the web/files/tool output is tagged as untrusted data in context and instructed (via system prompt + guardrails) not to be treated as instructions.
 - Tool calls triggered as a direct consequence of untrusted content should be held to the same `ask`/`dangerous` thresholds as user-initiated ones — untrusted content cannot itself elevate permissions.
 - Dangerous-action detection: a lightweight classifier/heuristic layer can flag suspicious tool-call sequences (e.g. "read email → then send email to new external address") for extra scrutiny even if individual steps are `safe`.
+
+> **Status:** the first two are implemented, and the third in its simplest form.
+> A tool marks itself `untrustedOutput` (`http_request`, `web_search` and every
+> MCP tool by default, browser tools included), and `ToolRegistry` fences that
+> output between `<<untrusted SOURCE ID>>` / `<<end untrusted ID>>` markers
+> before the loop logs it. Only what the tool itself returned is fenced, never
+> the registry's own refusals, which are the user's decisions. The id is random per result, so fetched content cannot
+> close its own fence. When any such tool is registered, a standing instruction
+> saying fenced content is data, never instructions, joins the system message.
+> Both are appended to the session log, so the transcript shows exactly what the
+> model saw. For the sequence rule: once a task has read untrusted output,
+> `ToolRegistry` stops letting remembered approvals cover its `ask` calls, so a
+> page cannot spend an "always allow" the user gave for their own requests.
+> Each call is put to the user again. A task continued from its log is
+> re-tainted from the fenced results already in it. Not yet covered: file and
+> shell output are treated as trusted, since they are the user's own workspace,
+> and there is no classifier. The sequence check is "has this task read
+> anything untrusted", not an analysis of which call followed which.
 
 ## Audit logs
 

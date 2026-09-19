@@ -10,7 +10,7 @@ function ok(argv: string[]) {
 
 describe('parseCliArgs', () => {
   it('defaults to the interactive session with no arguments', () => {
-    expect(ok([])).toEqual({ mode: 'repl', approveAsk: false, help: false })
+    expect(ok([])).toEqual({ mode: 'repl', approveAsk: false, history: false, help: false })
   })
 
   it('takes the task inline after -p', () => {
@@ -34,6 +34,12 @@ describe('parseCliArgs', () => {
   it('recognises --help before anything else', () => {
     expect(ok(['--help']).help).toBe(true)
     expect(ok(['-h']).help).toBe(true)
+  })
+
+  it('recognises --history, which needs no task', () => {
+    expect(ok(['--history']).history).toBe(true)
+    expect(ok([]).history).toBe(false)
+    expect(ok(['-p', 'task']).history).toBe(false)
   })
 
   it('suggests -p when a bare task is passed without it', () => {

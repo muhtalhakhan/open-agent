@@ -5,7 +5,17 @@ import eslintConfigPrettier from 'eslint-config-prettier'
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'package-lock.json', '**/test-fixtures/**/*.mjs', '.claude/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      'package-lock.json',
+      '**/test-fixtures/**/*.mjs',
+      // The local-only directories from .gitignore: linting a worktree would
+      // lint a second copy of the repo, and a personal workflow script is not
+      // project code. Anything else under .claude is linted like the rest.
+      '.claude/worktrees/**',
+      '.claude/workflows/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

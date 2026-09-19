@@ -16,6 +16,10 @@ function jsonFetch(body: unknown, init: ResponseInit = {}) {
 }
 
 describe('httpRequestTool', () => {
+  it('marks its output untrusted, since the body is whatever the server sent', () => {
+    expect(httpRequestTool({ lookupFn: null }).untrustedOutput).toBe(true)
+  })
+
   it('is gated behind approval', async () => {
     expect(httpRequestTool({ lookupFn: null }).permissionLevel).toBe('ask')
   })

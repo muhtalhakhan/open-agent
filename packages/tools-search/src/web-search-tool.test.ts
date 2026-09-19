@@ -16,6 +16,10 @@ describe('webSearchTool', () => {
     expect(webSearchTool(fakeProvider([])).permissionLevel).toBe('safe')
   })
 
+  it('marks its output untrusted, since titles and snippets come from the pages', () => {
+    expect(webSearchTool(fakeProvider([])).untrustedOutput).toBe(true)
+  })
+
   it('formats results as a numbered title/url/snippet list', async () => {
     const result = await webSearchTool(fakeProvider(oneResult)).execute({ query: 'ada lovelace' }, ctx)
     expect(result).toEqual({

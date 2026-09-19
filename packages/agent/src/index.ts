@@ -2,8 +2,11 @@ export * from './types.js'
 export { SessionLog } from './session.js'
 export { SessionStore, type StoredSession } from './session-store.js'
 export type { TaskSummary } from './session.js'
+export { readTaskHistory, taskRecords } from './task-history.js'
+export type { TaskHistoryOptions, TaskRecord } from './task-history.js'
 export { ToolRegistry } from './tools.js'
 export type {
+  ApprovalContext,
   ApprovalDecision,
   ApprovalGrant,
   ApprovalHandler,
@@ -22,6 +25,7 @@ export {
 } from './instructions.js'
 export type { ProjectInstructions, LoadInstructionsOptions } from './instructions.js'
 export { filterEnv } from './env-policy.js'
+export { UNTRUSTED_CONTENT_GUIDANCE, fenceUntrusted } from './untrusted.js'
 export { NetworkPolicyError, checkResolvedAddresses, checkUrl, hostMatches, isPrivateHost } from './network-policy.js'
 export type { NetworkPolicy } from './network-policy.js'
 export { consoleLogger, silentLogger } from './logger.js'

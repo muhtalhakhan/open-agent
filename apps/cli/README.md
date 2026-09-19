@@ -16,6 +16,10 @@ npm run cli
 
 When stdin/stdout are a real terminal, the CLI renders an [Ink](https://github.com/vadimdemedes/ink)-based TUI: a scrollable transcript (rendered once per entry via Ink's `<Static>`, so your terminal's own scrollback still works) with a fixed input line pinned below it, plus a transient "thinking…" status while a task is running. Piped input/output, CI, or anything else without a TTY on both ends falls back automatically to the plain `readline`-based REPL from before — set `CLI_NO_TUI=1` to force that fallback yourself. `:exit`, Ctrl+C (cancel the running task, or quit if idle), and Ctrl+D (quit) behave the same in both modes.
 
+## Rendered answers
+
+In a terminal, answers are shown with their Markdown rendered: headings, bold and italic, `code`, links as label and URL, bullet and numbered lists, task boxes, quotes, fenced code blocks, and tables with aligned columns. The renderer (`markdown.ts`) is small and line-based, with no dependencies. Anything it doesn't recognise is printed as written, so no text is ever dropped. Rendering is skipped when stdout isn't a TTY, when `NO_COLOR` is set, or when `TERM=dumb`. Print mode never renders, because a script capturing the answer wants the Markdown source, not escape codes.
+
 ## Headless / print mode
 
 `open-agent -p "<task>"` runs one task and exits instead of opening a session — no TUI, no readline, no prompts. The task can also arrive on stdin (`echo "<task>" | open-agent -p`). Only the final answer is written to stdout; the conventions notice, approval decisions and failures go to stderr, so the answer can be redirected on its own. Exit status is `0` completed, `1` failed, `130` cancelled.
@@ -23,6 +27,18 @@ When stdin/stdout are a real terminal, the CLI renders an [Ink](https://github.c
 Because nothing can answer an approval prompt, `ask`-level tool calls are denied by default and the refusal is logged to stderr; `--yes` approves them. `dangerous` tools remain unreachable either way — `ToolRegistry` gates those on `enableDangerous` before any handler runs.
 
 Both modes share one task path (`task.ts`): recall memories, run the loop, store the answer. `repl.ts` and `headless.ts` differ only in the IO wrapped around it.
+
+## Task history
+
+`open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, and the session id to pass to `--resume`. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
+
+## Background jobs
+
+In the interactive session, `:bg <task>` sends a task off to run while you keep working. When it finishes, its result (or error) is printed above the prompt. `:jobs` lists background jobs, `:job <id>` shows one in full, and `:cancel <id>` stops one. An id can be shortened to any unambiguous prefix. Jobs run one at a time, next to the foreground task rather than behind it, and `:exit` cancels any that are unfinished before the session is saved.
+
+A background job cannot stop and ask you anything, because its question would appear while you might be answering a different task's. It gets print mode's policy instead: `ask`-level tool calls are denied (and the refusal is printed with a `[background]` tag) unless the session was started with `--yes`. `ToolRegistry` tells the approval handler which task is asking, and `createRoutingApprovalHandler` in `approval.ts` sends each question to the right policy. An "always allow" you gave in the foreground does not carry over either: the CLI marks background jobs with `tools.setUnattended`, and remembered approvals never cover an unattended task. Ctrl+C at an idle prompt quits the way `:exit` does, stopping background jobs and saving the session.
+
+Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packages/automation/README.md`.
 
 ## What it wires up
 
@@ -42,7 +58,10 @@ Both modes share one task path (`task.ts`): recall memories, run the loop, store
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
 - `task.ts` — one task end to end, shared by both modes
+- `markdown.ts` — Markdown to styled terminal text for answers (`markdown.test.ts`)
+- `history.ts` — `--history` and `:history` formatting, merging saved sessions with the live one (`history.test.ts`)
+- `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)
 - `headless.ts` — print mode: stream split and exit codes (`headless.test.ts`)
-- `approval.ts` — the y/N prompt, given an injectable `ask()` function (`approval.test.ts`)
+- `approval.ts` — the y/N prompt, given an injectable `ask()` function, and the router that keeps background jobs from prompting (`approval.test.ts`, `background.test.ts`)
 - `repl.ts` — the read-task-print loop, given fake `ReplIO` and a real `AgentLoop` with a scripted `LlmAdapter` (`repl.test.ts`)
 - `tui/` — the Ink TUI: `App.tsx` (the component), `tui-io.ts` (bridges Ink to the `ReplIO`/approval-`ask` shapes the rest of the CLI is written against, tested without rendering anything in `tui-io.test.ts`), `mount.tsx` (wires the two together)

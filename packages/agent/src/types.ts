@@ -29,6 +29,14 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
   /** JSON-schema-shaped description of arguments, for prompt assembly. */
   schema: Record<string, unknown>
   permissionLevel: PermissionLevel
+  /**
+   * Set when the tool's output carries content from outside the user's
+   * control — a fetched page, an API response, search results.
+   * `ToolRegistry` fences that output as data before the model sees it, and a
+   * task that has read any stops being covered by remembered approvals, since
+   * the next call might be the content's idea rather than the user's.
+   */
+  untrustedOutput?: boolean
   execute(args: Args, context: ToolExecutionContext): Promise<ToolResult>
 }
 
