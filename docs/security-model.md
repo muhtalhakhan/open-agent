@@ -146,10 +146,20 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > precisely where the user's earlier "always" was not a decision about this.
 > Destinations are read out of the arguments by pattern (URL hosts and email
 > domains, at any nesting depth) rather than by field name, so it holds for an
-> MCP tool the runtime has never seen. The user's own messages seed the list of
-> destinations that need no explanation, so "mail it to alice@corp.test" does
-> not prompt about `corp.test`. Loopback and private hosts are left to
-> `NetworkPolicy`, which refuses them by default. The flag is recorded in the
+> MCP tool the runtime has never seen. What counts is the address, not the
+> payload: a long value is only read as a destination if it is nothing but one,
+> so saving a fetched page to disk is not mistaken for sending it to every host
+> the page links to, while a long URL carrying data in its query string still
+> counts. The user's own messages seed the destinations that need no
+> explanation, so "mail it to alice@corp.test" does not prompt about
+> `corp.test`. Loopback and private hosts are left to `NetworkPolicy`, which
+> refuses them by default.
+>
+> The state is rebuilt from the session log at the start of every turn, so
+> ending a turn is not an escape: reading a file in one turn and sending it in
+> the next is the same sequence and is flagged the same way. Only a call that
+> succeeded settles its destination, so a refusal is not laundered into
+> permission by the replay. The flag is recorded in the
 > audit log, and in print mode it is named in the stderr line whether the call
 > was denied or ran under `--yes`.
 >

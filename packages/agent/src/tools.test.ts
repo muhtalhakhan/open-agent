@@ -485,6 +485,82 @@ describe('sequence-level scrutiny', () => {
     expect(asked).toBe(0)
   })
 
+  describe('replayed from the session log', () => {
+    const ingestEvents = (ok = true) => [
+      { type: 'tool/call' as const, taskId: 't1', at: 0, call: read },
+      {
+        type: 'tool/result' as const,
+        taskId: 't1',
+        at: 1,
+        callId: 'r',
+        result: { ok, content: ok ? 'the contents' : '', error: ok ? undefined : 'nope' },
+      },
+    ]
+
+    it('still flags a send in a later turn, so ending a turn is no escape', async () => {
+      let asked = 0
+      const registry = registryWith((_c, _t, context) => {
+        if (context.escalation) asked++
+        return false
+      })
+
+      // Turn one read the file; endTask dropped the live state.
+      registry.endTask('t1')
+      registry.replayTask('t1', ingestEvents())
+      await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+      expect(asked).toBe(1)
+    })
+
+    it('does not re-prompt for a destination an earlier turn reached successfully', async () => {
+      let asked = 0
+      const registry = registryWith(() => {
+        asked++
+        return false
+      })
+
+      registry.replayTask('t1', [
+        ...ingestEvents(),
+        { type: 'tool/call', taskId: 't1', at: 2, call: send },
+        { type: 'tool/result', taskId: 't1', at: 3, callId: 's', result: { ok: true, content: 'sent' } },
+      ])
+      await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+      expect(asked).toBe(0)
+    })
+
+    it('does not wave through a destination an earlier turn was refused', async () => {
+      let asked = 0
+      const registry = registryWith((_c, _t, context) => {
+        if (context.escalation) asked++
+        return false
+      })
+
+      registry.replayTask('t1', [
+        ...ingestEvents(),
+        { type: 'tool/call', taskId: 't1', at: 2, call: send },
+        // What a refusal looks like in the log: the call is there, the result is not ok.
+        { type: 'tool/result', taskId: 't1', at: 3, callId: 's', result: { ok: false, content: '', error: 'denied' } },
+      ])
+      await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+      expect(asked).toBe(1)
+    })
+
+    it('counts an error body as something read, since it carries the far side’s text', async () => {
+      let asked = 0
+      const registry = registryWith((_c, _t, context) => {
+        if (context.escalation) asked++
+        return false
+      })
+
+      registry.replayTask('t1', ingestEvents(false))
+      await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+      expect(asked).toBe(1)
+    })
+  })
+
   it('keeps what one task read out of another task’s judgement', async () => {
     let asked = 0
     const registry = registryWith(() => {

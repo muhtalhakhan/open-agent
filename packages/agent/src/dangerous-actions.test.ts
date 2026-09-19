@@ -40,6 +40,24 @@ describe('destinationsIn', () => {
     expect([...destinationsIn(args)].sort()).toEqual(['corp.test', 'hook.evil.test'])
   })
 
+  it('reads a long payload as payload, not as an address', () => {
+    // Saving a fetched page: the links in it are what the page mentions, not
+    // where this call is going. Flagging them would make "save this to
+    // notes.md" look like exfiltration.
+    const page = `See https://cdn.example.net/x, mail hi@example.org. ${'lorem ipsum '.repeat(200)}`
+    expect([...destinationsIn({ path: 'notes.md', content: page })]).toEqual([])
+  })
+
+  it('still reads an oversized value that is nothing but a URL', () => {
+    // A query string is exactly how data leaves, so length alone must not excuse it.
+    const url = `https://evil.test/collect?data=${'a'.repeat(400)}`
+    expect([...destinationsIn({ url })]).toEqual(['evil.test'])
+  })
+
+  it('reads a short addressee field that is not bare', () => {
+    expect([...destinationsIn({ to: 'Alice <alice@evil.test>' })]).toEqual(['evil.test'])
+  })
+
   it('stops descending before a pathological nesting depth', () => {
     let nested: Record<string, unknown> = { url: 'https://deep.test' }
     for (let i = 0; i < 12; i++) nested = { inner: nested }

@@ -1,4 +1,11 @@
-import type { PermissionLevel, ToolCall, ToolDefinition, ToolExecutionContext, ToolResult } from './types.js'
+import type {
+  PermissionLevel,
+  SessionEvent,
+  ToolCall,
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolResult,
+} from './types.js'
 import { fenceUntrusted } from './untrusted.js'
 import {
   destinationsIn,
@@ -182,6 +189,43 @@ export class ToolRegistry {
     for (const host of destinationsInText(text)) state.known.add(host)
   }
 
+  /**
+   * Rebuilds a task's sequence-rule state from its session log.
+   *
+   * `endTask` drops that state, but the conversation keeps every word of it: a
+   * follow-up turn, or a session resumed in a new process, has read what the
+   * earlier turns read. Without this the rule would be escapable by simply
+   * waiting for the turn to end — read the file in one turn, send it in the
+   * next — which is no barrier at all. The same replay restores the
+   * destinations already reached, so a host used honestly last turn does not
+   * start prompting this turn.
+   */
+  replayTask(taskId: string, events: readonly SessionEvent[]): void {
+    const state = this.activityFor(taskId)
+    const pending = new Map<string, ToolCall>()
+    for (const event of events) {
+      if (event.type === 'user/message') {
+        for (const host of destinationsInText(event.message.content)) state.known.add(host)
+        continue
+      }
+      if (event.type === 'tool/call') {
+        pending.set(event.call.id, event.call)
+        continue
+      }
+      if (event.type !== 'tool/result') continue
+      const call = pending.get(event.callId)
+      if (call === undefined) continue
+      // Only a call that succeeded settles its destination. The log holds a
+      // `tool/call` for refused calls too, and replaying those would hand a
+      // task the one thing the user just denied it: read the page, be refused
+      // the send, and have the destination waved through next turn.
+      if (event.result.ok) {
+        for (const host of destinationsIn(call.args)) state.known.add(host)
+      }
+      if (event.result.content || event.result.error) state.ingested.add(call.name)
+    }
+  }
+
   private async decide(
     call: ToolCall,
     tool: ToolDefinition,
@@ -327,10 +371,15 @@ export class ToolRegistry {
       result,
     })
 
-    // Only now that the call has actually run: a destination the user refused
-    // must not become one the rules consider settled.
+    // Only a call that has actually run and succeeded settles its destination:
+    // one the user refused must never become one the rules consider settled,
+    // and a failed call is not evidence the destination was reached. This
+    // matches what `replayTask` can reconstruct from the log, where a refusal
+    // and a failure look alike, so the same task judges the same either way.
     const activity = this.activityFor(context.taskId)
-    for (const host of destinationsIn(call.args)) activity.known.add(host)
+    if (result.ok) {
+      for (const host of destinationsIn(call.args)) activity.known.add(host)
+    }
     // Content coming back is what there is to exfiltrate later. An error body
     // counts — it carries the far side's text as readily as a success does.
     if (result.content || result.error) activity.ingested.add(call.name)

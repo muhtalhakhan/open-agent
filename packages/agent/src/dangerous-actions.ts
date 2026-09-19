@@ -90,16 +90,44 @@ export function destinationsInText(text: string): Set<string> {
   return found
 }
 
+/** Whether a string is one destination and nothing else — an address, not prose carrying one. */
+function isSingleDestination(trimmed: string): boolean {
+  if (/\s/.test(trimmed)) return false
+  const urls = [...trimmed.matchAll(URL_PATTERN)]
+  if (urls.length === 1 && urls[0][0] === trimmed) return true
+  const emails = [...trimmed.matchAll(EMAIL_PATTERN)]
+  return emails.length === 1 && emails[0][0] === trimmed
+}
+
 /** How deep into nested arguments to look before giving up. */
 const MAX_DEPTH = 6
 
-/** Every destination named anywhere in a call's arguments. */
+/**
+ * Longest string still read as naming a destination rather than carrying one.
+ *
+ * Above it, only a string that is *entirely* one destination counts. The
+ * difference is address versus payload: `{"to": "Alice <a@evil.test>"}` is
+ * where the call is going, while a fetched page saved to disk merely mentions
+ * every link on it. Scanning the payload would flag "save this page to
+ * notes.md" as exfiltration to whoever the page happened to link to — and,
+ * worse, suppress the user's remembered approval for `write_file` whenever the
+ * text contained a URL.
+ *
+ * The length test alone would miss a long URL, which is exactly how data
+ * leaves in a query string, so an oversized value that is nothing but a URL is
+ * still read as one.
+ */
+const MAX_ADDRESS_LENGTH = 256
+
+/** Every destination a call is addressed to, as named in its arguments. */
 export function destinationsIn(args: Record<string, unknown>): Set<string> {
   const found = new Set<string>()
   const walk = (value: unknown, depth: number): void => {
     if (depth > MAX_DEPTH) return
     if (typeof value === 'string') {
-      for (const host of destinationsInText(value)) found.add(host)
+      const trimmed = value.trim()
+      if (trimmed.length > MAX_ADDRESS_LENGTH && !isSingleDestination(trimmed)) return
+      for (const host of destinationsInText(trimmed)) found.add(host)
       return
     }
     if (Array.isArray(value)) {
