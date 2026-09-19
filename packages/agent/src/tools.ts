@@ -23,13 +23,23 @@ export interface ApprovalDecision {
   match?: ApprovalMatch
 }
 
+/** Which run a call belongs to, for a handler that answers differently per task. */
+export interface ApprovalContext {
+  taskId: string
+}
+
 /**
  * Returns `true`/`false` for a one-off decision, or an `ApprovalDecision` to
  * have the answer remembered for the rest of the task or the session.
+ *
+ * `context` names the task asking. A host running several tasks at once needs
+ * it to route the question: a task in the background has nobody watching it,
+ * and must not put a prompt in front of someone answering a different one.
  */
 export type ApprovalHandler = (
   call: ToolCall,
   tool: ToolDefinition,
+  context: ApprovalContext,
 ) => boolean | ApprovalDecision | Promise<boolean | ApprovalDecision>
 
 /** Why a call was allowed to run, as recorded in the audit log. */
@@ -64,6 +74,7 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>()
   private readonly enabledDangerous = new Set<string>()
   private approvalHandler: ApprovalHandler = () => false
+  private isUnattended: (taskId: string) => boolean = () => false
   /** Remembered approvals, keyed by tool and (for `exact` grants) arguments. */
   private readonly grants = new Map<string, ApprovalGrant>()
   /** Tasks that have read output from an `untrustedOutput` tool. */
@@ -106,6 +117,17 @@ export class ToolRegistry {
     this.approvalHandler = handler
   }
 
+  /**
+   * Names the tasks that run with nobody watching — background jobs, say.
+   * Remembered approvals do not cover them: an "always allow" was given by
+   * someone watching a task they could see, not a blank cheque for work they
+   * will never look at. Every call from such a task goes to the approval
+   * handler, which answers it by policy.
+   */
+  setUnattended(predicate: (taskId: string) => boolean): void {
+    this.isUnattended = predicate
+  }
+
   private grantKey(tool: string, match: ApprovalMatch, args: Record<string, unknown>): string {
     return match === 'tool' ? `${tool}|*` : `${tool}|${argumentKey(args)}`
   }
@@ -133,12 +155,19 @@ export class ToolRegistry {
     // who said "always allow" was deciding about calls *they* would cause; once
     // a web page has had its say, the next call may be the page's idea. Asking
     // again is how untrusted content is kept from borrowing the user's standing
-    // approval — the same threshold holds, it just cannot be pre-paid.
-    if (tool.permissionLevel !== 'dangerous' && !this.tainted.has(taskId) && this.findGrant(call, taskId)) {
+    // approval — the same threshold holds, it just cannot be pre-paid. The
+    // same goes for an unattended task (see `setUnattended`), which nobody is
+    // watching to have granted anything to.
+    if (
+      tool.permissionLevel !== 'dangerous' &&
+      !this.tainted.has(taskId) &&
+      !this.isUnattended(taskId) &&
+      this.findGrant(call, taskId)
+    ) {
       return 'remembered'
     }
 
-    const decision = await this.approvalHandler(call, tool)
+    const decision = await this.approvalHandler(call, tool, { taskId })
     const {
       approved,
       scope = 'once',

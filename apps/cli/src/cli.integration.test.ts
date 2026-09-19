@@ -125,6 +125,25 @@ describe('CLI end to end', () => {
     expect(stdout).not.toContain('Loaded project conventions')
   })
 
+  // Regression: Ctrl+C at an idle prompt called process.exit(0), which killed
+  // background jobs and skipped saving the session.
+  it('saves the session when interrupted at an idle prompt', async () => {
+    const child = spawn(process.execPath, ['--import', 'tsx', cliEntry], {
+      cwd: repo,
+      env: { ...process.env, ...env(), CLI_NO_TUI: '1', TMPDIR: repo },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+      if (stdout.includes('> ') && !child.killed) child.kill('SIGINT')
+    })
+    const code = await new Promise<number | null>((resolve) => child.on('close', resolve))
+
+    expect(code).toBe(0)
+    expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
+  })
+
   describe('print mode', () => {
     it('prints only the answer on stdout and exits 0', async () => {
       const { stdout, stderr, code } = await runCli('', env(), repo, ['-p', 'what indentation?'])
@@ -169,6 +188,21 @@ describe('CLI end to end', () => {
       expect(code).toBe(1)
       expect(stderr).toContain('-p "summarize the tests"')
       expect(provider.requests).toHaveLength(0)
+    })
+
+    it('lists past tasks with --history, without needing a provider configured', async () => {
+      // Sessions are saved under the OS temp dir; point it somewhere private.
+      const tmp = path.join(repo, 'tmp')
+      await mkdir(tmp)
+      await runCli('', { ...env(), TMPDIR: tmp }, repo, ['-p', 'what indentation?'])
+
+      const { stdout, code } = await runCli('', { TMPDIR: tmp, OPENAI_API_KEY: '', OPENAI_BASE_URL: '' }, repo, [
+        '--history',
+      ])
+
+      expect(code).toBe(0)
+      expect(stdout).toMatch(/completed +what indentation\?\n {4}ack\n {4}session_[0-9a-f]+ · 0 tool calls/)
+      expect(provider.requests).toHaveLength(1)
     })
 
     it('prints usage for --help without contacting a provider', async () => {

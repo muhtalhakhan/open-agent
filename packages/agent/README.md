@@ -6,6 +6,7 @@ The agent runtime: the turn/step loop, the tool registry and execution pipeline,
 
 - **`SessionLog`** (`src/session.ts`) — the append-only, durable fact log for a task. `deriveMessages()` projects the model-visible history from it. Nothing reaches the model unless it was appended here first.
 - **Untrusted output** (`src/untrusted.ts`): a tool with `untrustedOutput: true` has its results fenced as data by `ToolRegistry.execute` (`fenceUntrusted`, with a random boundary per result) before they are logged. The registry's own refusals are never fenced. `UNTRUSTED_CONTENT_GUIDANCE` joins the system message whenever such a tool is registered. A task that has read untrusted output is _tainted_: `ToolRegistry` stops applying remembered approvals to it, so every `ask` call asks again. See the prompt-injection section of `docs/security-model.md`.
+- **Task history** (`src/task-history.ts`): `taskRecords(events)` projects one record per task out of a session's events (prompt, outcome, start and end, final answer, tool-call count), and `readTaskHistory(store)` gathers the newest ones across every saved session. The records are derived from the log instead of kept beside it, so they cannot disagree with the transcript. A task whose last turn started but never ended is `interrupted`. Provider error messages are deliberately left out of the log, because an error body can echo a credential, so a failed task shows `error` without the reason.
 - **`ToolRegistry`** (`src/tools.ts`) — registers tools, each declaring a `permissionLevel` (`safe` / `ask` / `dangerous`), and guards execution behind an approval handler. Every call is recorded in `auditLog`.
 - **`AgentLoop`** (`src/agent-loop.ts`) — a turn is the whole run; a step is one model request plus the tools it calls. Handles retries on transient provider errors, cancellation via `AbortSignal`, and a `maxSteps` safety valve against runaway tool-calling.
 - **`plugins.ts`** — mounts the above onto a `Context` as `ctx.sessions`, `ctx.tools`, `ctx.llm`, `ctx.agentLoop`, demonstrating the "everything is a plugin" pattern from `docs/architecture.md`.
@@ -42,5 +43,7 @@ Anything above `safe` goes through the `ApprovalHandler` before it runs. The han
 `exact` is the default deliberately. "Approve `run_command` for this task" sounds like a small convenience and means every subsequent command runs unprompted, which is close to not having approval at all.
 
 A `dangerous` call is never covered by a remembered approval and its answer is never remembered — the point of the level is that each one gets looked at.
+
+The handler is called as `(call, tool, { taskId })`. A host running several tasks at once uses the task id to route the question, for example so a background job never prompts in front of someone answering the foreground task.
 
 `auditLog` records `approvalSource` (`safe` / `granted` / `remembered` / `denied`), so a call that ran on an earlier answer is distinguishable from one a human just saw. `listApprovals()` shows what is remembered and `revokeApprovals(tool?)` forgets it.
