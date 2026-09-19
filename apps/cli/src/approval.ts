@@ -17,13 +17,20 @@ const DENIED: ApprovalDecision = { approved: false }
  * the registry will not remember it anyway.
  */
 export function createTerminalApprovalHandler(ask: (question: string) => Promise<string>): ApprovalHandler {
-  return async (call: ToolCall, tool: ToolDefinition): Promise<ApprovalDecision> => {
+  return async (call: ToolCall, tool: ToolDefinition, context): Promise<ApprovalDecision> => {
     const args = JSON.stringify(call.args)
-    const rememberable = tool.permissionLevel !== 'dangerous'
+    const escalation = context?.escalation
+    // A sequence rule's call is never remembered by the registry, so offering
+    // to remember it would be offering something that does not happen.
+    const rememberable = tool.permissionLevel !== 'dangerous' && !escalation
     const options = rememberable ? '[y]es once / [t]ask / [a]lways / [N]o' : '[y]es once / [N]o'
-    const answer = (await ask(`\n⚠ Approve "${tool.name}" (${tool.permissionLevel}) with args ${args}?\n  ${options} `))
-      .trim()
-      .toLowerCase()
+    // The reason leads. An escalated call is often a `safe` one, and a prompt
+    // about `read_file` with no explanation reads as a bug rather than a
+    // warning — the user would learn to dismiss it.
+    const preamble = escalation
+      ? `\n⚠ Held for review — ${escalation.rule}\n  ${escalation.reason}\n  Call: "${tool.name}" with args ${args}\n`
+      : `\n⚠ Approve "${tool.name}" (${tool.permissionLevel}) with args ${args}?\n`
+    const answer = (await ask(`${preamble}  ${options} `)).trim().toLowerCase()
 
     if (answer.startsWith('y')) return { approved: true, scope: 'once' }
     if (!rememberable) return DENIED
@@ -48,12 +55,15 @@ export function createTerminalApprovalHandler(ask: (question: string) => Promise
  * named them explicitly, so `--yes` cannot escalate to that level.
  */
 export function createNonInteractiveApprovalHandler(approveAsk: boolean, log: (msg: string) => void): ApprovalHandler {
-  return (call: ToolCall, tool: ToolDefinition): ApprovalDecision | boolean => {
+  return (call: ToolCall, tool: ToolDefinition, context): ApprovalDecision | boolean => {
+    // Named either way: with `--yes` this is the only trace a flagged call
+    // leaves in front of the operator, and it is the one worth reading.
+    const flagged = context?.escalation ? ` [${context.escalation.rule}: ${context.escalation.reason}]` : ''
     if (approveAsk) {
-      log(`auto-approved "${tool.name}" (${tool.permissionLevel}) — running with --yes\n`)
+      log(`auto-approved "${tool.name}" (${tool.permissionLevel}) — running with --yes${flagged}\n`)
       return true
     }
-    log(`denied "${tool.name}" (${tool.permissionLevel}): no human to approve; re-run with --yes to allow\n`)
+    log(`denied "${tool.name}" (${tool.permissionLevel}): no human to approve; re-run with --yes to allow${flagged}\n`)
     return false
   }
 }

@@ -104,6 +104,13 @@ export class AgentLoop {
     // turn, or a session resumed in a new process — has read it all the same.
     if (sessions.all(taskId).some((e) => e.type === 'tool/result' && isFenced(e.result))) tools.taint(taskId)
 
+    // Same reasoning for the sequence rules, which need to know which
+    // destinations the user named — every turn of this task, not just this
+    // one, since "send it to the address I gave you earlier" is ordinary.
+    for (const event of sessions.all(taskId)) {
+      if (event.type === 'user/message') tools.noteUserRequest(taskId, event.message.content)
+    }
+
     try {
       for (let step = 0; step < this.maxSteps; step++) {
         if (signal.aborted) throw new CancelledError()

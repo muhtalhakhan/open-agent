@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createTerminalApprovalHandler } from './approval.js'
+import { createNonInteractiveApprovalHandler, createTerminalApprovalHandler } from './approval.js'
 import type { ToolDefinition } from '@open-agent/agent'
 
 /** The approval context the registry passes; these handlers answer the same for any task. */
@@ -90,5 +90,42 @@ describe('createTerminalApprovalHandler', () => {
     await handler({ id: '1', name: 'shell', args: { cmd: 'rm -rf /' } }, shellTool, task)
     expect(asked[0]).toMatch(/shell/)
     expect(asked[0]).toMatch(/rm -rf/)
+  })
+})
+
+describe('an escalated call', () => {
+  const safeTool: ToolDefinition = { ...shellTool, name: 'send', permissionLevel: 'safe' }
+  const flagged = {
+    taskId: 't1',
+    escalation: { rule: 'exfiltration-after-ingest', reason: '"send" is addressing evil.test, which nobody named.' },
+  }
+
+  it('leads with the reason, since the tool itself looks unremarkable', async () => {
+    const { ask, asked } = answering('n')
+    await createTerminalApprovalHandler(ask)(call, safeTool, flagged)
+    expect(asked[0]).toContain('exfiltration-after-ingest')
+    expect(asked[0]).toContain('evil.test')
+  })
+
+  it('does not offer to remember an answer the registry will not remember', async () => {
+    const { ask, asked } = answering('n')
+    await createTerminalApprovalHandler(ask)(call, safeTool, flagged)
+    expect(asked[0]).not.toContain('[a]lways')
+    expect(asked[0]).toContain('[y]es once')
+  })
+
+  it('still approves on "y"', async () => {
+    const handler = createTerminalApprovalHandler(answering('y').ask)
+    expect(await handler(call, safeTool, flagged)).toEqual({ approved: true, scope: 'once' })
+  })
+
+  it('names the rule in the non-interactive log, both when denied and when auto-approved', async () => {
+    const denied: string[] = []
+    createNonInteractiveApprovalHandler(false, (m) => denied.push(m))(call, safeTool, flagged)
+    expect(denied[0]).toContain('exfiltration-after-ingest')
+
+    const approved: string[] = []
+    createNonInteractiveApprovalHandler(true, (m) => approved.push(m))(call, safeTool, flagged)
+    expect(approved[0]).toContain('exfiltration-after-ingest')
   })
 })

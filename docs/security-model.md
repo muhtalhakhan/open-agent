@@ -123,7 +123,7 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 - Tool calls triggered as a direct consequence of untrusted content should be held to the same `ask`/`dangerous` thresholds as user-initiated ones — untrusted content cannot itself elevate permissions.
 - Dangerous-action detection: a lightweight classifier/heuristic layer can flag suspicious tool-call sequences (e.g. "read email → then send email to new external address") for extra scrutiny even if individual steps are `safe`.
 
-> **Status:** the first two are implemented, and the third in its simplest form.
+> **Status:** all three are implemented.
 > A tool marks itself `untrustedOutput` (`http_request`, `web_search` and every
 > MCP tool by default, browser tools included), and `ToolRegistry` fences that
 > output between `<<untrusted SOURCE ID>>` / `<<end untrusted ID>>` markers
@@ -136,10 +136,27 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > `ToolRegistry` stops letting remembered approvals cover its `ask` calls, so a
 > page cannot spend an "always allow" the user gave for their own requests.
 > Each call is put to the user again. A task continued from its log is
-> re-tainted from the fenced results already in it. Not yet covered: file and
-> shell output are treated as trusted, since they are the user's own workspace,
-> and there is no classifier. The sequence check is "has this task read
-> anything untrusted", not an analysis of which call followed which.
+> re-tainted from the fenced results already in it.
+>
+> For the third: `packages/agent/src/dangerous-actions.ts` watches the shape of
+> a task rather than any one call in it. Once a task has read content back from
+> any tool, a call addressing a destination that neither the user nor the task
+> has mentioned is escalated — put to the user for approval even when the tool
+> is `safe`, and never covered or remembered by a grant, since a rule fires
+> precisely where the user's earlier "always" was not a decision about this.
+> Destinations are read out of the arguments by pattern (URL hosts and email
+> domains, at any nesting depth) rather than by field name, so it holds for an
+> MCP tool the runtime has never seen. The user's own messages seed the list of
+> destinations that need no explanation, so "mail it to alice@corp.test" does
+> not prompt about `corp.test`. Loopback and private hosts are left to
+> `NetworkPolicy`, which refuses them by default. The flag is recorded in the
+> audit log, and in print mode it is named in the stderr line whether the call
+> was denied or ran under `--yes`.
+>
+> Not yet covered: there is still no classifier, and one rule is not a
+> taxonomy — a destination the task reached honestly earlier is trusted for the
+> rest of that task, and exfiltration to a host the user did name is not
+> caught. The heuristic errs towards asking, which is the tolerable direction.
 
 ## Audit logs
 
