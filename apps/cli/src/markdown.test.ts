@@ -33,6 +33,11 @@ describe('renderInline', () => {
     expect(plain(renderInline('[https://a.b](https://a.b)'))).toBe('https://a.b')
   })
 
+  it('keeps code and escapes that sit inside a link label', () => {
+    expect(plain(renderInline('see [`README.md`](README.md)'))).toBe('see README.md (README.md)')
+    expect(plain(renderInline('[foo\\_bar](https://x.dev)'))).toBe('foo_bar (https://x.dev)')
+  })
+
   it('honours backslash escapes', () => {
     expect(renderInline('\\*not italic\\*')).toBe('*not italic*')
   })
@@ -42,6 +47,8 @@ describe('renderMarkdown', () => {
   it('drops heading markers and styles the text', () => {
     const out = renderMarkdown('# Title\n## Section ##\n###### Small')
     expect(plain(out)).toBe('Title\nSection\nSmall')
+    // A trailing # is only a closing marker after a space.
+    expect(plain(renderMarkdown('## Using C#\n# F#\n## Closed ##'))).toBe('Using C#\nF#\nClosed')
     expect(out.split('\n')[0]).toContain('\x1b[4m') // the top heading is underlined
   })
 
@@ -54,6 +61,12 @@ describe('renderMarkdown', () => {
   it('prints fenced code verbatim and indented, with its language', () => {
     const out = renderMarkdown('before\n```ts\nconst x = **not bold**\n# not a heading\n```\nafter')
     expect(plain(out)).toBe('before\n  ts\n  const x = **not bold**\n  # not a heading\nafter')
+  })
+
+  it('recognises a fence with more after the language, and closes it', () => {
+    const out = renderMarkdown('```ts title="a.ts"\nconst a = 1\n```\n**after**\n```js {1,3}\nx\n```\ndone')
+    expect(plain(out)).toBe('  ts\n  const a = 1\nafter\n  js\n  x\ndone')
+    expect(out).toContain('\x1b[1mafter\x1b[22m')
   })
 
   it('treats an unclosed fence as code to the end', () => {

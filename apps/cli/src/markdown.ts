@@ -70,14 +70,26 @@ class Stash {
     return `${Stash.open}${this.held.push(text) - 1}${Stash.close}`
   }
 
+  /**
+   * Puts everything back. Repeats until nothing is left to restore, because
+   * stashed text can hold placeholders of its own — a link whose label has
+   * code in it is stashed after the code was.
+   */
   restore(text: string): string {
     const placeholder = new RegExp(`${Stash.open}(\\d+)${Stash.close}`, 'g')
-    return text.replace(placeholder, (_, i: string) => this.held[Number(i)])
+    let out = text
+    for (let depth = 0; depth <= this.held.length && placeholder.test(out); depth++) {
+      out = out.replace(placeholder, (_, i: string) => this.held[Number(i)])
+    }
+    return out
   }
 }
 
-const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)\s*$/
-const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/
+// The info string after the fence is a language and then anything at all —
+// `ts title="a.ts"`, `js {1,3}` — of which only the language is shown.
+const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)[^`]*$/
+// A closing run of `#` only counts after a space, so `## Using C#` keeps it.
+const HEADING = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/
 const BULLET = /^(\s*)[-*+]\s+(\[[ xX]\]\s+)?(.*)$/
 const ORDERED = /^(\s*)(\d+)[.)]\s+(.*)$/
