@@ -33,10 +33,11 @@ TypeScript monorepo on npm workspaces. `apps/cli` (the terminal app) and
 - **In the CLI, `src/index.ts` is the only file that touches real
   stdin/stdout/env.** Everything else takes injected IO so it can be tested.
   In print mode stdout carries the answer alone — diagnostics go to stderr.
-- **Don't put an `await` between `createInterface()` and the first prompt** in
-  `apps/cli/src/index.ts`. Yielding to I/O there lets readline consume and
-  discard piped input, and `echo task | open-agent` silently does nothing.
-  `cli.integration.test.ts` pins this.
+- **Every line of stdin goes through the queue in `line-reader.ts`.** readline
+  emits a `line` per line of a chunk whether or not anyone is waiting, so
+  reading with `rl.question()` drops all but the first. Both the REPL prompt
+  and the approval prompt take from the one reader — a second reader on the
+  same stdin races it. `cli.integration.test.ts` pins this.
 
 ## Style
 

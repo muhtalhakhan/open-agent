@@ -40,6 +40,7 @@ import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
+import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -97,11 +98,6 @@ async function main() {
   }
   const { config } = result
 
-  // Loaded before any stdin wiring, and deliberately so. An await that yields
-  // to real I/O between createInterface() below and the first prompt gives
-  // readline time to consume and discard piped input, so `echo task | cli`
-  // prints the banner and exits having done nothing. Keep that window free of
-  // I/O — cli.integration.test.ts pins the behaviour.
   const instructions = await loadProjectInstructions()
 
   // Handle session resume: load existing session log if --resume is given
@@ -185,21 +181,16 @@ async function main() {
     teardown = () => tui.unmount()
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout })
-    // A question pending when readline closes is never settled, so with
-    // nothing else holding the event loop open the process would just drain
-    // away mid-session, unsaved. Treat close as EOF instead.
-    const closed = new Promise<null>((resolve) => rl.once('close', () => resolve(null)))
+    // Subscribed before anything else can yield: every line is queued from the
+    // moment the interface exists, so none is emitted to nobody however long
+    // startup takes. See line-reader.ts.
+    const reader = createLineReader(rl)
     io = {
-      async prompt() {
-        try {
-          return await Promise.race([rl.question('> '), closed])
-        } catch {
-          return null // readline closed (e.g. Ctrl+D)
-        }
-      },
+      prompt: () => reader.next('> '),
       write: (text) => process.stdout.write(text),
     }
-    ask = (question) => rl.question(question)
+    // The same reader, deliberately: two on one stdin would race each other.
+    ask = createApprovalAsk(reader, Boolean(process.stdin.isTTY))
     process.on('SIGINT', () => {
       if (activeAbort.current) {
         console.log('\n[cancelling current task...]')

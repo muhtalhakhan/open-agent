@@ -98,6 +98,29 @@ describe('CLI end to end', () => {
     expect(stdout).toContain('ack')
   })
 
+  // Regression: readline emits a `line` event per line of a chunk, whether or
+  // not a question is waiting. Only the first found one, and the rest were
+  // emitted to nobody.
+  it('runs every line when several arrive in one stdin chunk', async () => {
+    await runCli('first\nsecond\n:exit\n', env(), repo)
+
+    expect(provider.requests).toHaveLength(2)
+    expect(provider.requests.map((r) => r.messages.find((m) => m.role === 'user')?.content)).toEqual([
+      'first',
+      'second',
+    ])
+  })
+
+  // The same drop, but for the very first line: with a file or shell tool
+  // enabled the CLI awaits real I/O before its first prompt, so `echo task |
+  // open-agent` lost the task itself.
+  it('runs a piped task when startup awaits I/O before the first prompt', async () => {
+    const { stdout } = await runCli('hello there\n:exit\n', { ...env(), FILES_TOOL: '1' }, repo)
+
+    expect(provider.requests).toHaveLength(1)
+    expect(stdout).toContain('ack')
+  })
+
   it('loads AGENTS.md from the repo root into the system message', async () => {
     await writeFile(path.join(repo, 'AGENTS.md'), '# Conventions\n\n- Always indent with tabs.')
 
