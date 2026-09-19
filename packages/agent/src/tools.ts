@@ -1,4 +1,5 @@
 import type { PermissionLevel, ToolCall, ToolDefinition, ToolExecutionContext, ToolResult } from './types.js'
+import { fenceUntrusted } from './untrusted.js'
 
 /** How long an approval lasts. */
 export type ApprovalScope = 'once' | 'task' | 'session'
@@ -229,10 +230,22 @@ export class ToolRegistry {
     } catch (err) {
       result = { ok: false, content: '', error: err instanceof Error ? err.message : String(err) }
     }
-    // Tainted whatever the outcome: an error can carry the remote side's text
-    // just as well as a success can.
-    if (tool.untrustedOutput) this.tainted.add(context.taskId)
     this.auditLog.push({ call, permissionLevel: tool.permissionLevel, approved: true, approvalSource, result })
-    return result
+    if (!tool.untrustedOutput) return result
+
+    // Fenced here, where it is known the tool itself produced the text, and
+    // not for the registry's own refusals above: those are the user's
+    // decisions, and fencing one would tell the model to treat it as outside
+    // data. Tainted whatever the outcome — an error can carry the remote
+    // side's text just as well as a success can. The audit log keeps the raw
+    // output.
+    this.tainted.add(context.taskId)
+    return fenceResult(result, call.name)
   }
+}
+
+/** Fences whichever part of a result carries the remote side's text. */
+function fenceResult(result: ToolResult, source: string): ToolResult {
+  if (result.ok) return { ...result, content: fenceUntrusted(result.content, source) }
+  return result.error === undefined ? result : { ...result, error: fenceUntrusted(result.error, source) }
 }

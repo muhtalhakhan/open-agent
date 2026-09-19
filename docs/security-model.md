@@ -119,9 +119,10 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 
 > **Status:** the first two are implemented, and the third in its simplest form.
 > A tool marks itself `untrustedOutput` (`http_request`, `web_search` and every
-> MCP tool by default, browser tools included), and `AgentLoop` fences that
+> MCP tool by default, browser tools included), and `ToolRegistry` fences that
 > output between `<<untrusted SOURCE ID>>` / `<<end untrusted ID>>` markers
-> before it is logged. The id is random per result, so fetched content cannot
+> before the loop logs it. Only what the tool itself returned is fenced, never
+> the registry's own refusals, which are the user's decisions. The id is random per result, so fetched content cannot
 > close its own fence. When any such tool is registered, a standing instruction
 > saying fenced content is data, never instructions, joins the system message.
 > Both are appended to the session log, so the transcript shows exactly what the
