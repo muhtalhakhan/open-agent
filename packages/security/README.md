@@ -13,7 +13,7 @@ interface SecretStore {
 
 `get` returns `undefined` when nothing is stored under `key`, and throws when the store itself cannot be read: not installed, locked, or access denied. That way an operator who asked for the store finds out, instead of the agent quietly running without the credential. It is synchronous because credentials are resolved while the configuration is parsed, before anything else starts. An async backend such as Vault would need that resolution step to become async first.
 
-`resolveCredential` in `@open-agent/providers` consults the store as a last resort, after `<NAME>` and `<NAME>_FILE`. The store's values get the same validation and the same errors as any other credential, and those errors never contain the value.
+`resolveCredential` in `@open-agent/providers` consults the store as a last resort: it checks `<NAME>` and `<NAME>_FILE` for every accepted name first, and asks the store only when none of them is set. The store's values get the same validation and the same errors as any other credential, and those errors never contain the value.
 
 ## `KeychainSecretStore`
 

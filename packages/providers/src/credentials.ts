@@ -24,8 +24,8 @@ export interface CredentialLookup {
   /** Injectable for tests; defaults to reading the path as UTF-8. */
   readFile?: (path: string) => string
   /**
-   * Consulted after `<NAME>` and `<NAME>_FILE`, under the same name — the OS
-   * keychain, say. Structurally typed so this package does not depend on
+   * Consulted under the same names once none of them is set in the
+   * environment — the OS keychain, say. Structurally typed so this package does not depend on
    * whichever one is plugged in.
    */
   store?: { readonly name: string; get(key: string): string | undefined }
@@ -50,11 +50,15 @@ export type CredentialResult =
 const ILLEGAL_IN_CREDENTIAL = /[\s\u0000-\u001F\u007F]/
 
 /**
- * Resolves the first configured credential among `names`, trying `<NAME>`,
- * then `<NAME>_FILE`, then the secret store for each before moving on to the
- * next name. Earlier names win, so callers list the most specific variable
- * first. The environment outranks the store so a one-off override needs no
- * keychain edit.
+ * Resolves the first configured credential among `names`, trying `<NAME>` and
+ * then `<NAME>_FILE` for each, in order. Earlier names win, so callers list
+ * the most specific variable first.
+ *
+ * Only when none of the names is set in the environment is the secret store
+ * asked, again in order. Asking it per name, between environment lookups,
+ * would let a stale keychain entry for the first name beat a key the operator
+ * set for the second, fail startup on an unreachable keychain when the key was
+ * right there in the environment, and put up an unlock dialog for nothing.
  *
  * An empty or whitespace-only variable counts as unset: `.env` files routinely
  * carry `SOME_API_KEY=` placeholders, and treating those as a configured empty
@@ -69,11 +73,7 @@ export function resolveCredential(names: string | string[], lookup: CredentialLo
 
     const fileVar = `${name}_FILE`
     const rawPath = lookup.env[fileVar]
-    if (rawPath === undefined || rawPath.trim() === '') {
-      const stored = fromStore(name, lookup)
-      if (stored) return stored
-      continue
-    }
+    if (rawPath === undefined || rawPath.trim() === '') continue
 
     const filePath = rawPath.trim()
     const read = lookup.readFile ?? ((path: string) => readFileSync(path, 'utf8'))
@@ -92,6 +92,11 @@ export function resolveCredential(names: string | string[], lookup: CredentialLo
       return { ok: false, reason: 'malformed', error: `${fileVar} points at ${filePath}, which is empty.` }
     }
     return validate(contents, `${fileVar} (${filePath})`)
+  }
+
+  for (const name of candidates) {
+    const stored = fromStore(name, lookup)
+    if (stored) return stored
   }
 
   const listed = candidates.join(' or ')

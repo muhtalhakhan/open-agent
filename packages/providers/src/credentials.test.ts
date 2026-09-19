@@ -119,8 +119,30 @@ describe('resolveCredential with a secret store', () => {
     expect(resolveCredential('OPENAI_API_KEY', lookup)).toMatchObject({ ok: true, value: 'sk-env' })
   })
 
-  it('tries the store for each name in order, before moving to the next name', () => {
-    const lookup = { env: { OPENAI_API_KEY: 'sk-generic' }, store: store({ OPENROUTER_API_KEY: 'sk-vendor' }) }
+  it('checks every name in the environment before asking the store about any', () => {
+    const asked: string[] = []
+    const recording = {
+      name: 'keychain',
+      get: (key: string) => (asked.push(key), key === 'OPENROUTER_API_KEY' ? 'sk-stale' : undefined),
+    }
+    const lookup = { env: { OPENAI_API_KEY: 'sk-env' }, store: recording }
+    expect(resolveCredential(['OPENROUTER_API_KEY', 'OPENAI_API_KEY'], lookup)).toMatchObject({ value: 'sk-env' })
+    expect(asked).toEqual([])
+  })
+
+  it('does not fail on an unreachable store when a later name is in the environment', () => {
+    const broken = {
+      name: 'keychain',
+      get: () => {
+        throw new Error('Cannot autolaunch D-Bus')
+      },
+    }
+    const lookup = { env: { OPENAI_API_KEY: 'sk-env' }, store: broken }
+    expect(resolveCredential(['OPENROUTER_API_KEY', 'OPENAI_API_KEY'], lookup)).toMatchObject({ ok: true })
+  })
+
+  it('asks the store for each name in order once the environment has none', () => {
+    const lookup = { env: {}, store: store({ OPENAI_API_KEY: 'sk-generic', OPENROUTER_API_KEY: 'sk-vendor' }) }
     expect(resolveCredential(['OPENROUTER_API_KEY', 'OPENAI_API_KEY'], lookup)).toMatchObject({ value: 'sk-vendor' })
   })
 
