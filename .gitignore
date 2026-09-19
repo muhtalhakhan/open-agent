@@ -11,7 +11,7 @@ coverage/
 
 # Claude Code local (per-developer) settings; shared config belongs in .claude/settings.json
 .claude/settings.local.json
+# Per-developer Claude Code state: worktrees are full checkouts of this repo,
+# and workflow scripts are personal automation, not project code.
 .claude/worktrees/
-.claude/worktrees/*
-.claude/workflows/*.js
-.claude/workflows/*.json
+.claude/workflows/
