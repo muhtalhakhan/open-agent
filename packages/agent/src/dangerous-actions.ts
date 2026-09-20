@@ -72,8 +72,9 @@ function normalizeHost(hostname: string): string {
  * for a tool it has never heard of — an MCP server's `send_email` with a `to`
  * field, a webhook tool with an `endpoint` — and the one thing those have in
  * common is that the destination is written down somewhere in the arguments.
- * Matching names like `url` or `to` would miss every tool that spells it
- * differently, which is most of them.
+ * Keying on names like `url` or `to` alone would miss every tool that spells
+ * it differently, which is most of them; `DESTINATION_FIELDS` adds those
+ * names on top, for the one case a pattern cannot settle.
  */
 export function destinationsInText(text: string): Set<string> {
   const found = new Set<string>()
@@ -119,23 +120,82 @@ const MAX_DEPTH = 6
  */
 const MAX_ADDRESS_LENGTH = 256
 
+/**
+ * Argument names that mean "where this is going".
+ *
+ * Needed because a bare hostname cannot be recognised by shape alone: the
+ * last label of `notes.md` is a real country-code TLD, as are `.sh`, `.py`,
+ * `.rs` and most other file extensions worth worrying about. No syntax rule
+ * separates a filename from a hostname, so the field's own name is the only
+ * evidence there is.
+ *
+ * This is a supplement, not the mechanism. URLs and email addresses are still
+ * found in any field whatever it is called, so a tool nobody has heard of is
+ * still covered; naming a field only buys the bare-hostname case on top.
+ */
+const DESTINATION_FIELDS = new Set([
+  'address',
+  'callback',
+  'domain',
+  'endpoint',
+  'host',
+  'hostname',
+  'origin',
+  'recipient',
+  'recipients',
+  'server',
+  'site',
+  'target',
+  'to',
+  'uri',
+  'url',
+  'webhook',
+])
+
+/** Four numeric labels in range — an address, where a version number is not. */
+function isIpv4(candidate: string): boolean {
+  const parts = candidate.split('.')
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+}
+
+/**
+ * A bare hostname, for a field that has said it holds one.
+ *
+ * Tolerates a port and a path so `evil.test:8080/collect` still names its
+ * host. A last label that is not alphabetic rules out a version number like
+ * `1.2.3`, while a genuine IPv4 address is kept.
+ */
+function bareHost(value: string): string | undefined {
+  const candidate = value.trim().split(/[/?#]/)[0].split(':')[0]
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(candidate)) return undefined
+  const lastLabel = candidate.slice(candidate.lastIndexOf('.') + 1)
+  if (!/^[a-z]{2,}$/i.test(lastLabel) && !isIpv4(candidate)) return undefined
+  return normalizeHost(candidate)
+}
+
 /** Every destination a call is addressed to, as named in its arguments. */
 export function destinationsIn(args: Record<string, unknown>): Set<string> {
   const found = new Set<string>()
-  const walk = (value: unknown, depth: number): void => {
+  const walk = (value: unknown, depth: number, field?: string): void => {
     if (depth > MAX_DEPTH) return
     if (typeof value === 'string') {
       const trimmed = value.trim()
       if (trimmed.length > MAX_ADDRESS_LENGTH && !isSingleDestination(trimmed)) return
       for (const host of destinationsInText(trimmed)) found.add(host)
+      if (field !== undefined && DESTINATION_FIELDS.has(field.toLowerCase())) {
+        const host = bareHost(trimmed)
+        if (host !== undefined) found.add(host)
+      }
       return
     }
     if (Array.isArray(value)) {
-      for (const item of value) walk(item, depth + 1)
+      // The field name carries into a list, so `recipients: [...]` still names
+      // every one of them.
+      for (const item of value) walk(item, depth + 1, field)
       return
     }
     if (value !== null && typeof value === 'object') {
-      for (const item of Object.values(value)) walk(item, depth + 1)
+      for (const [key, item] of Object.entries(value)) walk(item, depth + 1, key)
     }
   }
   walk(args, 0)

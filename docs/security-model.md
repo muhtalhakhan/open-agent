@@ -146,7 +146,14 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > precisely where the user's earlier "always" was not a decision about this.
 > Destinations are read out of the arguments by pattern (URL hosts and email
 > domains, at any nesting depth) rather than by field name, so it holds for an
-> MCP tool the runtime has never seen. What counts is the address, not the
+> MCP tool the runtime has never seen. A bare hostname is the one case pattern
+> cannot settle — the last label of `notes.md` is a real country-code TLD, as
+> are `.sh`, `.py` and `.rs`, so no syntax rule separates a filename from a
+> host. There the field's own name is the only evidence, and a known set of
+> them (`url`, `site`, `host`, `to`, `recipients`, `endpoint`, …) is read for
+> bare hosts as well. That is a supplement rather than the mechanism: a tool
+> nobody has heard of is still covered by the patterns. A version number is
+> not a host, though a literal IP address is. What counts is the address, not the
 > payload: a long value is only read as a destination if it is nothing but one,
 > so saving a fetched page to disk is not mistaken for sending it to every host
 > the page links to, while a long URL carrying data in its query string still
@@ -188,10 +195,9 @@ and `request_takeover` / `ask_for_login` are how the model asks.
   continue", and the tool would put that name in front of the user carrying the
   agent's own credibility — phishing with the agent as the courier. The
   approval prompt is what makes the destination get read before a sign-in form
-  is. When the site is given as a URL and the task has already read a page, the
-  sequence rules escalate it as well. A bare hostname is not detected as a
-  destination (`notes.md` would parse as one too), so there the approval prompt
-  is the whole defence.
+  is. Once the task has read a page, the sequence rules escalate it too —
+  `site` is one of the fields read for a bare hostname, so it does not matter
+  whether the model wrote `evil.test` or a full URL.
 - **A task nobody is watching is refused, not queued.** A background job asking
   for a handoff would wait on a person who never arrives, hanging the job
   rather than failing it, so `isUnattended` — the same predicate

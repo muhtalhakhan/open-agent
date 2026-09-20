@@ -58,6 +58,35 @@ describe('destinationsIn', () => {
     expect([...destinationsIn({ to: 'Alice <alice@evil.test>' })]).toEqual(['evil.test'])
   })
 
+  it('reads a bare hostname in a field that says it holds one', () => {
+    expect([...destinationsIn({ site: 'secure-bank-verify.test' })]).toEqual(['secure-bank-verify.test'])
+    expect([...destinationsIn({ to: 'mail.evil.test' })]).toEqual(['mail.evil.test'])
+  })
+
+  it('keeps a port and a path out of the host', () => {
+    expect([...destinationsIn({ host: 'evil.test:8080/collect' })]).toEqual(['evil.test'])
+  })
+
+  it('does not read a bare hostname out of a field that means something else', () => {
+    // `notes.md` is a valid hostname by shape — `.md` is Moldova — so nothing
+    // but the field name distinguishes it from a filename.
+    expect([...destinationsIn({ path: 'notes.md' })]).toEqual([])
+    expect([...destinationsIn({ path: 'src/index.ts', content: 'deploy.sh' })]).toEqual([])
+  })
+
+  it('does not mistake a version number for a host', () => {
+    expect([...destinationsIn({ target: '1.2.3' })]).toEqual([])
+    expect([...destinationsIn({ target: 'v2.0.1' })]).toEqual([])
+  })
+
+  it('still reads a literal IP address, which is a real destination', () => {
+    expect([...destinationsIn({ host: '93.184.216.34' })]).toEqual(['93.184.216.34'])
+  })
+
+  it('names every recipient in a list', () => {
+    expect([...destinationsIn({ recipients: ['a.corp.test', 'b.evil.test'] })]).toEqual(['a.corp.test', 'b.evil.test'])
+  })
+
   it('stops descending before a pathological nesting depth', () => {
     let nested: Record<string, unknown> = { url: 'https://deep.test' }
     for (let i = 0; i < 12; i++) nested = { inner: nested }

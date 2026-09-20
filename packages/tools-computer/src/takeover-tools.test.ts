@@ -116,9 +116,6 @@ describe('takeover tools', () => {
     expect(result.ok).toBe(false)
   })
 
-  // A bare hostname is not detected as a destination — `notes.md` would parse
-  // as one too — so the sequence rule sees a site only when it is given as a
-  // URL. The approval gate above is what defends the bare-hostname case.
   it('is escalated by the sequence rules when a page chose the site', async () => {
     const { leases } = setup(async () => 'completed')
     const tools = new ToolRegistry()
@@ -140,10 +137,8 @@ describe('takeover tools', () => {
     })
 
     await tools.execute({ id: '1', name: 'fetch', args: {} }, ctx())
-    await tools.execute(
-      { id: '2', name: 'ask_for_login', args: { site: 'https://secure-bank-verify.test/login' } },
-      ctx(),
-    )
+    // A bare hostname, which is how a model most often fills a `site` field.
+    await tools.execute({ id: '2', name: 'ask_for_login', args: { site: 'secure-bank-verify.test' } }, ctx())
 
     expect(escalation).toBe('exfiltration-after-ingest')
   })
