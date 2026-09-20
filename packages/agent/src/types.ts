@@ -71,6 +71,41 @@ export type SessionEvent =
   | { type: 'tool/call'; taskId: string; at: number; call: ToolCall }
   | { type: 'tool/result'; taskId: string; at: number; callId: string; result: ToolResult }
   | { type: 'retry'; taskId: string; at: number; attempt: number; reason: string }
+  | {
+      type: 'lease/requested'
+      taskId: string
+      at: number
+      kind: TakeoverKind
+      reason: string
+      /** The site or machine a person is being asked to deal with. */
+      target?: string
+    }
+  | { type: 'lease/returned'; taskId: string; at: number; outcome: TakeoverOutcome }
+
+/**
+ * Why control is being handed to a person: they asked for the wheel, or the
+ * agent reached something only a person can do, such as a login wall.
+ */
+export type TakeoverKind = 'takeover' | 'login'
+
+export interface TakeoverRequest {
+  taskId: string
+  kind: TakeoverKind
+  /** Why, in the agent's own words, shown to the person being asked. */
+  reason: string
+  /** The site or machine in question, for a login. */
+  target?: string
+}
+
+/**
+ * How a handoff ended. Deliberately a closed set and not free text: anything
+ * a person types while driving — a password above all — must have no way back
+ * into the transcript. See `lease.ts`.
+ */
+export type TakeoverOutcome = 'completed' | 'declined' | 'cancelled' | 'unavailable' | 'busy' | 'failed'
+
+/** Who is driving a task right now. */
+export type LeaseState = { holder: 'agent' } | { holder: 'pending' | 'human'; since: number; reason: string }
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'cancelled' | 'error'
 

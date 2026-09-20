@@ -5,6 +5,7 @@ export { windowListTool } from './window-list-tool.js'
 export { windowScreenshotTool } from './window-screenshot-tool.js'
 export { windowFocusTool } from './window-focus-tool.js'
 export { windowMoveResizeTool } from './window-move-resize-tool.js'
+export { askForLoginTool, mountTakeoverTools, requestTakeoverTool } from './takeover-tools.js'
 export {
   createUiTarsGuiAgentFactory,
   createNutJsScreenshotOperator,

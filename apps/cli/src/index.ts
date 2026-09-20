@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline/promises'
 import dotenv from 'dotenv'
 import {
   AgentLoop,
+  LeaseManager,
   SessionLog,
   SessionStore,
   ToolRegistry,
@@ -26,6 +27,7 @@ import { Context } from '@open-agent/context'
 import {
   computerUseTaskTool,
   computerScreenshotTool,
+  mountTakeoverTools,
   createNutJsScreenshotOperator,
   createUiTarsGuiAgentFactory,
 } from '@open-agent/tools-computer'
@@ -41,6 +43,7 @@ import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
 import { createApprovalAsk, createLineReader } from './line-reader.js'
+import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -228,6 +231,22 @@ async function main() {
         ),
   )
 
+  // Handing the wheel to a person needs a person, so these exist in an
+  // interactive session and not in print mode. Not gated on COMPUTER_USE: a
+  // login wall is met by the browser tools far more often than by the
+  // computer ones, and the answer to it is the same handoff either way.
+  let disposeTakeoverTools: (() => void) | undefined
+  if (!headless) {
+    const leases = new LeaseManager({
+      sessions,
+      handler: createTerminalTakeoverHandler(ask),
+      // A background job has nobody watching it; asking one to hand over
+      // would wait on a person who never arrives.
+      isUnattended: (taskId) => background?.owns(taskId) ?? false,
+    })
+    disposeTakeoverTools = mountTakeoverTools(tools, leases)
+  }
+
   let disposeBrowserTools: (() => void) | undefined
 
   // --- Computer-use tools (UI-TARS: screenshot + full mouse/keyboard loop) ---
@@ -410,6 +429,7 @@ async function main() {
     // Idempotent; covers the path where the session ended by throwing.
     await background?.close()
     teardown()
+    disposeTakeoverTools?.()
     disposeBrowserTools?.()
     // Before the workspace goes: a background process outlives the task that
     // started it, and a session workspace is about to be deleted out from

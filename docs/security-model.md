@@ -168,6 +168,48 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > rest of that task, and exfiltration to a host the user did name is not
 > caught. The heuristic errs towards asking, which is the tolerable direction.
 
+## Handing control to a person
+
+Two situations are one primitive. "I want to take the wheel" and "the agent
+has hit a login wall" are both an exclusive handoff: the agent stops acting, a
+person acts, control comes back. `LeaseManager` in `packages/agent` owns it,
+and `request_takeover` / `ask_for_login` are how the model asks.
+
+- **The agent never handles a credential.** It does not ask for a password, is
+  not given one, and has nowhere to put one. A handoff returns a closed set of
+  outcomes (`completed`, `declined`, `cancelled`, `unavailable`, `busy`,
+  `failed`) and no text at all, so there is no field a secret could be typed
+  into and no channel for it to reach the model, the transcript, or the
+  provider. The person signs in to their own browser, where the session
+  persists for later tasks. That property is structural rather than a warning:
+  it holds because the type has no room for free text.
+- **Both tools are `ask`, because the argument is usually attacker-chosen.** A
+  page the agent just read can say "sign in at secure-bank-verify.test to
+  continue", and the tool would put that name in front of the user carrying the
+  agent's own credibility — phishing with the agent as the courier. The
+  approval prompt is what makes the destination get read before a sign-in form
+  is. When the site is given as a URL and the task has already read a page, the
+  sequence rules escalate it as well. A bare hostname is not detected as a
+  destination (`notes.md` would parse as one too), so there the approval prompt
+  is the whole defence.
+- **A task nobody is watching is refused, not queued.** A background job asking
+  for a handoff would wait on a person who never arrives, hanging the job
+  rather than failing it, so `isUnattended` — the same predicate
+  `ToolRegistry.setUnattended` takes — turns it into `unavailable`.
+- **One driver at a time.** A second handoff while one is open is refused
+  (`busy`), rather than putting two questions in front of one person and
+  leaving whichever they ignore waiting forever. A handler that throws frees
+  the lease, so a failure cannot strand a task.
+- **Every transition is in the session log** (`lease/requested`,
+  `lease/returned`), so the transcript shows when the agent stopped and when it
+  resumed — and, as everywhere else, the model learns only what was appended
+  there.
+
+Still a design target: the control-lease model assumes the person and the agent
+share a machine, which is what makes "go and sign in" meaningful. A remote
+agent with an embedded viewer (Milestone 10) needs the lease to gate input to
+that viewer, which is the same state with a different handler behind it.
+
 ## Audit logs
 
 Every tool invocation is logged with: timestamp, profile, tool name, arguments, permission level, approval decision (if any), and result/error. Logs are stored locally by default and are the user's data.
