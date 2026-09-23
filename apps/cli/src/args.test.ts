@@ -10,7 +10,7 @@ function ok(argv: string[]) {
 
 describe('parseCliArgs', () => {
   it('defaults to the interactive session with no arguments', () => {
-    expect(ok([])).toEqual({ mode: 'repl', approveAsk: false, history: false, help: false })
+    expect(ok([])).toEqual({ mode: 'repl', approveAsk: false, plan: false, history: false, help: false })
   })
 
   it('takes the task inline after -p', () => {
@@ -29,6 +29,13 @@ describe('parseCliArgs', () => {
     expect(ok(['-p', 'task', '--yes']).approveAsk).toBe(true)
     expect(ok(['-p', 'task', '-y']).approveAsk).toBe(true)
     expect(ok(['-p', 'task']).approveAsk).toBe(false)
+  })
+
+  it('turns plan mode on with --plan', () => {
+    expect(ok(['--plan'])).toMatchObject({ mode: 'repl', plan: true })
+    expect(ok(['--plan']).plan).toBe(true)
+    expect(ok([]).plan).toBe(false)
+    expect(ok(['-p', 'task', '--plan']).plan).toBe(true)
   })
 
   it('recognises --help before anything else', () => {

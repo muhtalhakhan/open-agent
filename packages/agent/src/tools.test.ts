@@ -574,3 +574,177 @@ describe('sequence-level scrutiny', () => {
     expect(asked).toBe(0)
   })
 })
+
+describe('plan mode', () => {
+  const ctx = (taskId = 't1') => ({ taskId, signal: new AbortController().signal })
+  const call = (args: Record<string, unknown> = { path: 'a.txt', content: 'new' }) => ({
+    id: 'c1',
+    name: 'writer',
+    args,
+  })
+
+  function writeTool(overrides: Partial<ToolDefinition> = {}) {
+    let runs = 0
+    const tool: ToolDefinition = {
+      name: 'writer',
+      description: 'writes a file',
+      schema: {},
+      permissionLevel: 'ask',
+      async execute() {
+        runs += 1
+        return { ok: true, content: 'written' }
+      },
+      async plan(args) {
+        return { ok: true, content: `planned diff for ${String(args.path)}` }
+      },
+      ...overrides,
+    }
+    return { tool, runs: () => runs }
+  }
+
+  const approve = () => {
+    const seen: string[] = []
+    const handler: ApprovalHandler = (_call, _tool, approvalCtx) => {
+      seen.push(approvalCtx?.planPreview ?? '')
+      return true
+    }
+    return { handler, seen }
+  }
+
+  it('leaves plan hooks inert unless plan mode is enabled', async () => {
+    let planned = 0
+    const { tool } = writeTool({
+      plan: async () => {
+        planned += 1
+        return { ok: true, content: 'x' }
+      },
+    })
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => true)
+
+    const result = await registry.execute(call(), ctx())
+
+    expect(result).toEqual({ ok: true, content: 'written' })
+    expect(planned).toBe(0)
+  })
+
+  it('shows the plan preview to the approval handler when enabled', async () => {
+    const { tool } = writeTool()
+    const { handler, seen } = approve()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(handler)
+    registry.enablePlans()
+
+    const result = await registry.execute(call(), ctx())
+
+    expect(result.ok).toBe(true)
+    expect(seen).toEqual(['planned diff for a.txt'])
+  })
+
+  it('records the plan preview in the audit log', async () => {
+    const { tool } = writeTool()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => true)
+    registry.enablePlans()
+
+    await registry.execute(call(), ctx())
+
+    expect(registry.auditLog).toHaveLength(1)
+    expect(registry.auditLog[0].planPreview).toBe('planned diff for a.txt')
+  })
+
+  it('without plan mode an approved ask call carries no preview', async () => {
+    const { tool } = writeTool()
+    const { handler, seen } = approve()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(handler)
+
+    await registry.execute(call(), ctx())
+
+    expect(seen).toEqual([''])
+  })
+
+  it('denies the call without executing when the reviewed change is rejected', async () => {
+    const { tool, runs } = writeTool()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => false)
+    registry.enablePlans()
+
+    const result = await registry.execute(call(), ctx())
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/requires approval/)
+    expect(runs()).toBe(0)
+    expect(registry.auditLog[0]).toMatchObject({ approved: false, approvalSource: 'denied' })
+  })
+
+  it('denies without prompting when the preview itself fails', async () => {
+    let prompted = 0
+    const { tool } = writeTool({
+      plan: async () => ({ ok: false, content: '', error: '"x.txt" is not a regular file' }),
+    })
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => {
+      prompted += 1
+      return true
+    })
+    registry.enablePlans()
+
+    const result = await registry.execute(call({ path: 'x.txt' }), ctx())
+
+    expect(prompted).toBe(0)
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('"x.txt" is not a regular file')
+  })
+
+  it('puts a safe tool with a plan hook under review in plan mode', async () => {
+    const { tool } = writeTool({ permissionLevel: 'safe' })
+    const { handler, seen } = approve()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(handler)
+    registry.enablePlans()
+
+    const result = await registry.execute(call(), ctx())
+
+    expect(result.ok).toBe(true)
+    expect(seen).toEqual(['planned diff for a.txt'])
+    expect(registry.auditLog[0].approvalSource).toBe('granted')
+  })
+
+  it('still auto-runs a safe tool without a plan hook in plan mode', async () => {
+    let prompted = 0
+    const registry = new ToolRegistry()
+    registry.register({ ...echoTool, permissionLevel: 'safe' })
+    registry.onApproval(() => {
+      prompted += 1
+      return true
+    })
+    registry.enablePlans()
+
+    const result = await registry.execute({ id: '1', name: 'echo', args: { text: 'hi' } }, ctx())
+
+    expect(prompted).toBe(0)
+    expect(result).toEqual({ ok: true, content: 'hi' })
+  })
+
+  it('remembers an approved task-scoped change and skips a repeat review', async () => {
+    const { tool, runs } = writeTool()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => ({ approved: true, scope: 'task' }))
+    registry.enablePlans()
+
+    await registry.execute(call(), ctx())
+    await registry.execute(call(), ctx())
+
+    expect(runs()).toBe(2)
+    expect(registry.listApprovals()).toHaveLength(1)
+  })
+})

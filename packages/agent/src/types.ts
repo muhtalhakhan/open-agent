@@ -38,6 +38,17 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
    */
   untrustedOutput?: boolean
   execute(args: Args, context: ToolExecutionContext): Promise<ToolResult>
+  /**
+   * Optional: a human-readable preview of what executing these args would
+   * change — used by plan mode ("review file edits as a diff before they
+   * run"). It must be read-only: it runs instead of `execute`, and a
+   * side-effecting preview would defeat the point of reviewing first.
+   *
+   * Failures should be reported as a `{ ok: false }` result carrying the
+   * same message `execute` would fail with, so a doomed call is denied
+   * without prompting over it.
+   */
+  plan?(args: Args, context: ToolExecutionContext): Promise<ToolResult>
 }
 
 export interface ToolExecutionContext {

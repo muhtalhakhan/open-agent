@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createNonInteractiveApprovalHandler, createTerminalApprovalHandler } from './approval.js'
+import {
+  createNonInteractiveApprovalHandler,
+  createPlanApprovalHandler,
+  createTerminalApprovalHandler,
+} from './approval.js'
 import type { ToolDefinition } from '@open-agent/agent'
 
 /** The approval context the registry passes; these handlers answer the same for any task. */
@@ -127,5 +131,94 @@ describe('an escalated call', () => {
     const approved: string[] = []
     createNonInteractiveApprovalHandler(true, (m) => approved.push(m))(call, safeTool, flagged)
     expect(approved[0]).toContain('exfiltration-after-ingest')
+  })
+})
+
+describe('createPlanApprovalHandler', () => {
+  const writeTool: ToolDefinition = {
+    name: 'write_file',
+    description: '',
+    schema: {},
+    permissionLevel: 'ask',
+    async execute() {
+      return { ok: true, content: '' }
+    },
+  }
+
+  const writeCall = { id: '1', name: 'write_file', args: { path: 'notes.txt', content: 'new' } }
+  const patch = '--- a/notes.txt\n+++ b/notes.txt\n@@ -0,0 +1,1 @@\n+new'
+  const planCtx = { taskId: 't1', planPreview: patch }
+
+  function withStream(options: Parameters<typeof createPlanApprovalHandler>[2] = {}, answer = '') {
+    const asked: string[] = []
+    const written: string[] = []
+    const handler = createPlanApprovalHandler(
+      async (question) => {
+        asked.push(question)
+        return answer
+      },
+      (text) => void written.push(text),
+      options,
+    )
+    return { handler, asked, written }
+  }
+
+  it('shows the diff and approves once on "y"', async () => {
+    const { handler, asked, written } = withStream({}, 'y')
+    const decision = await handler(writeCall, writeTool, planCtx)
+
+    expect(decision).toEqual({ approved: true, scope: 'once' })
+    expect(written.join('')).toContain(patch)
+    expect(written.join('')).toContain('Plan review')
+    expect(asked[0]).toMatch(/Approve this change/)
+  })
+
+  it('approves for the task on "t"', async () => {
+    const handler = createPlanApprovalHandler(async () => 't')
+    expect(await handler(writeCall, writeTool, planCtx)).toEqual({ approved: true, scope: 'task' })
+  })
+
+  it('denies on anything else', async () => {
+    const handler = createPlanApprovalHandler(async () => '')
+    expect(await handler(writeCall, writeTool, planCtx)).toEqual({ approved: false })
+  })
+
+  it('names the file being changed in the review header', async () => {
+    const written: string[] = []
+    const handler = createPlanApprovalHandler(
+      async () => '',
+      (text) => void written.push(text),
+    )
+    await handler(writeCall, writeTool, planCtx)
+    expect(written.join('')).toContain('Plan review')
+    expect(written.join('')).toContain('"notes.txt"')
+  })
+
+  it('colorizes the diff when asked to', async () => {
+    const { handler, written } = withStream({ color: true })
+    await handler(writeCall, writeTool, planCtx)
+    expect(written.join('')).toContain('\u001b[32m')
+  })
+
+  it('leaves the diff plain by default', async () => {
+    const { handler, written } = withStream()
+    await handler(writeCall, writeTool, planCtx)
+    expect(written.join('')).not.toContain('\u001b[')
+  })
+
+  it('asks the prompt inline when no stream is provided', async () => {
+    const asked: string[] = []
+    const handler = createPlanApprovalHandler(async (question) => {
+      asked.push(question)
+      return ''
+    })
+    await handler(writeCall, writeTool, planCtx)
+    expect(asked[0]).toContain(patch)
+    expect(asked[0]).toMatch(/Approve this change/)
+  })
+
+  it('falls through to the ordinary terminal prompt for calls without a preview', async () => {
+    const handler = createPlanApprovalHandler(async () => 'y')
+    expect(await handler(call, shellTool, task)).toEqual({ approved: true, scope: 'once' })
   })
 })

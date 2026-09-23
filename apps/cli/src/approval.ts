@@ -1,4 +1,5 @@
 import type { ApprovalDecision, ApprovalHandler, ToolCall, ToolDefinition } from '@open-agent/agent'
+import { colorizeDiff } from './diff-view.js'
 
 const DENIED: ApprovalDecision = { approved: false }
 
@@ -84,4 +85,58 @@ export function createRoutingApprovalHandler(
 ): ApprovalHandler {
   return (call, tool, context) =>
     isBackground(context.taskId) ? background(call, tool, context) : foreground(call, tool, context)
+}
+
+export interface PlanApprovalOptions {
+  /**
+   * Colorize the diff shown (ANSI escapes). Safe to leave off in an Ink TUI,
+   * which renders raw escape sequences as text rather than as styling.
+   */
+  color?: boolean
+}
+
+/**
+ * The approval handler for plan mode (`--plan`). A tool carrying a plan-mode
+ * preview is presented as the diff of what it would change, and approving the
+ * change _is_ the approval — the write only runs after a "yes". Every other
+ * tool falls through to the ordinary terminal prompt, so shell commands,
+ * HTTP calls and friends behave exactly as they did without plan mode.
+ *
+ * Scopes are once-or-task, and there is deliberately no "always": a file
+ * write that never prompts again defeats the point of plan mode. A task-scope
+ * "yes" is remembered by the registry for the exact same path and content, so
+ * a model retry of an approved change does not re-prompt.
+ */
+export function createPlanApprovalHandler(
+  ask: (question: string) => Promise<string>,
+  write?: (text: string) => void,
+  options: PlanApprovalOptions = {},
+): ApprovalHandler {
+  const terminal = createTerminalApprovalHandler(ask)
+
+  return async (call: ToolCall, tool: ToolDefinition, ctx): Promise<boolean | ApprovalDecision> => {
+    if (ctx.planPreview === undefined) return terminal(call, tool, ctx)
+
+    const diff = options.color ? colorizeDiff(ctx.planPreview) : ctx.planPreview
+    const subject = typeof call.args.path === 'string' ? call.args.path : call.name
+    const block = `\nPlan review — "${tool.name}" would change "${subject}" as follows:\n\n${diff}`
+    const prompt = `\nApprove this change? [y]es once / [t]ask / [N]o `
+
+    let answer: string
+    if (write) {
+      // A stream gets the whole diff so a TUI can render it as a transcript
+      // entry; the prompt that follows stays short instead of becoming a
+      // mile-long input label.
+      write(`${block}\n`)
+      answer = await ask(prompt)
+    } else {
+      answer = await ask(`${block}\n${prompt}`)
+    }
+
+    const decision = answer.trim().toLowerCase()
+
+    if (decision.startsWith('y')) return { approved: true, scope: 'once' }
+    if (decision.startsWith('t')) return { approved: true, scope: 'task' }
+    return DENIED
+  }
 }
