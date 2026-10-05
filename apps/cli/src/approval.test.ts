@@ -221,4 +221,54 @@ describe('createPlanApprovalHandler', () => {
     const handler = createPlanApprovalHandler(async () => 'y')
     expect(await handler(call, shellTool, task)).toEqual({ approved: true, scope: 'once' })
   })
+
+  describe('an escalated change', () => {
+    const flagged = {
+      taskId: 't1',
+      planPreview: patch,
+      escalation: { rule: 'exfiltration-after-ingest', reason: 'a page named evil.test; the write follows it.' },
+    }
+
+    it('leads with the reason, since a file write looks routine on its own', async () => {
+      const { handler, written } = withStream()
+      await handler(writeCall, writeTool, flagged)
+
+      expect(written.join('')).toContain('exfiltration-after-ingest')
+      expect(written.join('')).toContain('evil.test')
+      expect(written.join('')).toContain(patch)
+    })
+
+    it('offers only once or no, since the registry will not remember an escalated call', async () => {
+      const { handler, asked } = withStream()
+      await handler(writeCall, writeTool, flagged)
+
+      expect(asked[0]).not.toContain('[t]ask')
+      expect(asked[0]).toContain('[y]es once')
+    })
+
+    it('treats "t" as a denial rather than as a quieter yes', async () => {
+      const { handler } = withStream({}, 't')
+      expect(await handler(writeCall, writeTool, flagged)).toEqual({ approved: false })
+    })
+
+    it('still approves on "y"', async () => {
+      const { handler } = withStream({}, 'y')
+      expect(await handler(writeCall, writeTool, flagged)).toEqual({ approved: true, scope: 'once' })
+    })
+  })
+
+  it('neutralizes escape sequences in the change, which the model may have read', async () => {
+    // "Erase the line above", printed raw: it would take the prompt off the
+    // screen and leave a diff nobody was shown. Both renderings have to hold —
+    // the colored one escapes its own lines, and must not carry the content's.
+    const hostile = { taskId: 't1', planPreview: `+before\u001b[2Kafter` }
+
+    for (const options of [{}, { color: true }]) {
+      const { handler, written } = withStream(options)
+      await handler(writeCall, writeTool, hostile)
+
+      expect(written.join('')).toContain('+before\\x1b[2Kafter')
+      expect(written.join('')).not.toContain('\u001b[2K')
+    }
+  })
 })

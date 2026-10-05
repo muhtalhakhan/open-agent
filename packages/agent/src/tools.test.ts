@@ -747,4 +747,44 @@ describe('plan mode', () => {
     expect(runs()).toBe(2)
     expect(registry.listApprovals()).toHaveLength(1)
   })
+
+  it('asks again when the change differs, even for identical arguments', async () => {
+    // An `append` is the case that matters: same path, same content, same
+    // arguments, and a different change the second time round because the file
+    // has grown since. A grant that covered the arguments alone would let the
+    // second append through unreviewed.
+    let preview = 'planned diff for a.txt (empty)'
+    let prompts = 0
+    const { tool, runs } = writeTool({
+      async plan() {
+        return { ok: true, content: preview }
+      },
+    })
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => {
+      prompts += 1
+      return { approved: true, scope: 'task' }
+    })
+    registry.enablePlans()
+
+    await registry.execute(call(), ctx())
+    preview = 'planned diff for a.txt (after the first append)'
+    await registry.execute(call(), ctx())
+
+    expect(prompts).toBe(2)
+    expect(runs()).toBe(2)
+  })
+
+  it('records the preview a grant was given for', async () => {
+    const { tool } = writeTool()
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    registry.onApproval(() => ({ approved: true, scope: 'task' }))
+    registry.enablePlans()
+
+    await registry.execute(call(), ctx())
+
+    expect(registry.listApprovals()[0].planPreview).toBe('planned diff for a.txt')
+  })
 })

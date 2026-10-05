@@ -1,5 +1,5 @@
 import type { ApprovalDecision, ApprovalHandler, ToolCall, ToolDefinition } from '@open-agent/agent'
-import { colorizeDiff } from './diff-view.js'
+import { colorizeDiff, sanitizeForDisplay } from './diff-view.js'
 
 const DENIED: ApprovalDecision = { approved: false }
 
@@ -106,6 +106,11 @@ export interface PlanApprovalOptions {
  * write that never prompts again defeats the point of plan mode. A task-scope
  * "yes" is remembered by the registry for the exact same path and content, so
  * a model retry of an approved change does not re-prompt.
+ *
+ * A call held by a sequence rule is prompted about exactly as the ordinary
+ * handler does: the reason leads, and only once/no is on offer, because the
+ * registry will not remember an escalated call. A diff review that hid the
+ * reason would be the easiest prompt in the tool to wave through.
  */
 export function createPlanApprovalHandler(
   ask: (question: string) => Promise<string>,
@@ -117,10 +122,19 @@ export function createPlanApprovalHandler(
   return async (call: ToolCall, tool: ToolDefinition, ctx): Promise<boolean | ApprovalDecision> => {
     if (ctx.planPreview === undefined) return terminal(call, tool, ctx)
 
-    const diff = options.color ? colorizeDiff(ctx.planPreview) : ctx.planPreview
+    const escalation = ctx.escalation
+    // Cleaned before it is rendered, and so before colorizing: the content is
+    // the model's, and an escape sequence in it would repaint the screen above
+    // the prompt, leaving what is on screen no longer what gets written. The
+    // escapes we add ourselves stay the only ones in the terminal.
+    const preview = sanitizeForDisplay(ctx.planPreview)
+    const diff = options.color ? colorizeDiff(preview) : preview
     const subject = typeof call.args.path === 'string' ? call.args.path : call.name
-    const block = `\nPlan review — "${tool.name}" would change "${subject}" as follows:\n\n${diff}`
-    const prompt = `\nApprove this change? [y]es once / [t]ask / [N]o `
+    const preamble = escalation ? `\n⚠ Held for review — ${escalation.rule}\n  ${escalation.reason}` : ''
+    const block = `${preamble}\nPlan review — "${tool.name}" would change "${subject}" as follows:\n\n${diff}`
+    const prompt = escalation
+      ? `\nApprove this change? [y]es once / [N]o `
+      : `\nApprove this change? [y]es once / [t]ask / [N]o `
 
     let answer: string
     if (write) {
@@ -136,7 +150,7 @@ export function createPlanApprovalHandler(
     const decision = answer.trim().toLowerCase()
 
     if (decision.startsWith('y')) return { approved: true, scope: 'once' }
-    if (decision.startsWith('t')) return { approved: true, scope: 'task' }
+    if (!escalation && decision.startsWith('t')) return { approved: true, scope: 'task' }
     return DENIED
   }
 }

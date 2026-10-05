@@ -78,6 +78,12 @@ export interface ApprovalGrant {
   scope: Exclude<ApprovalScope, 'once'>
   /** Present for a task-scoped grant: the task it belongs to. */
   taskId?: string
+  /**
+   * The change the person reviewed when they granted this, in plan mode. A
+   * later call is covered only if its preview is this one: the same arguments
+   * can describe a different change once the file they touch has moved on.
+   */
+  planPreview?: string
   /** The arguments it covers, for an `exact` grant. */
   args?: Record<string, unknown>
 }
@@ -262,6 +268,17 @@ export class ToolRegistry {
     if (tool.permissionLevel === 'safe' && !escalation && !interactive) return { source: 'safe' }
     if (tool.permissionLevel === 'dangerous' && !this.enabledDangerous.has(tool.name)) return { source: 'denied' }
 
+    // The preview is built before the grant is consulted, because a grant
+    // covers a call only when the change it would make is the change that was
+    // approved. A failed preview is the tool saying the write would fail the
+    // same way: deny rather than ask a human to rubber-stamp a doomed call.
+    let planPreview: string | undefined
+    if (interactive) {
+      const planned = await tool.plan!(call.args, context)
+      if (!planned.ok) return { source: 'denied', planPreview: planned.error, plannedError: planned.error }
+      planPreview = planned.content
+    }
+
     // A `dangerous` call is never covered by a remembered approval, and its
     // answer is never remembered. The whole point of the level is that each
     // one is looked at; a grant would quietly undo that.
@@ -278,23 +295,20 @@ export class ToolRegistry {
     // the ones the user was answering about when they said "always", so
     // spending that grant here would let the rule be silenced by an approval
     // given before there was anything to detect.
+    const grant = this.findGrant(call, taskId)
     if (
+      grant !== undefined &&
       tool.permissionLevel !== 'dangerous' &&
       !escalation &&
       !this.tainted.has(taskId) &&
       !this.isUnattended(taskId) &&
-      this.findGrant(call, taskId)
+      // Remembering arguments is not remembering the change. An `append` with
+      // identical arguments writes something different the second time round
+      // — the file has grown since — so a grant covers a call whose preview is
+      // the one that was reviewed, and only that.
+      grant.planPreview === planPreview
     ) {
       return { source: 'remembered' }
-    }
-
-    let planPreview: string | undefined
-    if (interactive) {
-      const planned = await tool.plan!(call.args, context)
-      // A preview that failed is the tool telling us the write would fail the
-      // same way; deny without asking a human to rubber-stamp a doomed call.
-      if (!planned.ok) return { source: 'denied', planPreview: planned.error, plannedError: planned.error }
-      planPreview = planned.content
     }
 
     const decision = await this.approvalHandler(call, tool, { taskId, escalation, planPreview })
@@ -314,6 +328,7 @@ export class ToolRegistry {
         scope,
         taskId: scope === 'task' ? taskId : undefined,
         args: match === 'exact' ? call.args : undefined,
+        planPreview,
       })
     }
     return { source: 'granted', escalation, planPreview }
