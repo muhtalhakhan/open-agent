@@ -108,12 +108,12 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 1 — Agent Runtime    | 10 / 10 | ✅ Complete                                                                                                                            |
 | 2 — Model Providers  | 10 / 10 | ✅ Complete                                                                                                                            |
 | 3 — Browser          | 10 / 10 | ✅ Complete                                                                                                                            |
-| 4 — Computer Use     | 9 / 10  | 🟢 Nearly done — Human takeover (#50) left                                                                                             |
+| 4 — Computer Use     | 10 / 10 | ✅ Complete                                                                                                                            |
 | 5 — Files + Terminal | 10 / 10 | ✅ Complete                                                                                                                            |
 | 6 — Memory           | 8 / 8   | ✅ Complete                                                                                                                            |
 | 7 — Tools/MCP        | 7 / 7   | ✅ Complete                                                                                                                            |
 | 8 — Automation       | 8 / 8   | ✅ Complete                                                                                                                            |
-| 9 — Security         | 9 / 10  | 🟢 Nearly done — Dangerous-action detection (#92) left                                                                                 |
+| 9 — Security         | 10 / 10 | ✅ Complete                                                                                                                            |
 | 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                                  |
 | 11 — User Interfaces | 2 / 15  | 🟡 In progress — Streaming token output in the CLI (#102), Live tool-call activity view in the CLI (#104), +11 more left               |
 | 12 — Backlog         | 5 / 26  | 🟡 In progress — Plan mode: diff review & approval workflow (#120), Git-aware tooling (status/diff/commit/branc… (#121), +19 more left |
