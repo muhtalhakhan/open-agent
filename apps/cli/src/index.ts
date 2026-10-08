@@ -34,6 +34,7 @@ import {
 import { loadConfigFromEnv } from './config.js'
 import {
   createNonInteractiveApprovalHandler,
+  createPlanApprovalHandler,
   createRoutingApprovalHandler,
   createTerminalApprovalHandler,
 } from './approval.js'
@@ -217,6 +218,16 @@ async function main() {
     )
   }
 
+  // Plan mode needs a human to review the diff, so it is interactive-only.
+  // Failing loudly beats silently treating --plan as a no-op in a CI job.
+  if (headless && args.plan) {
+    console.error(
+      '--plan is interactive-only: a file edit needs a human to review its diff, so it has no meaning in print mode.',
+    )
+    process.exitCode = 1
+    return
+  }
+
   // Background jobs exist only in the interactive session, and only once the
   // agent loop does; the router asks whichever set is live at call time.
   let background: BackgroundJobs | undefined
@@ -226,10 +237,16 @@ async function main() {
       ? createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg))
       : createRoutingApprovalHandler(
           (taskId) => background?.owns(taskId) ?? false,
-          createTerminalApprovalHandler(ask),
+          args.plan
+            ? createPlanApprovalHandler(ask, (text) => io.write(text), { color: !useTui })
+            : createTerminalApprovalHandler(ask),
           createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(`[background] ${msg}`)),
         ),
   )
+  if (args.plan) {
+    tools.enablePlans()
+    io.write(`Plan mode: file edits are shown as a diff and reviewed before they run.\n`)
+  }
 
   // Handing the wheel to a person needs a person, so these exist in an
   // interactive session and not in print mode. Not gated on COMPUTER_USE: a

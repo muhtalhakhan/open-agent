@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ToolDefinition, ToolResult } from '@open-agent/agent'
+import { makePatch } from './diff.js'
 import { FilePolicyError, checkAccess, type FilePolicy } from './file-policy.js'
 import { WorkspaceError, resolvePathInWorkspace } from './workspace.js'
 
@@ -134,6 +135,55 @@ export function writeFileTool(options: WriteFileToolOptions): ToolDefinition<Wri
         if (code === 'EACCES' || code === 'EPERM') return fail(`permission denied writing "${shown}"`)
         if (code === 'ENOTDIR') return fail(`a path component of "${shown}" is not a directory`)
         if (err instanceof WorkspaceError) return fail(err.message)
+        return fail(err instanceof Error ? err.message : String(err))
+      }
+    },
+
+    /**
+     * What this write would change, rendered as a uniform diff — the plan-mode
+     * preview. Read-only: nothing here touches the disk. Errors mirror
+     * `execute`'s so a call that could never write is denied up front instead
+     * of being approved and then failing.
+     */
+    async plan(args, context) {
+      if (typeof args.content !== 'string') return fail('content is required and must be a string')
+      const bytes = Buffer.byteLength(args.content)
+      if (bytes > maxBytes) {
+        return fail(`content is ${bytes} bytes, over the ${maxBytes}-byte limit for one write`)
+      }
+
+      let file: string
+      try {
+        const resolved = await resolvePathInWorkspace(options.root, args.path)
+        checkAccess(resolved.relative, 'write', options.policy)
+        file = resolved.absolute
+      } catch (err) {
+        if (err instanceof FilePolicyError || err instanceof WorkspaceError) return fail(err.message)
+        return fail(err instanceof Error ? err.message : String(err))
+      }
+
+      const shown = args.path
+      try {
+        const existing = await fs.stat(file).catch((err: NodeJS.ErrnoException) => {
+          if (err.code === 'ENOENT') return null
+          throw err
+        })
+        if (existing?.isDirectory()) return fail(`"${shown}" is a directory, not a file`)
+        if (existing && !existing.isFile()) return fail(`"${shown}" is not a regular file`)
+        if (existing && args.create_only === true) return fail(`"${shown}" already exists`)
+
+        if (context.signal.aborted) {
+          throw context.signal.reason instanceof Error ? context.signal.reason : new Error('write was cancelled')
+        }
+
+        const before = existing ? await fs.readFile(file, 'utf8') : ''
+        const after = args.append === true ? before + args.content : args.content
+        const patch = makePatch(shown, before, after)
+        if (!patch) {
+          return { ok: true, content: `No change: "${shown}" already contains exactly this content.` }
+        }
+        return { ok: true, content: patch }
+      } catch (err) {
         return fail(err instanceof Error ? err.message : String(err))
       }
     },

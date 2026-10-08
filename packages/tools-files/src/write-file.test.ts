@@ -149,3 +149,73 @@ describe('writeFileTool', () => {
     expect(await fs.readdir(root)).toEqual([])
   })
 })
+
+describe('writeFileTool plan', () => {
+  it('previews a new file without creating it', async () => {
+    const tool = writeFileTool({ root })
+    const result = await tool.plan!({ path: 'notes.txt', content: 'one\ntwo\n' }, ctx)
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('--- a/notes.txt')
+    expect(result.content).toContain('@@ -0,0 +1,2 @@')
+    expect(result.content).toContain('+one')
+    expect(result.content).toContain('+two')
+    expect(await fs.readdir(root)).toEqual([])
+  })
+
+  it('previews a replacement as a diff', async () => {
+    await seed('notes.txt', 'old line\ngone line\n')
+    const result = await writeFileTool({ root }).plan!({ path: 'notes.txt', content: 'old line\nnew line\n' }, ctx)
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('-gone line')
+    expect(result.content).toContain('+new line')
+    expect(await read('notes.txt')).toBe('old line\ngone line\n')
+  })
+
+  it('reviews an append as the change it would make', async () => {
+    await seed('log.txt', 'first\n')
+    const result = await writeFileTool({ root }).plan!({ path: 'log.txt', content: 'second\n', append: true }, ctx)
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('+second')
+    expect(await read('log.txt')).toBe('first\n')
+  })
+
+  it('reports a no-op write as such', async () => {
+    await seed('notes.txt', 'same\n')
+    const result = await writeFileTool({ root }).plan!({ path: 'notes.txt', content: 'same\n' }, ctx)
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toBe('No change: "notes.txt" already contains exactly this content.')
+  })
+
+  it('mirrors execute failures for a path outside the workspace', async () => {
+    const result = await writeFileTool({ root }).plan!({ path: '../escape.txt', content: 'x' }, ctx)
+    expect(result).toEqual({ ok: false, content: '', error: expect.stringContaining('outside the workspace root') })
+  })
+
+  it('refuses to plan a create_only write over an existing file', async () => {
+    await seed('notes.txt', 'existing')
+    const result = await writeFileTool({ root }).plan!({ path: 'notes.txt', content: 'x', create_only: true }, ctx)
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('"notes.txt" already exists')
+  })
+
+  it('refuses to plan a write over a directory', async () => {
+    await fs.mkdir(path.join(root, 'src'))
+    const result = await writeFileTool({ root }).plan!({ path: 'src', content: 'x' }, ctx)
+    expect(result.error).toBe('"src" is a directory, not a file')
+  })
+
+  it('does not preview when the task was already cancelled', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const result = await writeFileTool({ root }).plan!(
+      { path: 'notes.txt', content: 'x' },
+      { taskId: 't1', signal: controller.signal },
+    )
+    expect(result.ok).toBe(false)
+    expect(await fs.readdir(root)).toEqual([])
+  })
+})

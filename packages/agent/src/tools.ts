@@ -48,6 +48,11 @@ export interface ApprovalContext {
    * prompt is inexplicable.
    */
   escalation?: Escalation
+  /**
+   * Present when the tool offered a preview of its change and plan mode is on,
+   * so the person deciding reviews the diff rather than the bare arguments.
+   */
+  planPreview?: string
 }
 
 /**
@@ -73,6 +78,12 @@ export interface ApprovalGrant {
   scope: Exclude<ApprovalScope, 'once'>
   /** Present for a task-scoped grant: the task it belongs to. */
   taskId?: string
+  /**
+   * The change the person reviewed when they granted this, in plan mode. A
+   * later call is covered only if its preview is this one: the same arguments
+   * can describe a different change once the file they touch has moved on.
+   */
+  planPreview?: string
   /** The arguments it covers, for an `exact` grant. */
   args?: Record<string, unknown>
 }
@@ -103,6 +114,8 @@ export class ToolRegistry {
   private readonly tainted = new Set<string>()
   /** What each live task has read and where it has already been, for the sequence rules. */
   private readonly activity = new Map<string, TaskActivity>()
+
+  private plansEnabled = false
   readonly auditLog: Array<{
     call: ToolCall
     permissionLevel: PermissionLevel
@@ -116,6 +129,8 @@ export class ToolRegistry {
      */
     approvalSource: ApprovalSource
     result: ToolResult
+    /** The tool's preview ("diff") if the call carried one. */
+    planPreview?: string
   }> = []
 
   register(tool: ToolDefinition): () => void {
@@ -141,6 +156,15 @@ export class ToolRegistry {
 
   onApproval(handler: ApprovalHandler): void {
     this.approvalHandler = handler
+  }
+
+  /**
+   * Turn on plan mode: a tool that offers a `plan` preview is reviewed as a
+   * diff before it runs instead of being approved (or auto-run, if `safe`)
+   * on its arguments alone. Opt-in — without it `plan` hooks are inert.
+   */
+  enablePlans(): void {
+    this.plansEnabled = true
   }
 
   /**
@@ -229,14 +253,31 @@ export class ToolRegistry {
   private async decide(
     call: ToolCall,
     tool: ToolDefinition,
-    taskId: string,
-  ): Promise<{ source: ApprovalSource; escalation?: Escalation }> {
+    context: ToolExecutionContext,
+  ): Promise<{ source: ApprovalSource; escalation?: Escalation; planPreview?: string; plannedError?: string }> {
     // Before the permission level, because the whole point is a call whose own
     // level would have let it through unexamined.
+    const taskId = context.taskId
     const escalation = detectExfiltration(call, this.activityFor(taskId))
 
-    if (tool.permissionLevel === 'safe' && !escalation) return { source: 'safe' }
+    // In plan mode a tool that provides a preview is a review, not a
+    // checklist item — so even a `safe` file edit is put in front of a
+    // human. Without a preview, a `safe` tool stays automatic.
+    const interactive = this.plansEnabled && tool.plan !== undefined
+
+    if (tool.permissionLevel === 'safe' && !escalation && !interactive) return { source: 'safe' }
     if (tool.permissionLevel === 'dangerous' && !this.enabledDangerous.has(tool.name)) return { source: 'denied' }
+
+    // The preview is built before the grant is consulted, because a grant
+    // covers a call only when the change it would make is the change that was
+    // approved. A failed preview is the tool saying the write would fail the
+    // same way: deny rather than ask a human to rubber-stamp a doomed call.
+    let planPreview: string | undefined
+    if (interactive) {
+      const planned = await tool.plan!(call.args, context)
+      if (!planned.ok) return { source: 'denied', planPreview: planned.error, plannedError: planned.error }
+      planPreview = planned.content
+    }
 
     // A `dangerous` call is never covered by a remembered approval, and its
     // answer is never remembered. The whole point of the level is that each
@@ -254,23 +295,29 @@ export class ToolRegistry {
     // the ones the user was answering about when they said "always", so
     // spending that grant here would let the rule be silenced by an approval
     // given before there was anything to detect.
+    const grant = this.findGrant(call, taskId)
     if (
+      grant !== undefined &&
       tool.permissionLevel !== 'dangerous' &&
       !escalation &&
       !this.tainted.has(taskId) &&
       !this.isUnattended(taskId) &&
-      this.findGrant(call, taskId)
+      // Remembering arguments is not remembering the change. An `append` with
+      // identical arguments writes something different the second time round
+      // — the file has grown since — so a grant covers a call whose preview is
+      // the one that was reviewed, and only that.
+      grant.planPreview === planPreview
     ) {
       return { source: 'remembered' }
     }
 
-    const decision = await this.approvalHandler(call, tool, { taskId, escalation })
+    const decision = await this.approvalHandler(call, tool, { taskId, escalation, planPreview })
     const {
       approved,
       scope = 'once',
       match = 'exact',
     } = typeof decision === 'boolean' ? { approved: decision } : decision
-    if (!approved) return { source: 'denied', escalation }
+    if (!approved) return { source: 'denied', escalation, planPreview }
 
     // An escalated call is approved for this once and no further. Remembering
     // it would remember the rule's own trigger away.
@@ -281,9 +328,10 @@ export class ToolRegistry {
         scope,
         taskId: scope === 'task' ? taskId : undefined,
         args: match === 'exact' ? call.args : undefined,
+        planPreview,
       })
     }
-    return { source: 'granted', escalation }
+    return { source: 'granted', escalation, planPreview }
   }
 
   /** Whether a task has read output from a tool marked `untrustedOutput`. */
@@ -336,14 +384,16 @@ export class ToolRegistry {
       return result
     }
 
-    const { source: approvalSource, escalation } = await this.decide(call, tool, context.taskId)
+    const { source: approvalSource, escalation, planPreview, plannedError } = await this.decide(call, tool, context)
     if (approvalSource === 'denied') {
       const result: ToolResult = {
         ok: false,
         content: '',
-        error: escalation
-          ? `tool "${call.name}" was not approved: ${escalation.reason}`
-          : `tool "${call.name}" requires approval and was not approved`,
+        error:
+          plannedError ??
+          (escalation
+            ? `tool "${call.name}" was not approved: ${escalation.reason}`
+            : `tool "${call.name}" requires approval and was not approved`),
       }
       this.auditLog.push({
         call,
@@ -351,6 +401,7 @@ export class ToolRegistry {
         approved: false,
         approvalSource,
         escalation,
+        planPreview,
         result,
       })
       return result
@@ -368,6 +419,7 @@ export class ToolRegistry {
       approved: true,
       approvalSource,
       escalation,
+      planPreview,
       result,
     })
 

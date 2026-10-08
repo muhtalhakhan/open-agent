@@ -7,6 +7,8 @@ export interface CliArgs {
   prompt?: string
   /** Approve `ask`-level tool calls automatically, since no human is present. */
   approveAsk: boolean
+  /** Review file edits as a diff before they run (interactive sessions). */
+  plan: boolean
   /** If `repl`, resume the most recent (or named) session instead of starting fresh. */
   resume?: string | true
   /** Print recent past tasks and exit. */
@@ -29,6 +31,7 @@ Usage
 Options
   -p, --print [task]   non-interactive: run a single task and exit
   -y, --yes            approve "ask"-level tool calls without prompting
+  --plan               review file edits as a diff before they run (interactive sessions)
   --resume [id]        resume the most recent or named session
   --history            list recent past tasks and exit
   -h, --help           show this help
@@ -65,18 +68,27 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   const options = {
     print: { type: 'boolean', short: 'p', default: false },
     yes: { type: 'boolean', short: 'y', default: false },
+    plan: { type: 'boolean', default: false },
     resume: { type: 'string' },
     history: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
   let positionals: string[]
-  let values: { print: boolean; yes: boolean; resume?: string | undefined; history: boolean; help: boolean }
+  let values: {
+    print: boolean
+    yes: boolean
+    plan: boolean
+    resume?: string | undefined
+    history: boolean
+    help: boolean
+  }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
     values = parsed.values as {
       print: boolean
       yes: boolean
+      plan: boolean
       resume?: string | undefined
       history: boolean
       help: boolean
@@ -86,10 +98,16 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     return { ok: false, error: `${err instanceof Error ? err.message : String(err)}\n\n${USAGE}` }
   }
   if (values.help) {
-    return { ok: true, args: { mode: 'repl', approveAsk: false, resume: undefined, history: false, help: true } }
+    return {
+      ok: true,
+      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: false, help: true },
+    }
   }
   if (values.history) {
-    return { ok: true, args: { mode: 'repl', approveAsk: false, resume: undefined, history: true, help: false } }
+    return {
+      ok: true,
+      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: true, help: false },
+    }
   }
 
   // parseArgs always returns a string for `resume`. Treat `--resume` (no value)
@@ -104,7 +122,14 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     }
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: values.yes, resume: resumeValue, history: false, help: false },
+      args: {
+        mode: 'repl',
+        approveAsk: values.yes,
+        plan: values.plan,
+        resume: resumeValue,
+        history: false,
+        help: false,
+      },
     }
   }
 
@@ -118,6 +143,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       mode: 'print',
       prompt: positionals[0],
       approveAsk: values.yes,
+      plan: values.plan,
       resume: resumeValue,
       history: false,
       help: false,
