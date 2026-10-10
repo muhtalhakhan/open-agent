@@ -59,8 +59,13 @@ describe('describing calls', () => {
   })
 
   it('strips terminal escapes from text the model or a tool controls', () => {
-    const hasControl = (text: string) => [...text].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f)
-    const evil = '\x1b[2J\x1b]0;pwned\x07'
+    const hasControl = (text: string) =>
+      [...text].some((ch) => {
+        const code = ch.charCodeAt(0)
+        return code < 0x20 || (code >= 0x7f && code <= 0x9f)
+      })
+    // U+009B is a C1 CSI: JSON.stringify leaves it alone, unlike ESC.
+    const evil = '\x1b[2J\x1b]0;pwned\x07\u009b2J'
     expect(hasControl(describeCall(call('a', `shell${evil}`, { cmd: evil })))).toBe(false)
     expect(hasControl(describeOutcome({ ok: false, content: '', error: `bad${evil}\nthing` }, 1))).toBe(false)
   })

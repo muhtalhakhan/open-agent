@@ -44,8 +44,8 @@ const ERROR_LENGTH = 100
  * Removes anything that would steer the terminal. Tool names, arguments and
  * above all error text come from the model or from what a tool read, so an
  * escape sequence in them is someone else's text, not formatting. Arguments
- * pass through `JSON.stringify`, which escapes control characters already;
- * this covers the rest.
+ * need it too: `JSON.stringify` escapes C0 controls but leaves C1 ones as
+ * they are, and U+009B is a one-character CSI some terminals act on.
  */
 function printable(text: string): string {
   // eslint-disable-next-line no-control-regex
@@ -58,7 +58,7 @@ function clip(text: string, length: number): string {
 
 /** `read_file {"path":"src/a.ts"}` — the call, on one line, short enough to scan. */
 export function describeCall(call: ToolCall): string {
-  const args = Object.keys(call.args).length ? ` ${clip(JSON.stringify(call.args), ARGS_LENGTH)}` : ''
+  const args = Object.keys(call.args).length ? ` ${clip(printable(JSON.stringify(call.args)), ARGS_LENGTH)}` : ''
   return `${printable(call.name)}${args}`
 }
 
