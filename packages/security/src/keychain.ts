@@ -27,7 +27,12 @@ export interface CommandResult {
   error?: Error
 }
 
-export type RunCommand = (command: string, args: string[]) => CommandResult
+/**
+ * `input` is written to the command's stdin. It is how a secret reaches a
+ * command that stores it: an argument would be visible to every user on the
+ * machine in `ps` for as long as the command runs.
+ */
+export type RunCommand = (command: string, args: string[], input?: string) => CommandResult
 
 export interface KeychainOptions {
   /** The service the entries are filed under (default `open-agent`). */
@@ -43,8 +48,8 @@ export interface KeychainOptions {
  */
 const LOOKUP_TIMEOUT_MS = 60_000
 
-const defaultRun: RunCommand = (command, args) => {
-  const result = spawnSync(command, args, { encoding: 'utf8', timeout: LOOKUP_TIMEOUT_MS })
+const defaultRun: RunCommand = (command, args, input) => {
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: LOOKUP_TIMEOUT_MS, input })
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '', error: result.error }
 }
 
@@ -82,6 +87,71 @@ export class KeychainSecretStore implements SecretStore {
 
   get(key: string): string | undefined {
     return this.platform === 'darwin' ? this.fromMacKeychain(key) : this.fromSecretService(key)
+  }
+
+  /**
+   * Stores `value` under `key`, replacing any entry already there. The value
+   * travels on stdin, never as an argument.
+   *
+   * @throws when the store refuses or cannot be reached, naming the key and
+   * never the value.
+   */
+  set(key: string, value: string): void {
+    if (this.platform === 'darwin') this.toMacKeychain(key, value)
+    else this.toSecretService(key, value)
+  }
+
+  /**
+   * Whether the platform's keychain tool is installed — enough to offer the
+   * keychain, not a promise it will accept a write: a Secret Service that is
+   * not running only shows itself when asked to store something.
+   */
+  isInstalled(): boolean {
+    const result = this.run(this.platform === 'darwin' ? 'security' : 'secret-tool', ['--help'])
+    return (result.error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT'
+  }
+
+  private toMacKeychain(key: string, value: string): void {
+    // `security add-generic-password -w <value>` would put the value in `ps`,
+    // and a bare `-w` prompts on the terminal rather than reading stdin. Its
+    // interactive mode reads whole commands from stdin, which keeps the value
+    // off the command line; quoting there has no documented escape, so a
+    // value that would need one is refused rather than guessed at. API keys
+    // never contain these.
+    for (const [label, text] of [
+      ['service', this.service],
+      ['key', key],
+      ['value', value],
+    ]) {
+      if (/["\\\n\r]/.test(text))
+        throw new Error(
+          `cannot store ${key} in the macOS keychain: its ${label} contains a quote, backslash or newline`,
+        )
+    }
+    const command = `add-generic-password -U -s "${this.service}" -a "${key}" -w "${value}"\n`
+    const result = this.run('security', ['-i'], command)
+    this.throwIfNotStarted(result, 'security')
+    // `security -i` exits 0 even when a command in it fails, and reports the
+    // failure on stderr instead.
+    if (result.status !== 0 || result.stderr.trim()) {
+      throw new Error(
+        `the macOS keychain refused to store ${key}: ${firstLine(result.stderr) || `exit ${result.status}`}`,
+      )
+    }
+  }
+
+  private toSecretService(key: string, value: string): void {
+    const result = this.run(
+      'secret-tool',
+      ['store', `--label=open-agent ${key}`, 'service', this.service, 'account', key],
+      value,
+    )
+    this.throwIfNotStarted(result, 'secret-tool')
+    if (result.status !== 0) {
+      throw new Error(
+        `the Secret Service refused to store ${key}: ${firstLine(result.stderr) || `exit ${result.status}`}`,
+      )
+    }
   }
 
   private fromMacKeychain(key: string): string | undefined {

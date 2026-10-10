@@ -1,4 +1,5 @@
 #!/usr/bin/env -S npx tsx
+import { chmodSync, existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
@@ -31,7 +32,10 @@ import {
   createNutJsScreenshotOperator,
   createUiTarsGuiAgentFactory,
 } from '@open-agent/tools-computer'
+import { KeychainSecretStore } from '@open-agent/security'
 import { loadConfigFromEnv } from './config.js'
+import { runInit, type KeychainWriter } from './init.js'
+import { createTerminalInitIO } from './init-io.js'
 import {
   createNonInteractiveApprovalHandler,
   createPlanApprovalHandler,
@@ -51,7 +55,11 @@ import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
+const ENV_PATH = path.resolve(__dirname, '../../../.env')
+dotenv.config({ path: ENV_PATH })
+
+/** How long `init` waits for the model to answer its one test request. */
+const INIT_CHECK_TIMEOUT_MS = 30_000
 
 /**
  * The Ink TUI needs a real TTY on both ends to take over the screen. Fall
@@ -82,6 +90,44 @@ async function main() {
   const args = parsedArgs.args
   if (args.help) {
     console.log(USAGE)
+    return
+  }
+  // Before the config is read, since writing one is the point.
+  if (args.mode === 'init') {
+    const io = createTerminalInitIO(process.stdin, process.stdout)
+    let keychain: KeychainWriter | undefined
+    try {
+      keychain = new KeychainSecretStore()
+    } catch {
+      // No keychain tool for this platform; keys go in .env.
+    }
+    try {
+      process.exitCode = await runInit(io, {
+        envPath: ENV_PATH,
+        exists: existsSync,
+        writeEnv(file, content) {
+          writeFileSync(file, content, { mode: 0o600 })
+          // `mode` applies only to a file being created; one being replaced
+          // keeps whatever permissions it had.
+          chmodSync(file, 0o600)
+        },
+        async check(llm) {
+          try {
+            await new OpenAiCompatibleProvider(llm).generate(
+              { messages: [{ role: 'user', content: 'Reply with the word OK.' }], tools: [] },
+              AbortSignal.timeout(INIT_CHECK_TIMEOUT_MS),
+            )
+            return undefined
+          } catch (err) {
+            return err instanceof Error ? err.message : String(err)
+          }
+        },
+        keychain,
+        cwd: process.cwd(),
+      })
+    } finally {
+      io.close()
+    }
     return
   }
   // Before the provider config is read: looking at past tasks needs no API
