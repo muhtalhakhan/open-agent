@@ -62,10 +62,13 @@ tool_call()
 vision()
 ```
 
-> **Status:** only `generate(request, signal)` exists today. The implemented
-> interface is `LlmAdapter` in `packages/agent/src/types.ts` — `name` plus
-> `generate()` — and tool calls travel inside the ordinary request/response
-> rather than through a separate method. `stream()`, `tool_call()` and
+> **Status:** only `generate(request, signal, options?)` exists today. The
+> implemented interface is `LlmAdapter` in `packages/agent/src/types.ts` —
+> `name` plus `generate()` — and tool calls travel inside the ordinary
+> request/response rather than through a separate method. Streaming is
+> `options.onText` rather than a `stream()` method: an adapter that can stream
+> reports text through it as it arrives and still resolves with the whole
+> response, which is all the session log ever records. `tool_call()` and
 > `vision()` are design targets, not code.
 
 It never knows whether the backend is OpenAI, Gemini, Claude, Grok, DeepSeek, OpenRouter, Ollama, LM Studio, or a custom endpoint. Switching providers is a config change:

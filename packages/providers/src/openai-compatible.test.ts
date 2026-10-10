@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OpenAiCompatibleProvider } from './openai-compatible.js'
+import { recordText, sseResponse } from './sse-fixture.js'
+import { IncompleteStreamError } from './sse.js'
 
 function fakeFetch(responseBody: unknown, ok = true, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -105,5 +107,158 @@ describe('OpenAiCompatibleProvider', () => {
       fetchFn: fakeFetch({ error: 'invalid api key' }, false, 401),
     })
     await expect(provider.generate({ messages: [], tools: [] }, new AbortController().signal)).rejects.toThrow(/401/)
+  })
+
+  describe('streaming', () => {
+    const options = (fetchFn: unknown) => ({
+      baseURL: 'https://api.example.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-test',
+      fetchFn: fetchFn as typeof fetch,
+    })
+
+    it('asks for a stream only when someone is listening', async () => {
+      const fetchFn = fakeFetch({ choices: [{ message: { content: 'hi' } }] })
+      const provider = new OpenAiCompatibleProvider(options(fetchFn))
+      await provider.generate({ messages: [], tools: [] }, new AbortController().signal)
+      await provider.generate({ messages: [], tools: [] }, new AbortController().signal, { onText: () => {} })
+      expect(JSON.parse(fetchFn.mock.calls[0][1].body).stream).toBeUndefined()
+      expect(JSON.parse(fetchFn.mock.calls[1][1].body).stream).toBe(true)
+    })
+
+    it('reports text as it arrives and resolves with the same message the plain call returns', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            { data: { choices: [{ delta: { role: 'assistant', content: '' } }] } },
+            { data: { choices: [{ delta: { content: 'Le café ' } }] } },
+            { data: { choices: [{ delta: { content: 'est ✓' } }] } },
+            { data: { choices: [{ delta: {} }] } },
+            { data: '[DONE]' },
+          ]),
+        )
+      const seen = recordText()
+      const result = await new OpenAiCompatibleProvider(options(fetchFn)).generate(
+        { messages: [], tools: [] },
+        new AbortController().signal,
+        { onText: seen.onText },
+      )
+      expect(seen.events).toEqual([
+        { type: 'delta', text: 'Le café ' },
+        { type: 'delta', text: 'est ✓' },
+      ])
+      expect(result.message).toEqual({ role: 'assistant', content: 'Le café est ✓', toolCalls: undefined })
+    })
+
+    it('reassembles tool calls whose arguments arrive in fragments', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            data: {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [{ index: 0, id: 'call_1', function: { name: 'web_search', arguments: '' } }],
+                  },
+                },
+              ],
+            },
+          },
+          { data: { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"query":' } }] } }] } },
+          {
+            data: {
+              choices: [
+                { delta: { tool_calls: [{ index: 1, id: 'call_2', function: { name: 'echo', arguments: '{}' } }] } },
+              ],
+            },
+          },
+          { data: { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"AI news"}' } }] } }] } },
+          { data: '[DONE]' },
+        ]),
+      )
+      const seen = recordText()
+      const result = await new OpenAiCompatibleProvider(options(fetchFn)).generate(
+        { messages: [], tools: [] },
+        new AbortController().signal,
+        { onText: seen.onText },
+      )
+      expect(seen.events).toEqual([])
+      expect(result.message).toEqual({
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          { id: 'call_1', name: 'web_search', args: { query: 'AI news' } },
+          { id: 'call_2', name: 'echo', args: {} },
+        ],
+      })
+    })
+
+    it('falls back to the JSON body when the server ignores stream: true', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ choices: [{ message: { content: 'all at once' } }] }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      const seen = recordText()
+      const result = await new OpenAiCompatibleProvider(options(fetchFn)).generate(
+        { messages: [], tools: [] },
+        new AbortController().signal,
+        { onText: seen.onText },
+      )
+      expect(result.message.content).toBe('all at once')
+      expect(seen.events).toEqual([])
+    })
+
+    it('throws on an error reported mid-stream', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            { data: { choices: [{ delta: { content: 'Hal' } }] } },
+            { data: { error: { message: 'upstream died' } } },
+          ]),
+        )
+      await expect(
+        new OpenAiCompatibleProvider(options(fetchFn)).generate(
+          { messages: [], tools: [] },
+          new AbortController().signal,
+          {
+            onText: () => {},
+          },
+        ),
+      ).rejects.toThrow(/upstream died/)
+    })
+
+    it('accepts a finish reason in place of [DONE], since not every compatible server sends it', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([{ data: { choices: [{ delta: { content: 'done' }, finish_reason: 'stop' }] } }]),
+        )
+      const result = await new OpenAiCompatibleProvider(options(fetchFn)).generate(
+        { messages: [], tools: [] },
+        new AbortController().signal,
+        { onText: () => {} },
+      )
+      expect(result.message.content).toBe('done')
+    })
+
+    it('rejects a stream that closes before it says the reply is finished', async () => {
+      // A clean close part-way through: a proxy timing out, say. Returning it
+      // would log half an answer as the whole one.
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ data: { choices: [{ delta: { content: 'The answer is' } }] } }]))
+      await expect(
+        new OpenAiCompatibleProvider(options(fetchFn)).generate(
+          { messages: [], tools: [] },
+          new AbortController().signal,
+          {
+            onText: () => {},
+          },
+        ),
+      ).rejects.toBeInstanceOf(IncompleteStreamError)
+    })
   })
 })

@@ -71,6 +71,15 @@ toolCall(messages, tools, options): ToolCallResponse
 vision(messages, images, options): Response
 ```
 
+> **Status:** streaming landed as an optional callback on `generate()` —
+> `generate(request, signal, { onText })` — rather than a separate
+> `stream()`. Text deltas are for display and never logged; `AgentLoop` passes
+> them on through `RunOptions.onText`, with a `reset` when a retry or a
+> provider switch starts the answer over, and an `end` after each complete
+> reply. All three adapters stream (`OpenAiCompatibleProvider` and
+> `AnthropicProvider` over SSE, `GeminiProvider` via `streamGenerateContent`),
+> but only when a caller listens: print mode and background jobs don't.
+
 Provider config is `{ provider, model, apiKey, baseUrl? }` — enough to add any OpenAI-compatible endpoint (LM Studio, self-hosted vLLM, etc.) without new code, and a dedicated adapter only when a provider's API shape diverges (Anthropic, Gemini).
 
 `packages/providers`'s `OpenAiCompatibleProvider` is the general-purpose `LlmAdapter`: point `baseURL`/`apiKey`/`model` at OpenAI, OpenRouter, Ollama, or LM Studio and it works unchanged — the whole point of the seam. `AnthropicProvider` and `GeminiProvider` sit alongside it for the two APIs whose shape diverges enough that the compatible path can't cover them.

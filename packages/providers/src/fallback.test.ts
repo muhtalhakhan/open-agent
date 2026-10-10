@@ -265,4 +265,33 @@ describe('ProviderFallbackAdapter', () => {
     )
     expect(ok.fn).not.toHaveBeenCalled()
   })
+
+  it('passes onText through and resets it before trying the next provider', async () => {
+    const events: unknown[] = []
+    const primary: LlmAdapter = {
+      name: 'primary',
+      async generate(_request, _signal, options) {
+        options?.onText?.({ type: 'delta', text: 'half an ans' })
+        throw new ProviderHttpError(503, 'primary', 'https://primary.test', 'down')
+      },
+    }
+    const secondary: LlmAdapter = {
+      name: 'secondary',
+      async generate(_request, _signal, options) {
+        options?.onText?.({ type: 'delta', text: 'whole answer' })
+        return { message: { role: 'assistant', content: 'whole answer' } }
+      },
+    }
+    const adapter = new ProviderFallbackAdapter({ adapters: [primary, secondary] })
+
+    await adapter.generate({ messages: [], tools: [] }, new AbortController().signal, {
+      onText: (event) => events.push(event),
+    })
+
+    expect(events).toEqual([
+      { type: 'delta', text: 'half an ans' },
+      { type: 'reset' },
+      { type: 'delta', text: 'whole answer' },
+    ])
+  })
 })

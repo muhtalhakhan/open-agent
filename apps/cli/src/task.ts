@@ -1,4 +1,4 @@
-import type { AgentLoop, SessionLog } from '@open-agent/agent'
+import type { AgentLoop, RunOptions, SessionLog } from '@open-agent/agent'
 import type { MemoryProvider } from '@open-agent/memory'
 
 export interface MemoryHook {
@@ -27,6 +27,7 @@ export async function executeTask(
   input: string,
   signal: AbortSignal,
   memory?: MemoryHook,
+  onText?: RunOptions['onText'],
 ): Promise<TaskOutcome> {
   // Recalled memories travel as turn context, not as part of the user's
   // message: the log should record what the user actually typed, and
@@ -39,7 +40,7 @@ export async function executeTask(
     }
   }
 
-  const task = await agentLoop.run(input, signal, undefined, { context })
+  const task = await agentLoop.run(input, signal, undefined, { context, onText })
 
   if (task.status !== 'completed') {
     return { status: task.status === 'cancelled' ? 'cancelled' : 'error', answer: '', error: task.error }

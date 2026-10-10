@@ -42,6 +42,7 @@ import { createBackgroundJobs, type BackgroundJobs } from './background.js'
 import { parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
+import { createTerminalAnswerStream, type AnswerStream } from './answer-stream.js'
 import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
 import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
@@ -154,6 +155,10 @@ async function main() {
   let io: ReplIO
   let ask: (question: string) => Promise<string>
   let teardown: () => void
+  // Print mode has no stream: stdout is the answer alone, and a script that
+  // captured half a reply could not be told to take it back.
+  let answerStream: (() => AnswerStream) | undefined
+  const markdown = shouldRenderMarkdown(process.stdout.isTTY, process.env)
 
   if (headless) {
     // No readline, no TUI: stdin may carry the task itself, and stdout must
@@ -182,6 +187,7 @@ async function main() {
     })
     io = tui.io
     ask = tui.io.ask
+    answerStream = () => tui.io.answerStream(markdown ? renderMarkdown : undefined)
     teardown = () => tui.unmount()
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -193,6 +199,7 @@ async function main() {
       prompt: () => reader.next('> '),
       write: (text) => process.stdout.write(text),
     }
+    answerStream = () => createTerminalAnswerStream((text) => void process.stdout.write(text), { markdown })
     // The same reader, deliberately: two on one stdin would race each other.
     ask = createApprovalAsk(reader, Boolean(process.stdin.isTTY))
     process.on('SIGINT', () => {
@@ -425,7 +432,8 @@ async function main() {
         background,
         history: () =>
           sessionHistory(sessionStore, sessions, { onUnreadable: (id, err) => io.write(describeUnreadable(id, err)) }),
-        formatAnswer: shouldRenderMarkdown(process.stdout.isTTY, process.env) ? renderMarkdown : undefined,
+        formatAnswer: markdown ? renderMarkdown : undefined,
+        answerStream,
       })
       // Before the session is saved, so what the jobs did so far is in it.
       const stopped = await background.close()

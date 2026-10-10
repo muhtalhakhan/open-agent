@@ -1,3 +1,4 @@
+import type { AnswerStream } from '../answer-stream.js'
 import type { ReplIO } from '../repl.js'
 import type { TuiHandlers } from './types.js'
 
@@ -55,6 +56,40 @@ export class TuiIo implements ReplIO {
 
   setStatus(text: string | null): void {
     this.handlers?.setStatus(text)
+  }
+
+  /**
+   * Streams a task's replies into the live area above the input, where each
+   * one is repainted as it grows — so unlike the plain terminal, a reset can
+   * simply wipe it. A finished reply moves into the transcript, rendered by
+   * `format` the way a whole answer is.
+   */
+  answerStream(format: (text: string) => string = (text) => text): AnswerStream {
+    let live = ''
+    let shown = false
+    const finish = (): boolean => {
+      const text = live
+      live = ''
+      this.handlers?.setLive(null)
+      if (!text.trim()) return false
+      this.handlers?.appendEntry({ kind: 'output', text: format(text).trim() })
+      return true
+    }
+    return {
+      onText: (event) => {
+        if (event.type === 'delta') {
+          live += event.text
+          if (live.trim()) this.handlers?.setLive(format(live).trim())
+        } else if (event.type === 'reset') {
+          live = ''
+          this.handlers?.setLive(null)
+        } else {
+          shown = finish()
+        }
+      },
+      lastShown: () => shown,
+      close: () => void finish(),
+    }
   }
 
   /** Matches the `ask(question) => Promise<string>` shape `createTerminalApprovalHandler` expects. */

@@ -15,7 +15,7 @@ export type {
   ApprovalSource,
 } from './tools.js'
 export { AgentLoop, CancelledError } from './agent-loop.js'
-export type { AgentLoopOptions, RunOptions } from './agent-loop.js'
+export type { AgentLoopOptions, RunOptions, RunTextEvent } from './agent-loop.js'
 export {
   loadProjectInstructions,
   buildSystemPrompt,

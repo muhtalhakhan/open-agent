@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SessionLog } from './session.js'
 import { ToolRegistry } from './tools.js'
 import { AgentLoop } from './agent-loop.js'
+import type { RunTextEvent } from './agent-loop.js'
 import type { LlmAdapter, LlmRequest, LlmResponse, ToolDefinition } from './types.js'
 
 const searchTool: ToolDefinition<{ query: string }> = {
@@ -118,6 +119,97 @@ describe('AgentLoop', () => {
     const task = await loop.run('hello', new AbortController().signal, 't4')
     expect(task.status).toBe('error')
     expect(task.error).toMatch(/provider down/)
+  })
+
+  describe('onText', () => {
+    /** Streams `text` in two pieces, after failing `failures` times part-way through. */
+    function streamingAdapter(text: string, failures = 0): LlmAdapter & { optionsSeen: unknown[] } {
+      const optionsSeen: unknown[] = []
+      let attempts = 0
+      return {
+        name: 'streaming',
+        optionsSeen,
+        async generate(_request, _signal, options) {
+          optionsSeen.push(options)
+          const half = Math.ceil(text.length / 2)
+          options?.onText?.({ type: 'delta', text: text.slice(0, half) })
+          if (attempts++ < failures) throw new Error('connection reset')
+          options?.onText?.({ type: 'delta', text: text.slice(half) })
+          return { message: { role: 'assistant', content: text } }
+        },
+      }
+    }
+
+    it('forwards text as it streams and closes each reply with end', async () => {
+      const events: RunTextEvent[] = []
+      const loop = new AgentLoop({
+        sessions: new SessionLog(),
+        tools: new ToolRegistry(),
+        llm: streamingAdapter('hello'),
+      })
+
+      await loop.run('hi', new AbortController().signal, 'st1', { onText: (e) => events.push(e) })
+
+      expect(events).toEqual([{ type: 'delta', text: 'hel' }, { type: 'delta', text: 'lo' }, { type: 'end' }])
+    })
+
+    it('resets before a retry, so half an answer from a failed attempt can be taken back', async () => {
+      const events: RunTextEvent[] = []
+      const sessions = new SessionLog()
+      const loop = new AgentLoop({
+        sessions,
+        tools: new ToolRegistry(),
+        llm: streamingAdapter('hello', 1),
+        retryDelayMs: 1,
+      })
+
+      await loop.run('hi', new AbortController().signal, 'st2', { onText: (e) => events.push(e) })
+
+      expect(events).toEqual([
+        { type: 'delta', text: 'hel' },
+        { type: 'reset' },
+        { type: 'delta', text: 'hel' },
+        { type: 'delta', text: 'lo' },
+        { type: 'end' },
+      ])
+      // The log holds the finished reply once, never the deltas.
+      expect(sessions.all('st2').filter((e) => e.type === 'assistant/message')).toHaveLength(1)
+    })
+
+    it('ends every reply in a multi-step turn, not just the last', async () => {
+      const events: RunTextEvent[] = []
+      const tools = new ToolRegistry()
+      tools.register(searchTool)
+      const loop = new AgentLoop({ sessions: new SessionLog(), tools, llm: new ScriptedAdapter() })
+
+      await loop.run('news?', new AbortController().signal, 'st3', { onText: (e) => events.push(e) })
+
+      expect(events).toEqual([{ type: 'end' }, { type: 'end' }])
+    })
+
+    it('asks nothing of the adapter when nobody is listening', async () => {
+      const llm = streamingAdapter('hello')
+      await new AgentLoop({ sessions: new SessionLog(), tools: new ToolRegistry(), llm }).run(
+        'hi',
+        new AbortController().signal,
+        'st4',
+      )
+      expect(llm.optionsSeen).toEqual([undefined])
+    })
+
+    it('does not fail or retry the task when the display callback throws', async () => {
+      const llm = streamingAdapter('hello')
+      const loop = new AgentLoop({ sessions: new SessionLog(), tools: new ToolRegistry(), llm })
+
+      const task = await loop.run('hi', new AbortController().signal, 'st5', {
+        onText: () => {
+          throw new Error('render bug')
+        },
+      })
+
+      expect(task.status).toBe('completed')
+      expect(llm.optionsSeen).toHaveLength(1)
+    })
   })
 
   describe('systemPrompt', () => {

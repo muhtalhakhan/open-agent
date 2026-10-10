@@ -1,5 +1,15 @@
 import { ProviderHttpError } from './errors.js'
-import type { LlmAdapter, LlmRequest, LlmResponse, Message, ToolCall, ToolDefinition } from '@open-agent/agent'
+import { IncompleteStreamError, readSse, sseBody } from './sse.js'
+import type {
+  GenerateOptions,
+  LlmAdapter,
+  LlmRequest,
+  LlmResponse,
+  Message,
+  TextStreamEvent,
+  ToolCall,
+  ToolDefinition,
+} from '@open-agent/agent'
 
 export interface OpenAiCompatibleOptions {
   /** e.g. https://api.openai.com/v1, https://openrouter.ai/api/v1, http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio). */
@@ -51,6 +61,60 @@ function fromOpenAiMessage(choiceMessage: {
   return { role: 'assistant', content: choiceMessage.content ?? '', toolCalls }
 }
 
+interface OpenAiChunk {
+  choices?: Array<{
+    finish_reason?: string | null
+    delta?: {
+      content?: string | null
+      tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>
+    }
+  }>
+  /** Some servers (OpenRouter, Ollama) report a failure mid-stream as a chunk rather than a status. */
+  error?: { message?: string }
+}
+
+/**
+ * Folds `chat.completion.chunk`s back into the message the non-streaming API
+ * would have returned. A tool call's arguments arrive as fragments of one
+ * JSON string, keyed by `index`, and are only parsed once the stream ends.
+ */
+async function readChunks(
+  body: ReadableStream<Uint8Array>,
+  provider: string,
+  onText: (event: TextStreamEvent) => void,
+): Promise<Message> {
+  let content = ''
+  const calls: Array<{ id: string; function: { name: string; arguments: string } }> = []
+  // Either marks the end: `[DONE]` is the protocol's, but not every
+  // compatible server sends it, while all of them set a finish reason.
+  let finished = false
+  for await (const { data } of readSse(body)) {
+    if (data === '[DONE]') {
+      finished = true
+      break
+    }
+    const chunk = JSON.parse(data) as OpenAiChunk
+    if (chunk.error)
+      throw new Error(`${provider}: stream failed: ${chunk.error.message ?? JSON.stringify(chunk.error)}`)
+    if (chunk.choices?.[0]?.finish_reason) finished = true
+    const delta = chunk.choices?.[0]?.delta
+    if (!delta) continue
+    if (delta.content) {
+      content += delta.content
+      onText({ type: 'delta', text: delta.content })
+    }
+    for (const part of delta.tool_calls ?? []) {
+      const call = (calls[part.index ?? 0] ??= { id: '', function: { name: '', arguments: '' } })
+      if (part.id) call.id = part.id
+      if (part.function?.name) call.function.name += part.function.name
+      if (part.function?.arguments) call.function.arguments += part.function.arguments
+    }
+  }
+  if (!finished) throw new IncompleteStreamError(provider)
+  const toolCalls = calls.filter(Boolean)
+  return fromOpenAiMessage({ content, tool_calls: toolCalls.length ? toolCalls : undefined })
+}
+
 /**
  * Works against any provider that speaks the OpenAI chat-completions API
  * shape (OpenAI itself, OpenRouter, Ollama, LM Studio, self-hosted vLLM,
@@ -63,13 +127,14 @@ export class OpenAiCompatibleProvider implements LlmAdapter {
 
   constructor(private readonly options: OpenAiCompatibleOptions) {}
 
-  async generate(request: LlmRequest, signal: AbortSignal): Promise<LlmResponse> {
+  async generate(request: LlmRequest, signal: AbortSignal, options: GenerateOptions = {}): Promise<LlmResponse> {
     const fetchFn = this.options.fetchFn ?? fetch
     const body: Record<string, unknown> = {
       model: this.options.model,
       messages: request.messages.map(toOpenAiMessage),
     }
     if (request.tools.length) body.tools = request.tools.map(toOpenAiTool)
+    if (options.onText) body.stream = true
 
     const response = await fetchFn(`${this.options.baseURL}/chat/completions`, {
       method: 'POST',
@@ -81,6 +146,9 @@ export class OpenAiCompatibleProvider implements LlmAdapter {
     if (!response.ok) {
       throw new ProviderHttpError(response.status, this.name, this.options.baseURL, await response.text())
     }
+
+    const events = options.onText ? sseBody(response) : null
+    if (events && options.onText) return { message: await readChunks(events, this.name, options.onText) }
 
     const data = (await response.json()) as { choices: Array<{ message: Parameters<typeof fromOpenAiMessage>[0] }> }
     return { message: fromOpenAiMessage(data.choices[0].message) }

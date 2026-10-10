@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { LlmRequest } from '@open-agent/agent'
 import { AnthropicProvider } from './anthropic.js'
+import { ProviderHttpError } from './errors.js'
+import { recordText, sseResponse } from './sse-fixture.js'
+import { IncompleteStreamError } from './sse.js'
 
 describe('AnthropicProvider', () => {
   const mockTools = [
@@ -192,5 +195,102 @@ describe('AnthropicProvider', () => {
     await expect(provider.generate({ messages: [], tools: [] }, new AbortController().signal)).rejects.toThrow(
       'https://api.anthropic.com/v1/messages responded 401: Unauthorized',
     )
+  })
+
+  describe('streaming', () => {
+    const request: LlmRequest = { messages: [{ role: 'user', content: 'weather?' }], tools: mockTools }
+
+    it('reports text deltas and rebuilds the same message the plain call returns', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          { event: 'message_start', data: { type: 'message_start', message: { content: [] } } },
+          {
+            event: 'content_block_start',
+            data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          },
+          { event: 'ping', data: { type: 'ping' } },
+          {
+            event: 'content_block_delta',
+            data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'It is ' } },
+          },
+          {
+            event: 'content_block_delta',
+            data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'sunny ☀.' } },
+          },
+          { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+          {
+            event: 'content_block_start',
+            data: {
+              type: 'content_block_start',
+              index: 1,
+              content_block: { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: {} },
+            },
+          },
+          {
+            event: 'content_block_delta',
+            data: {
+              type: 'content_block_delta',
+              index: 1,
+              delta: { type: 'input_json_delta', partial_json: '{"loc":' },
+            },
+          },
+          {
+            event: 'content_block_delta',
+            data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '"SF"}' } },
+          },
+          { event: 'content_block_stop', data: { type: 'content_block_stop', index: 1 } },
+          { event: 'message_stop', data: { type: 'message_stop' } },
+        ]),
+      )
+      const seen = recordText()
+      const result = await new AnthropicProvider({ apiKey: 'k', model: 'm', fetchFn }).generate(
+        request,
+        new AbortController().signal,
+        { onText: seen.onText },
+      )
+
+      expect(JSON.parse(fetchFn.mock.calls[0][1].body).stream).toBe(true)
+      expect(seen.text()).toBe('It is sunny ☀.')
+      expect(result.message).toEqual({
+        role: 'assistant',
+        content: 'It is sunny ☀.',
+        toolCalls: [{ id: 'toolu_1', name: 'get_weather', args: { loc: 'SF' } }],
+      })
+    })
+
+    it('turns a mid-stream overload into a 529, so the fallback adapter still routes around it', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            { event: 'error', data: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } } },
+          ]),
+        )
+      const err = await new AnthropicProvider({ apiKey: 'k', model: 'm', fetchFn })
+        .generate(request, new AbortController().signal, { onText: () => {} })
+        .catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ProviderHttpError)
+      expect((err as ProviderHttpError).status).toBe(529)
+    })
+
+    it('rejects a stream that closes before message_stop', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            event: 'content_block_start',
+            data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          },
+          {
+            event: 'content_block_delta',
+            data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'It is' } },
+          },
+        ]),
+      )
+      await expect(
+        new AnthropicProvider({ apiKey: 'k', model: 'm', fetchFn }).generate(request, new AbortController().signal, {
+          onText: () => {},
+        }),
+      ).rejects.toBeInstanceOf(IncompleteStreamError)
+    })
   })
 })

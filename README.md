@@ -96,7 +96,7 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. The web UI, streaming output, agent profiles and remote/cloud agents are still ahead.
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated. The web UI, agent profiles and remote/cloud agents are still ahead.
 
 Progress by milestone (issues closed / total), regenerated from the tracker by [`docs-status.yml`](.github/workflows/docs-status.yml) — edit the issues, not the table:
 
@@ -120,9 +120,9 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 
 <!-- END GENERATED: milestone-status -->
 
-Recently landed: the automation stack (job queue #80, retries #81, notifications #82, background jobs #79, task history #83), Markdown rendering in the terminal (#103), prompt-injection defenses (#91) and the OS keychain secret store (#88).
+Recently landed: streaming output in the CLI (#102), plan mode with diff review (#120), human takeover and ask-for-login (#50), dangerous-action detection (#92) — which completed Security — and a fix for piped input being dropped (#234).
 
-Nearest up next: dangerous-action detection (#92), the last Security item; then the CLI side of Milestone 11: streaming output (#102), a live tool-call view (#104), and a fix for piped input being dropped (#234). Human takeover (#50) is open again, since its code never landed.
+Nearest up next: the rest of the CLI side of Milestone 11 — a live tool-call view (#104), an `open-agent init` setup wizard (#105) and agent profile selection (#106).
 
 Security caveat: permission levels, approvals, audit logs, the shell sandbox (#86), throwaway browser profiles (#87), network restrictions (#89), keychain secrets (#88) and prompt-injection fencing (#91) are in place, but they are defenses, not a guarantee. Setting `SHELL_SANDBOX=none` or approving `ask` calls with `--yes` hands the agent your own privileges, and a model can still be misled by content it reads. Review approvals like you would a colleague's command.
 

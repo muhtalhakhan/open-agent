@@ -127,68 +127,111 @@ function renderTable(rows: string[]): string[] {
 
 /** Renders a whole answer. */
 export function renderMarkdown(markdown: string): string {
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n')
-  const out: string[] = []
+  const renderer = createMarkdownRenderer()
+  const out = markdown
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .flatMap((line) => renderer.line(line))
+  return [...out, ...renderer.end()].join('\n')
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+export interface MarkdownRenderer {
+  /** Takes the next complete line and returns whatever can be printed now — possibly nothing yet. */
+  line(text: string): string[]
+  /** The end of the answer: returns what was still held back. */
+  end(): string[]
+}
 
-    const fence = FENCE.exec(line)
-    if (fence) {
+/**
+ * Renders an answer a line at a time, for one that is still arriving. Most
+ * lines render on their own and come straight back. Two constructs need to
+ * see more first: a table's columns are padded to their widest cell, so its
+ * rows are held until the table ends, and a `|` row is held one line to learn
+ * whether a divider follows it and makes it a table at all.
+ */
+export function createMarkdownRenderer(): MarkdownRenderer {
+  let fence: string | null = null
+  let maybeTable: string | null = null
+  let table: string[] | null = null
+
+  const line = (text: string): string[] => {
+    if (fence !== null) {
       // Everything up to the matching fence is code, printed verbatim. An
       // unclosed fence runs to the end, as it would in any renderer.
-      const marker = fence[1]
-      const code: string[] = []
-      while (++i < lines.length && !lines[i].trim().startsWith(marker)) code.push(lines[i])
-      if (fence[2]) out.push(dim(`  ${fence[2]}`))
-      out.push(...code.map((codeLine) => `  ${cyan(codeLine)}`))
-      continue
+      if (text.trim().startsWith(fence)) {
+        fence = null
+        return []
+      }
+      return [`  ${cyan(text)}`]
     }
 
-    if (TABLE_ROW.test(line) && i + 1 < lines.length && TABLE_DIVIDER.test(lines[i + 1])) {
-      const rows = [line, lines[i + 1]]
-      i += 2
-      while (i < lines.length && TABLE_ROW.test(lines[i])) rows.push(lines[i++])
-      i--
-      out.push(...renderTable(rows))
-      continue
+    if (maybeTable !== null) {
+      const previous = maybeTable
+      maybeTable = null
+      if (TABLE_DIVIDER.test(text)) {
+        table = [previous, text]
+        return []
+      }
+      return [renderLine(previous), ...line(text)]
     }
 
-    const heading = HEADING.exec(line)
-    if (heading) {
-      const text = renderInline(heading[2])
-      out.push(heading[1].length === 1 ? bold(underline(magenta(text))) : bold(magenta(text)))
-      continue
+    if (table !== null) {
+      if (TABLE_ROW.test(text)) {
+        table.push(text)
+        return []
+      }
+      const rows = renderTable(table)
+      table = null
+      return [...rows, ...line(text)]
     }
 
-    if (RULE.test(line)) {
-      out.push(dim('─'.repeat(40)))
-      continue
+    const opening = FENCE.exec(text)
+    if (opening) {
+      fence = opening[1]
+      return opening[2] ? [dim(`  ${opening[2]}`)] : []
     }
 
-    const bullet = BULLET.exec(line)
-    if (bullet) {
-      const [, indent, checkbox, text] = bullet
-      const mark = checkbox ? (/x/i.test(checkbox) ? '☑' : '☐') : '•'
-      out.push(`${indent}${mark} ${renderInline(text)}`)
-      continue
+    if (TABLE_ROW.test(text)) {
+      maybeTable = text
+      return []
     }
 
-    const ordered = ORDERED.exec(line)
-    if (ordered) {
-      out.push(`${ordered[1]}${ordered[2]}. ${renderInline(ordered[3])}`)
-      continue
-    }
-
-    const quote = QUOTE.exec(line)
-    if (quote) {
-      out.push(`${dim('│')} ${italic(renderInline(quote[1]))}`)
-      continue
-    }
-
-    out.push(renderInline(line))
+    return [renderLine(text)]
   }
-  return out.join('\n')
+
+  const end = (): string[] => {
+    const out = maybeTable !== null ? [renderLine(maybeTable)] : table !== null ? renderTable(table) : []
+    fence = maybeTable = table = null
+    return out
+  }
+
+  return { line, end }
+}
+
+/** One line that is neither code nor part of a table. */
+function renderLine(line: string): string {
+  const heading = HEADING.exec(line)
+  if (heading) {
+    const text = renderInline(heading[2])
+    return heading[1].length === 1 ? bold(underline(magenta(text))) : bold(magenta(text))
+  }
+
+  if (RULE.test(line)) return dim('─'.repeat(40))
+
+  const bullet = BULLET.exec(line)
+  if (bullet) {
+    const [, indent, checkbox, text] = bullet
+    const mark = checkbox ? (/x/i.test(checkbox) ? '☑' : '☐') : '•'
+    return `${indent}${mark} ${renderInline(text)}`
+  }
+
+  const ordered = ORDERED.exec(line)
+  if (ordered) return `${ordered[1]}${ordered[2]}. ${renderInline(ordered[3])}`
+
+  const quote = QUOTE.exec(line)
+  if (quote) return `${dim('│')} ${italic(renderInline(quote[1]))}`
+
+  return renderInline(line)
 }
 
 /**

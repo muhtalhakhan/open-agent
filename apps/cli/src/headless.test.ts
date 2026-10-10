@@ -50,6 +50,24 @@ describe('runHeadless', () => {
     expect(err).toHaveLength(0)
   })
 
+  it('never asks the provider to stream: stdout holds the finished answer alone', async () => {
+    const seen: unknown[] = []
+    const { sessions, loop } = loopWith({
+      name: 'would-stream',
+      async generate(_request, _signal, options) {
+        seen.push(options)
+        options?.onText?.({ type: 'delta', text: 'partial' })
+        return { message: { role: 'assistant', content: 'final' } }
+      },
+    })
+    const { out, io } = collect()
+
+    await runHeadless(loop, sessions, { prompt: 'x', io, signal: new AbortController().signal })
+
+    expect(seen).toEqual([undefined])
+    expect(out.join('')).toBe('final\n')
+  })
+
   it('ends the answer with exactly one newline so output composes', async () => {
     const { sessions, loop } = loopWith(new AnswerAdapter('42\n'))
     const { out, io } = collect()

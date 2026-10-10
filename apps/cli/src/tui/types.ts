@@ -23,4 +23,9 @@ export interface TuiHandlers {
   requestInput(label: string): Promise<string | null>
   /** A transient line shown above the input box (e.g. "thinking…"), or `null` to clear it. */
   setStatus(text: string | null): void
+  /**
+   * The reply being generated right now, repainted in place as it grows, or
+   * `null` once it is finished and has moved into the transcript.
+   */
+  setLive(text: string | null): void
 }
