@@ -5,6 +5,7 @@ import { InMemoryMemoryProvider } from '@open-agent/memory'
 import { runRepl } from './repl.js'
 import { createBackgroundJobs } from './background.js'
 import { createTerminalAnswerStream } from './answer-stream.js'
+import { createLineActivityView } from './tool-activity.js'
 import type { AbortRef, ReplIO } from './repl.js'
 
 function fakeIo(inputs: string[]): ReplIO & { output: string[] } {
@@ -263,6 +264,87 @@ describe('runRepl', () => {
       )
 
       expect(io.output.join('').split('you said: hello')).toHaveLength(2)
+    })
+  })
+
+  describe('toolActivity', () => {
+    const echoTool = {
+      name: 'echo',
+      description: 'echoes',
+      schema: { type: 'object', properties: {} },
+      permissionLevel: 'safe' as const,
+      async execute(args: Record<string, unknown>) {
+        return { ok: true, content: String(args.text) }
+      },
+    }
+    /** Calls `echo` once, then answers. */
+    const callsEchoOnce = (): LlmAdapter => {
+      let step = 0
+      return {
+        name: 'calls-echo',
+        async generate() {
+          return step++ === 0
+            ? {
+                message: {
+                  role: 'assistant',
+                  content: '',
+                  toolCalls: [{ id: 'c1', name: 'echo', args: { text: 'hi' } }],
+                },
+              }
+            : { message: { role: 'assistant', content: 'done' } }
+        },
+      }
+    }
+
+    it('shows each tool call of the foreground task as it runs, before the answer', async () => {
+      const sessions = new SessionLog()
+      const tools = new ToolRegistry()
+      tools.register(echoTool)
+      const loop = new AgentLoop({ sessions, tools, llm: callsEchoOnce() })
+      const io = fakeIo(['go'])
+
+      await runRepl(
+        loop,
+        sessions,
+        io,
+        { current: null },
+        {
+          toolActivity: createLineActivityView((text) => io.write(text)),
+        },
+      )
+
+      const out = io.output.join('')
+      expect(out).toMatch(/▸ echo \{"text":"hi"\}\n {2}ok \d+ms\n/)
+      expect(out.indexOf('▸ echo')).toBeLessThan(out.indexOf('done'))
+    })
+
+    it("leaves a background job's tool calls out of the foreground view", async () => {
+      const sessions = new SessionLog()
+      const tools = new ToolRegistry()
+      tools.register(echoTool)
+      const background = createBackgroundJobs(
+        new AgentLoop({ sessions, tools, llm: callsEchoOnce() }),
+        sessions,
+        () => {},
+      )
+      const job = background.start('in the background')
+      // The foreground task runs while the job does, and writes to the same log.
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm: new EchoAdapter() })
+      const io = fakeIo(['foreground'])
+
+      await runRepl(
+        loop,
+        sessions,
+        io,
+        { current: null },
+        {
+          toolActivity: createLineActivityView((text) => io.write(text)),
+        },
+      )
+      await background.close()
+
+      expect(sessions.allEvents().some((e) => e.type === 'tool/call' && e.taskId.startsWith(job.id))).toBe(true)
+      expect(io.output.join('')).not.toContain('▸')
     })
   })
 })

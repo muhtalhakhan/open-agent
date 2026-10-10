@@ -45,6 +45,7 @@ export function App({ onReady, onInterrupt }: AppProps) {
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [status, setStatus] = useState<string | null>(null)
   const [live, setLive] = useState<string | null>(null)
+  const [activity, setActivity] = useState<string | null>(null)
   const { stdout } = useStdout()
   const [label, setLabel] = useState('> ')
   const [value, setValue] = useState('')
@@ -60,6 +61,9 @@ export function App({ onReady, onInterrupt }: AppProps) {
       },
       setLive(text) {
         setLive(text)
+      },
+      setActivity(text) {
+        setActivity(text)
       },
       requestInput(nextLabel) {
         setLabel(nextLabel)
@@ -101,7 +105,7 @@ export function App({ onReady, onInterrupt }: AppProps) {
       <Static items={entries}>
         {(entry) => (
           <Box key={entry.id}>
-            <Text dimColor={entry.kind === 'input'} wrap="wrap">
+            <Text dimColor={entry.kind !== 'output'} wrap={entry.kind === 'activity' ? 'truncate-end' : 'wrap'}>
               {entry.text}
             </Text>
           </Box>
@@ -111,6 +115,13 @@ export function App({ onReady, onInterrupt }: AppProps) {
         <Box marginTop={1}>
           {/* Room left for the status line and input box below it. */}
           <Text wrap="wrap">{tail(live, Math.max(3, (stdout.rows || 24) - 6))}</Text>
+        </Box>
+      )}
+      {activity && (
+        <Box marginTop={1}>
+          <Text dimColor wrap="truncate-end">
+            {activity}
+          </Text>
         </Box>
       )}
       {status && (

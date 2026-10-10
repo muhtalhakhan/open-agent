@@ -6,11 +6,17 @@ function fakeHandlers(): TuiHandlers & {
   entries: Omit<TranscriptEntry, 'id'>[]
   statuses: (string | null)[]
   lives: (string | null)[]
+  activities: (string | null)[]
 } {
   const entries: Omit<TranscriptEntry, 'id'>[] = []
   const statuses: (string | null)[] = []
   const lives: (string | null)[] = []
+  const activities: (string | null)[] = []
   return {
+    activities,
+    setActivity(text) {
+      activities.push(text)
+    },
     entries,
     statuses,
     lives,
@@ -131,5 +137,19 @@ describe('TuiIo', () => {
       expect(handlers.entries).toEqual([{ kind: 'output', text: 'interrupted mid' }])
       expect(handlers.lives.at(-1)).toBeNull()
     })
+  })
+
+  it('toolActivity() shows a running call, then moves it into the transcript with its outcome', () => {
+    const io = new TuiIo()
+    const handlers = fakeHandlers()
+    io.bind(handlers)
+    const view = io.toolActivity()
+    const call = { id: 'c1', name: 'read_file', args: { path: 'a.ts' } }
+
+    view.started(call)
+    view.finished(call, { ok: true, content: '...' }, 42)
+
+    expect(handlers.activities).toEqual(['▸ read_file {"path":"a.ts"} …', null])
+    expect(handlers.entries).toEqual([{ kind: 'activity', text: '▸ read_file {"path":"a.ts"}  ok 42ms' }])
   })
 })

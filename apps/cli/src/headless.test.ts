@@ -68,6 +68,39 @@ describe('runHeadless', () => {
     expect(out.join('')).toBe('final\n')
   })
 
+  it('reports tool calls on stderr as progress, keeping stdout to the answer', async () => {
+    const sessions = new SessionLog()
+    const tools = new ToolRegistry()
+    tools.register({
+      name: 'echo',
+      description: 'echoes',
+      schema: { type: 'object', properties: {} },
+      permissionLevel: 'safe',
+      async execute() {
+        return { ok: true, content: 'echoed' }
+      },
+    })
+    let step = 0
+    const loop = new AgentLoop({
+      sessions,
+      tools,
+      llm: {
+        name: 'calls-echo',
+        async generate() {
+          return step++ === 0
+            ? { message: { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'echo', args: {} }] } }
+            : { message: { role: 'assistant', content: 'answer' } }
+        },
+      },
+    })
+    const { out, err, io } = collect()
+
+    await runHeadless(loop, sessions, { prompt: 'x', io, signal: new AbortController().signal })
+
+    expect(out.join('')).toBe('answer\n')
+    expect(err.join('')).toMatch(/^▸ echo\n {2}ok \d+ms\n$/)
+  })
+
   it('ends the answer with exactly one newline so output composes', async () => {
     const { sessions, loop } = loopWith(new AnswerAdapter('42\n'))
     const { out, io } = collect()

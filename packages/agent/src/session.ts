@@ -20,10 +20,33 @@ export interface TaskSummary {
  */
 export class SessionLog {
   private readonly events: SessionEvent[] = []
+  private readonly listeners = new Set<(event: SessionEvent) => void>()
 
   append(event: SessionEvent): SessionEvent {
     this.events.push(event)
+    for (const listener of this.listeners) {
+      // A listener is a view of the log, never part of it. One that throws
+      // must not stop the event being recorded — it already is — or reach
+      // the agent loop that appended it and fail the task over a display bug.
+      try {
+        listener(event)
+      } catch {
+        // Deliberately dropped: the log has no channel to report it on.
+      }
+    }
     return event
+  }
+
+  /**
+   * Calls `listener` with every event appended from now on, so a live view
+   * (the CLI's tool activity, a web UI's step stream) is a projection of the
+   * log rather than a second source of truth fed from somewhere else. Events
+   * restored by `loadFrom` are history, not activity, and are not replayed.
+   * Returns the unsubscribe function.
+   */
+  onAppend(listener: (event: SessionEvent) => void): () => void {
+    this.listeners.add(listener)
+    return () => void this.listeners.delete(listener)
   }
 
   all(taskId: string): SessionEvent[] {

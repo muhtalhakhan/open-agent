@@ -1,5 +1,6 @@
 import type { AgentLoop, SessionLog } from '@open-agent/agent'
 import { executeTask, type MemoryHook } from './task.js'
+import { createLineActivityView, trackToolActivity } from './tool-activity.js'
 
 /** Conventional shell exit codes: 130 is "terminated by SIGINT". */
 export const EXIT_OK = 0
@@ -25,7 +26,9 @@ export interface HeadlessOptions {
  *
  * Deliberately splits the streams: only the final answer reaches stdout, so
  * `open-agent -p "..." > answer.txt` captures the answer alone and nothing
- * has to be parsed back out of decorated terminal output.
+ * has to be parsed back out of decorated terminal output. Tool calls are
+ * progress, so they are reported on stderr as they run, where a CI log shows
+ * what the agent did and a captured answer stays clean.
  */
 export async function runHeadless(
   agentLoop: AgentLoop,
@@ -38,7 +41,8 @@ export async function runHeadless(
     return EXIT_ERROR
   }
 
-  const outcome = await executeTask(agentLoop, sessions, trimmed, signal, memory)
+  const onEvent = trackToolActivity(createLineActivityView(io.err))
+  const outcome = await executeTask(agentLoop, sessions, trimmed, signal, { memory, onEvent })
 
   if (outcome.status === 'completed') {
     // Exactly one trailing newline, so the output composes with other tools.

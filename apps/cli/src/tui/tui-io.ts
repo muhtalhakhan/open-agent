@@ -1,5 +1,6 @@
 import type { AnswerStream } from '../answer-stream.js'
 import type { ReplIO } from '../repl.js'
+import { describeCall, describeOutcome, type ToolActivityView } from '../tool-activity.js'
 import type { TuiHandlers } from './types.js'
 
 /**
@@ -89,6 +90,24 @@ export class TuiIo implements ReplIO {
       },
       lastShown: () => shown,
       close: () => void finish(),
+    }
+  }
+
+  /**
+   * Shows a running call on its own line above the input, then moves it into
+   * the transcript with its outcome once it finishes — so the scrollback ends
+   * up with one line per call, and nothing is left saying "running".
+   */
+  toolActivity(): ToolActivityView {
+    return {
+      started: (call) => this.handlers?.setActivity(`▸ ${describeCall(call)} …`),
+      finished: (call, result, ms) => {
+        this.handlers?.setActivity(null)
+        this.handlers?.appendEntry({
+          kind: 'activity',
+          text: `▸ ${describeCall(call)}  ${describeOutcome(result, ms)}`,
+        })
+      },
     }
   }
 
