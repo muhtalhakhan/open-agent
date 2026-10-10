@@ -24,7 +24,9 @@ TypeScript monorepo on npm workspaces. `apps/cli` (the terminal app) and
   every call; `dangerous` additionally requires `enableDangerous(name)`. Don't
   route around it for convenience.
 - **`LlmAdapter` is `name` + `generate()`.** That is the whole interface; there
-  is no `stream()`/`tool_call()`/`vision()`. The agent core must never
+  is no `stream()`/`tool_call()`/`vision()`. Streaming is an optional `onText`
+  callback on `generate()`, display-only: the resolved response is what gets
+  logged, and an adapter that can't stream ignores it. The agent core must never
   special-case a provider by name — normalising a provider's quirks (Anthropic's
   top-level `system`, Gemini's `systemInstruction`) is the adapter's job.
 - **The user's message is what the user typed.** Background context (recalled

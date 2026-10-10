@@ -3,7 +3,7 @@ import type { SessionLog } from './session.js'
 import type { ToolRegistry } from './tools.js'
 import type { Logger } from './logger.js'
 import { silentLogger } from './logger.js'
-import type { LlmAdapter, LlmResponse, TaskState } from './types.js'
+import type { GenerateOptions, LlmAdapter, LlmResponse, TaskState, TextStreamEvent } from './types.js'
 import { UNTRUSTED_CONTENT_GUIDANCE, isFenced } from './untrusted.js'
 
 export class CancelledError extends Error {
@@ -25,7 +25,19 @@ export interface RunOptions {
    * stays faithful, and context can't be mistaken for the request itself.
    */
   context?: string
+  /**
+   * Streams the model's text as it is generated, for a person watching. Gets
+   * an adapter's `delta`s and `reset`s, a `reset` of its own before every
+   * retry, and an `end` once a reply is complete, which is where one model
+   * message stops and the next (after a tool call) begins.
+   *
+   * Display only. The log still records each reply whole, once it is
+   * complete, so nothing about transcripts or `--resume` changes.
+   */
+  onText?: (event: RunTextEvent) => void
 }
+
+export type RunTextEvent = TextStreamEvent | { type: 'end' }
 
 export interface AgentLoopOptions {
   llm: LlmAdapter
@@ -115,7 +127,7 @@ export class AgentLoop {
 
         sessions.append({ type: 'step/start', taskId, at: Date.now() })
         const messages = sessions.deriveMessages(taskId)
-        const response = await this.generateWithRetry(messages, tools.list(), signal, taskId)
+        const response = await this.generateWithRetry(messages, tools.list(), signal, taskId, options.onText)
 
         sessions.append({ type: 'assistant/message', taskId, at: Date.now(), message: response.message })
 
@@ -162,12 +174,33 @@ export class AgentLoop {
     toolDefs: Parameters<LlmAdapter['generate']>[0]['tools'],
     signal: AbortSignal,
     taskId: string,
+    onText?: (event: RunTextEvent) => void,
   ): Promise<LlmResponse> {
+    // A broken display must not fail the task: the callback only mirrors what
+    // the log will hold anyway, so its errors are logged and dropped rather
+    // than mistaken for a provider failure and retried.
+    const emit = onText
+      ? (event: RunTextEvent) => {
+          try {
+            onText(event)
+          } catch (err) {
+            this.logger.warn('onText', { taskId, error: err instanceof Error ? err.message : String(err) })
+          }
+        }
+      : undefined
+    // Without a listener adapters take their non-streaming path, so print
+    // mode and background jobs make exactly the requests they always did.
+    const generateOptions: GenerateOptions | undefined = emit ? { onText: emit } : undefined
+
     let attempt = 0
     for (;;) {
       if (signal.aborted) throw new CancelledError()
       try {
-        return await this.options.llm.generate({ messages, tools: toolDefs }, signal)
+        // A failed attempt may have streamed half an answer before it died.
+        if (attempt > 0) emit?.({ type: 'reset' })
+        const response = await this.options.llm.generate({ messages, tools: toolDefs }, signal, generateOptions)
+        emit?.({ type: 'end' })
+        return response
       } catch (err) {
         attempt++
         if (attempt > this.maxRetries) throw err

@@ -4,6 +4,7 @@ import type { LlmAdapter, LlmRequest, LlmResponse } from '@open-agent/agent'
 import { InMemoryMemoryProvider } from '@open-agent/memory'
 import { runRepl } from './repl.js'
 import { createBackgroundJobs } from './background.js'
+import { createTerminalAnswerStream } from './answer-stream.js'
 import type { AbortRef, ReplIO } from './repl.js'
 
 function fakeIo(inputs: string[]): ReplIO & { output: string[] } {
@@ -212,6 +213,56 @@ describe('runRepl', () => {
       const io = fakeIo([':bg something'])
       await runRepl(loop, sessions, io, { current: null })
       expect(io.output.join('')).toMatch(/you said: :bg something/)
+    })
+  })
+
+  describe('answerStream', () => {
+    /** Streams its answer in two pieces when asked to, like a real adapter would. */
+    const streaming: LlmAdapter = {
+      name: 'streaming',
+      async generate(_request, _signal, options) {
+        options?.onText?.({ type: 'delta', text: 'streamed ' })
+        options?.onText?.({ type: 'delta', text: 'answer' })
+        return { message: { role: 'assistant', content: 'streamed answer' } }
+      },
+    }
+
+    it('shows a streamed answer as it arrives, and only once', async () => {
+      const sessions = new SessionLog()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm: streaming })
+      const io = fakeIo(['go'])
+
+      await runRepl(
+        loop,
+        sessions,
+        io,
+        { current: null },
+        {
+          answerStream: () => createTerminalAnswerStream((text) => io.write(text)),
+        },
+      )
+
+      const out = io.output.join('')
+      expect(out).toContain('\nstreamed answer\n\n')
+      expect(out.split('streamed answer')).toHaveLength(2)
+    })
+
+    it('still prints the answer when the provider does not stream', async () => {
+      const sessions = new SessionLog()
+      const loop = new AgentLoop({ sessions, tools: new ToolRegistry(), llm: new EchoAdapter() })
+      const io = fakeIo(['hello'])
+
+      await runRepl(
+        loop,
+        sessions,
+        io,
+        { current: null },
+        {
+          answerStream: () => createTerminalAnswerStream((text) => io.write(text)),
+        },
+      )
+
+      expect(io.output.join('').split('you said: hello')).toHaveLength(2)
     })
   })
 })

@@ -1,5 +1,5 @@
 import { ProviderHttpError } from './errors.js'
-import type { LlmAdapter, LlmRequest, LlmResponse } from '@open-agent/agent'
+import type { GenerateOptions, LlmAdapter, LlmRequest, LlmResponse } from '@open-agent/agent'
 
 /**
  * Statuses worth retrying against a different provider.
@@ -49,7 +49,7 @@ export class ProviderFallbackAdapter implements LlmAdapter {
 
   constructor(private readonly opts: FallbackAdapterOptions) {}
 
-  async generate(request: LlmRequest, signal: AbortSignal): Promise<LlmResponse> {
+  async generate(request: LlmRequest, signal: AbortSignal, options?: GenerateOptions): Promise<LlmResponse> {
     const adapters = this.opts.adapters
     if (adapters.length === 0) throw new Error('no providers in fallback')
 
@@ -65,8 +65,11 @@ export class ProviderFallbackAdapter implements LlmAdapter {
     for (let i = 0; i < adapters.length; i++) {
       const adapter = adapters[i]
       if (signal.aborted) throw signal.reason ?? new Error('aborted')
+      // The provider that just failed may have streamed part of an answer
+      // first, and the next one starts over from nothing.
+      if (i > 0) options?.onText?.({ type: 'reset' })
       try {
-        const res = await adapter.generate(request, signal)
+        const res = await adapter.generate(request, signal, options)
         // Only report a switch when one actually happened — i.e. the adapter
         // that answered is not the one this call started with.
         if (i > 0) {

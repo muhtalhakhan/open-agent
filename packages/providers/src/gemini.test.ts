@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { LlmRequest } from '@open-agent/agent'
 import { GeminiProvider } from './gemini.js'
+import { recordText, sseResponse } from './sse-fixture.js'
 
 describe('GeminiProvider', () => {
   const mockTools = [
@@ -148,6 +149,42 @@ describe('GeminiProvider', () => {
     await expect(provider.generate({ messages: [], tools: [] }, new AbortController().signal)).rejects.toThrow(
       'generateContent?key=[REDACTED] responded 400: Bad Request',
     )
+  })
+  describe('streaming', () => {
+    it('calls streamGenerateContent over SSE and gathers the parts into one message', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          { data: { candidates: [{ content: { role: 'model', parts: [{ text: 'Checking ' }] } }] } },
+          { data: { candidates: [{ content: { role: 'model', parts: [{ text: 'the weather…' }] } }] } },
+          {
+            data: {
+              candidates: [
+                { content: { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { loc: 'SF' } } }] } },
+              ],
+            },
+          },
+        ]),
+      )
+      const seen = recordText()
+      const result = await new GeminiProvider({ apiKey: 'test-key', model: 'gemini-test', fetchFn }).generate(
+        { messages: [{ role: 'user', content: 'weather?' }], tools: [] },
+        new AbortController().signal,
+        { onText: seen.onText },
+      )
+
+      expect(fetchFn.mock.calls[0][0]).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-test:streamGenerateContent?alt=sse&key=test-key',
+      )
+      expect(seen.events).toEqual([
+        { type: 'delta', text: 'Checking ' },
+        { type: 'delta', text: 'the weather…' },
+      ])
+      expect(result.message).toMatchObject({
+        role: 'assistant',
+        content: 'Checking the weather…',
+        toolCalls: [{ name: 'get_weather', args: { loc: 'SF' } }],
+      })
+    })
   })
 })
 

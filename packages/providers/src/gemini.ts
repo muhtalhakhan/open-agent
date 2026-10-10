@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { ProviderHttpError } from './errors.js'
-import type { LlmAdapter, LlmRequest, LlmResponse, Message, ToolCall, ToolDefinition } from '@open-agent/agent'
+import { readSse, sseBody } from './sse.js'
+import type {
+  GenerateOptions,
+  LlmAdapter,
+  LlmRequest,
+  LlmResponse,
+  Message,
+  TextStreamEvent,
+  ToolCall,
+  ToolDefinition,
+} from '@open-agent/agent'
 
 export interface GeminiOptions {
   /** defaults to https://generativelanguage.googleapis.com/v1beta */
@@ -35,7 +45,7 @@ export class GeminiProvider implements LlmAdapter {
 
   constructor(private readonly options: GeminiOptions) {}
 
-  async generate(request: LlmRequest, signal: AbortSignal): Promise<LlmResponse> {
+  async generate(request: LlmRequest, signal: AbortSignal, options: GenerateOptions = {}): Promise<LlmResponse> {
     const fetchFn = this.options.fetchFn ?? fetch
     const baseURL = this.options.baseURL ?? 'https://generativelanguage.googleapis.com/v1beta'
     const model = this.options.model
@@ -123,7 +133,9 @@ export class GeminiProvider implements LlmAdapter {
       body.tools = [{ functionDeclarations: request.tools.map(toGeminiTool) }]
     }
 
-    const url = `${baseURL}/models/${model}:generateContent?key=${this.options.apiKey}`
+    const url = options.onText
+      ? `${baseURL}/models/${model}:streamGenerateContent?alt=sse&key=${this.options.apiKey}`
+      : `${baseURL}/models/${model}:generateContent?key=${this.options.apiKey}`
 
     const response = await fetchFn(url, {
       method: 'POST',
@@ -136,33 +148,59 @@ export class GeminiProvider implements LlmAdapter {
       throw new ProviderHttpError(response.status, this.name, url, await response.text())
     }
 
-    const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: GeminiPart[] } }>
-    }
+    const events = options.onText ? sseBody(response) : null
+    if (events && options.onText) return { message: fromGeminiParts(await readStream(events, options.onText)) }
 
-    const message: Message = { role: 'assistant', content: '' }
-    const toolCalls: ToolCall[] = []
-
-    const firstCandidate = data.candidates?.[0]
-    const parts = firstCandidate?.content?.parts ?? []
-
-    for (const part of parts) {
-      if (part.text !== undefined) {
-        message.content += part.text
-      }
-      if (part.functionCall) {
-        toolCalls.push({
-          id: randomUUID(),
-          name: part.functionCall.name,
-          args: part.functionCall.args,
-        })
-      }
-    }
-
-    if (toolCalls.length > 0) {
-      message.toolCalls = toolCalls
-    }
-
-    return { message }
+    const data = (await response.json()) as GeminiResponse
+    return { message: fromGeminiParts(data.candidates?.[0]?.content?.parts ?? []) }
   }
+}
+
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>
+}
+
+function fromGeminiParts(parts: GeminiPart[]): Message {
+  const message: Message = { role: 'assistant', content: '' }
+  const toolCalls: ToolCall[] = []
+
+  for (const part of parts) {
+    if (part.text !== undefined) {
+      message.content += part.text
+    }
+    if (part.functionCall) {
+      toolCalls.push({
+        id: randomUUID(),
+        name: part.functionCall.name,
+        args: part.functionCall.args,
+      })
+    }
+  }
+
+  if (toolCalls.length > 0) {
+    message.toolCalls = toolCalls
+  }
+
+  return message
+}
+
+/**
+ * Each event of `streamGenerateContent?alt=sse` is a whole
+ * `GenerateContentResponse` holding only the parts that are new: text in
+ * pieces, a function call complete in one. Gathered in order they are the
+ * parts the non-streaming call returns.
+ */
+async function readStream(
+  body: ReadableStream<Uint8Array>,
+  onText: (event: TextStreamEvent) => void,
+): Promise<GeminiPart[]> {
+  const parts: GeminiPart[] = []
+  for await (const { data } of readSse(body)) {
+    const chunk = JSON.parse(data) as GeminiResponse
+    for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+      parts.push(part)
+      if (part.text) onText({ type: 'delta', text: part.text })
+    }
+  }
+  return parts
 }

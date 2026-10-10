@@ -65,9 +65,26 @@ export interface LlmResponse {
   message: Message
 }
 
+/**
+ * Text as it arrives, for display only: none of it is logged. A `reset` takes
+ * back everything shown since the last one, because a retry or a switch to a
+ * fallback provider starts the answer over after part of it was already on
+ * screen.
+ */
+export type TextStreamEvent = { type: 'delta'; text: string } | { type: 'reset' }
+
+export interface GenerateOptions {
+  /**
+   * When set, an adapter that can stream calls this as text arrives. One that
+   * can't ignores it. Either way `generate()` resolves with the whole
+   * response, which is what gets logged.
+   */
+  onText?: (event: TextStreamEvent) => void
+}
+
 export interface LlmAdapter {
   name: string
-  generate(request: LlmRequest, signal: AbortSignal): Promise<LlmResponse>
+  generate(request: LlmRequest, signal: AbortSignal, options?: GenerateOptions): Promise<LlmResponse>
 }
 
 /** A durable, append-only fact about a task. Session state is always a projection of this log. */

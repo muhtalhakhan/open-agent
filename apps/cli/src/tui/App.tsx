@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Static, Text, useInput } from 'ink'
+import { Box, Static, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 import type { TranscriptEntry, TuiHandlers } from './types.js'
 
@@ -17,6 +17,17 @@ export interface AppProps {
 let nextEntryId = 0
 
 /**
+ * Only the end of a long reply is painted live. Ink repaints its dynamic area
+ * by erasing it, and one taller than the terminal cannot be erased — it would
+ * leave a smear of copies in the scrollback. The whole reply still lands in
+ * the transcript once it is finished.
+ */
+function tail(text: string, rows: number): string {
+  const lines = text.split('\n')
+  return lines.length <= rows ? text : ['…', ...lines.slice(-(rows - 1))].join('\n')
+}
+
+/**
  * The whole TUI: a `<Static>` scrollback transcript (each entry is rendered
  * once and never re-painted, so normal terminal scrollback still works) plus
  * a fixed input line pinned below it. `<Static>` growing is what gives us
@@ -26,6 +37,8 @@ let nextEntryId = 0
 export function App({ onReady, onInterrupt }: AppProps) {
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [status, setStatus] = useState<string | null>(null)
+  const [live, setLive] = useState<string | null>(null)
+  const { stdout } = useStdout()
   const [label, setLabel] = useState('> ')
   const [value, setValue] = useState('')
   const resolveInput = useRef<((value: string | null) => void) | null>(null)
@@ -37,6 +50,9 @@ export function App({ onReady, onInterrupt }: AppProps) {
       },
       setStatus(text) {
         setStatus(text)
+      },
+      setLive(text) {
+        setLive(text)
       },
       requestInput(nextLabel) {
         setLabel(nextLabel)
@@ -84,6 +100,12 @@ export function App({ onReady, onInterrupt }: AppProps) {
           </Box>
         )}
       </Static>
+      {live && (
+        <Box marginTop={1}>
+          {/* Room left for the status line and input box below it. */}
+          <Text wrap="wrap">{tail(live, Math.max(3, (stdout.rows || 24) - 6))}</Text>
+        </Box>
+      )}
       {status && (
         <Box marginTop={1}>
           <Text color="yellow">{status}</Text>

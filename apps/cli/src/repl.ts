@@ -1,5 +1,6 @@
 import type { AgentLoop, SessionLog, TaskRecord } from '@open-agent/agent'
 import type { Job } from '@open-agent/automation'
+import type { AnswerStream } from './answer-stream.js'
 import type { BackgroundJobs } from './background.js'
 import { formatHistory } from './history.js'
 import { executeTask, type MemoryHook } from './task.js'
@@ -21,6 +22,12 @@ export interface ReplOptions {
   history?: () => Promise<TaskRecord[]>
   /** Turns a final answer into what is printed — rendering its Markdown, say. Printed as-is when absent. */
   formatAnswer?: (answer: string) => string
+  /**
+   * Shows replies as they are generated, given a fresh stream for each task.
+   * Without it the answer appears once the task is done. Background jobs
+   * never stream: nobody is watching them.
+   */
+  answerStream?: () => AnswerStream
 }
 
 /** Lets the caller cancel whichever task is currently running (e.g. from a SIGINT handler). */
@@ -48,7 +55,7 @@ export async function runRepl(
   sessions: SessionLog,
   io: ReplIO,
   activeAbort: AbortRef,
-  { memory, background, history, formatAnswer = (answer) => answer }: ReplOptions = {},
+  { memory, background, history, formatAnswer = (answer) => answer, answerStream }: ReplOptions = {},
 ): Promise<void> {
   io.write(
     background
@@ -76,12 +83,15 @@ export async function runRepl(
     const controller = new AbortController()
     activeAbort.current = controller
     io.setStatus?.('thinking…')
-    const outcome = await executeTask(agentLoop, sessions, trimmed, controller.signal, memory)
+    const stream = answerStream?.()
+    const outcome = await executeTask(agentLoop, sessions, trimmed, controller.signal, memory, stream?.onText)
+    stream?.close()
     activeAbort.current = null
     io.setStatus?.(null)
 
     if (outcome.status === 'completed') {
-      io.write(`\n${formatAnswer(outcome.answer)}\n\n`)
+      // Already on screen if it streamed; printing it again would show it twice.
+      if (!stream?.lastShown()) io.write(`\n${formatAnswer(outcome.answer)}\n\n`)
     } else {
       io.write(`\n[${outcome.status}]${outcome.error ? ` ${outcome.error}` : ''}\n\n`)
     }
