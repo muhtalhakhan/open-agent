@@ -121,6 +121,23 @@ async function wizard(io: InitIO, deps: InitDeps): Promise<number> {
     }
   }
 
+  // `none` is the one answer that hands the agent the user's own privileges,
+  // so it takes a second, explicit yes — the same bar the config sets by never
+  // falling through to it on its own.
+  const askSandbox = async (): Promise<string> => {
+    io.write('  Sandboxes: auto (bubblewrap where the kernel allows it, else Docker), bubblewrap, docker, or none.\n')
+    for (;;) {
+      const answer = (await ask('  Sandbox [auto]: ')).toLowerCase() || 'auto'
+      if (answer === 'auto' || answer === 'bubblewrap' || answer === 'docker') return answer
+      if (answer === 'none') {
+        io.write('  With none, commands run as you: they can read and change anything you can.\n')
+        if (await confirm('  Run them unsandboxed anyway?', false)) return 'none'
+        continue
+      }
+      io.write('  Pick auto, bubblewrap, docker or none.\n')
+    }
+  }
+
   io.write(`Setting up OpenAgent. Answers go into ${deps.envPath}; press Ctrl+C to stop without writing anything.\n\n`)
 
   if (deps.exists(deps.envPath)) {
@@ -184,8 +201,7 @@ async function wizard(io: InitIO, deps: InitDeps): Promise<number> {
     env.push(['FILES_TOOL', '1'], ['FILES_ROOT', root])
   }
   if (await confirm('Let it run shell commands, each with your approval, inside a sandbox?', false)) {
-    env.push(['SHELL_TOOL', '1'])
-    io.write('  It picks bubblewrap or Docker, and turns the shell tools off if neither works (see SHELL_SANDBOX).\n')
+    env.push(['SHELL_TOOL', '1'], ['SHELL_SANDBOX', await askSandbox()])
   }
   if (await confirm('Give it web search (Brave or Tavily, needs an API key)?', false)) {
     const tavily = (await ask('  Brave or Tavily? [brave]: ')).toLowerCase().startsWith('t')

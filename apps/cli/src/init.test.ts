@@ -166,6 +166,7 @@ describe('runInit', () => {
       'y', // files
       '', // workspace: default
       'y', // shell
+      '', // sandbox: auto
       'y', // search
       'tavily',
       'tvly-search-key',
@@ -183,7 +184,7 @@ describe('runInit', () => {
     const env = d.written[0].content
     expect(env).toContain('OPENAI_MODEL=gpt-test\n')
     expect(env).toContain('FILES_TOOL=1\nFILES_ROOT=/work\n')
-    expect(env).toContain('SHELL_TOOL=1\n')
+    expect(env).toContain('SHELL_TOOL=1\nSHELL_SANDBOX=auto\n')
     expect(env).not.toContain('BROWSER_USE')
     expect(d.stored).toEqual({ OPENAI_API_KEY: KEY, TAVILY_API_KEY: 'tvly-search-key', MEM0_API_KEY: 'm0-memory-key' })
     expect(env).not.toMatch(/tvly-search-key|m0-memory-key/)
@@ -198,6 +199,24 @@ describe('runInit', () => {
     expect(s.text()).toContain('cannot hold')
     expect(d.stored).toEqual({})
     expect(d.written).toEqual([])
+  })
+
+  it('takes a second, explicit yes before running shell commands unsandboxed', async () => {
+    const answers = (sandbox: string[]) => ['1', '', KEY, 'n', 'y', ...sandbox, 'n', 'n', 'n', '']
+    const backedOff = scripted(answers(['none', '', 'docker']))
+    const insisted = scripted(answers(['none', 'y']))
+    const typo = scripted(answers(['dokcer', 'bubblewrap']))
+    const results = await Promise.all(
+      [backedOff, insisted, typo].map(async (s) => {
+        const d = deps({ keychain: undefined })
+        await runInit(s.io, d.deps)
+        return d.written[0]?.content.match(/SHELL_SANDBOX=(\w+)/)?.[1]
+      }),
+    )
+
+    expect(results).toEqual(['docker', 'none', 'bubblewrap'])
+    expect(backedOff.text()).toContain('commands run as you')
+    expect(typo.text()).toContain('Pick auto, bubblewrap, docker or none.')
   })
 
   it('asks for the base URL when the endpoint is not a preset', async () => {
