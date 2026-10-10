@@ -1,3 +1,10 @@
+/** @jsxRuntime automatic */
+/** @jsxImportSource react */
+// Also set in tsconfig.json, but that isn't enough: the `open-agent` bin runs
+// through tsx, which reads the tsconfig of the directory it is launched from.
+// Started anywhere but apps/cli, it compiled JSX to `React.createElement`
+// with no `React` in scope, and the TUI crashed on its first render. esbuild
+// only honours a pragma that opens its own comment, hence two of them.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
