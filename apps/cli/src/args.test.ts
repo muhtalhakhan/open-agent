@@ -31,6 +31,11 @@ describe('parseCliArgs', () => {
     expect(ok(['-p', 'task']).approveAsk).toBe(false)
   })
 
+  it('runs the setup wizard for "init", and treats -p init as a task', () => {
+    expect(ok(['init'])).toMatchObject({ mode: 'init' })
+    expect(ok(['-p', 'init'])).toMatchObject({ mode: 'print', prompt: 'init' })
+  })
+
   it('turns plan mode on with --plan', () => {
     expect(ok(['--plan'])).toMatchObject({ mode: 'repl', plan: true })
     expect(ok(['--plan']).plan).toBe(true)

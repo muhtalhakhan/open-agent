@@ -1,8 +1,8 @@
 import { parseArgs } from 'node:util'
 
 export interface CliArgs {
-  /** `print` runs one task and exits; `repl` is the interactive session. */
-  mode: 'repl' | 'print'
+  /** `print` runs one task and exits; `repl` is the interactive session; `init` writes `.env`. */
+  mode: 'repl' | 'print' | 'init'
   /** The task, in print mode. Undefined means "read it from stdin". */
   prompt?: string
   /** Approve `ask`-level tool calls automatically, since no human is present. */
@@ -22,6 +22,7 @@ export const USAGE = `open-agent — an agent you can run from your terminal
 
 Usage
   open-agent                     start the interactive session
+  open-agent init                set up the provider, key and tools, and write .env
   open-agent -p "<task>"         run one task, print the result, exit
   echo "<task>" | open-agent -p  same, reading the task from stdin
   open-agent --resume            reopen the most recent session
@@ -117,6 +118,14 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
 
   if (!values.print) {
+    // A word rather than a flag: it is a different program from the session,
+    // and `-p init` still means "run the task called init".
+    if (positionals.length === 1 && positionals[0] === 'init') {
+      return {
+        ok: true,
+        args: { mode: 'init', approveAsk: false, plan: false, resume: undefined, history: false, help: false },
+      }
+    }
     if (positionals.length > 0) {
       return { ok: false, error: `Unexpected argument "${positionals[0]}". Did you mean -p "${positionals[0]}"?` }
     }

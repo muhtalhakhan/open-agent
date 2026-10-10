@@ -4,11 +4,13 @@ import { KeychainSecretStore, MemorySecretStore, type CommandResult, type RunCom
 /** Answers each command from a table, and records what was run. */
 function fakeRun(answer: (command: string, args: string[]) => Partial<CommandResult>) {
   const calls: Array<[string, string[]]> = []
-  const run: RunCommand = (command, args) => {
+  const inputs: Array<string | undefined> = []
+  const run: RunCommand = (command, args, input) => {
     calls.push([command, args])
+    inputs.push(input)
     return { status: 0, stdout: '', stderr: '', ...answer(command, args) }
   }
-  return { run, calls }
+  return { run, calls, inputs }
 }
 
 const enoent = Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' })
@@ -66,6 +68,65 @@ describe('KeychainSecretStore on Linux', () => {
   it('says how to get secret-tool when it is not installed', () => {
     const { run } = fakeRun(() => ({ status: null, error: enoent }))
     expect(() => new KeychainSecretStore({ platform: 'linux', run }).get('K')).toThrow(/install libsecret-tools/)
+  })
+})
+
+describe('KeychainSecretStore.set', () => {
+  it('stores through secret-tool with the value on stdin, never in the arguments', () => {
+    const { run, calls, inputs } = fakeRun(() => ({}))
+    new KeychainSecretStore({ platform: 'linux', run }).set('OPENAI_API_KEY', 'sk-secret-value')
+
+    expect(calls).toEqual([
+      [
+        'secret-tool',
+        ['store', '--label=open-agent OPENAI_API_KEY', 'service', 'open-agent', 'account', 'OPENAI_API_KEY'],
+      ],
+    ])
+    expect(inputs).toEqual(['sk-secret-value'])
+  })
+
+  it('stores through security -i on macOS, with the value on stdin', () => {
+    const { run, calls, inputs } = fakeRun(() => ({}))
+    new KeychainSecretStore({ platform: 'darwin', run }).set('OPENAI_API_KEY', 'sk-secret-value')
+
+    expect(calls).toEqual([['security', ['-i']]])
+    expect(calls.flat(2).join(' ')).not.toContain('sk-secret-value')
+    expect(inputs).toEqual(['add-generic-password -U -s "open-agent" -a "OPENAI_API_KEY" -w "sk-secret-value"\n'])
+  })
+
+  it('refuses, on macOS, a value it cannot quote safely', () => {
+    const { run, calls } = fakeRun(() => ({}))
+    expect(() => new KeychainSecretStore({ platform: 'darwin', run }).set('K', 'a"b')).toThrow(/quote, backslash/)
+    expect(calls).toEqual([])
+  })
+
+  it('treats anything on stderr from security -i as a failure, since it exits 0 regardless', () => {
+    const { run } = fakeRun(() => ({ stderr: 'SecKeychainItemCreateFromContent: User canceled\n' }))
+    expect(() => new KeychainSecretStore({ platform: 'darwin', run }).set('K', 'v')).toThrow(/refused to store K/)
+  })
+
+  it('throws when the Secret Service refuses, naming the key and never the value', () => {
+    const { run } = fakeRun(() => ({ status: 1, stderr: 'Cannot autolaunch D-Bus without X11\n' }))
+    let message = ''
+    try {
+      new KeychainSecretStore({ platform: 'linux', run }).set('OPENAI_API_KEY', 'sk-secret-value')
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/refused to store OPENAI_API_KEY: Cannot autolaunch/)
+    expect(message).not.toContain('sk-secret-value')
+  })
+
+  it('isInstalled() is false only when the tool is missing', () => {
+    expect(new KeychainSecretStore({ platform: 'linux', run: fakeRun(() => ({ status: 2 })).run }).isInstalled()).toBe(
+      true,
+    )
+    expect(
+      new KeychainSecretStore({
+        platform: 'linux',
+        run: fakeRun(() => ({ status: null, error: enoent })).run,
+      }).isInstalled(),
+    ).toBe(false)
   })
 })
 

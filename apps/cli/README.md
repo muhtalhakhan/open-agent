@@ -5,7 +5,8 @@ An interactive terminal REPL for the agent runtime — the easiest way to actual
 ## Run it
 
 ```bash
-cp .env.example .env   # from the repo root, then fill in at least the OPENAI_* vars
+npm run cli -- init    # from the repo root: asks for the provider, key and tools, and writes .env
+# or: cp .env.example .env, then fill in at least the OPENAI_* vars
 npm install
 npm run cli
 ```
@@ -64,5 +65,8 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 - `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)
 - `headless.ts` — print mode: stream split and exit codes (`headless.test.ts`)
 - `approval.ts` — the y/N prompt, given an injectable `ask()` function, and the router that keeps background jobs from prompting (`approval.test.ts`, `background.test.ts`)
+- `init.ts` — the `open-agent init` wizard, given fake `InitIO` and injected file/keychain/model-check functions (`init.test.ts`); `init-io.ts` is its terminal, with echo muted while a key is typed
+- `answer-stream.ts` — streams a reply to the plain terminal as it is generated (`answer-stream.test.ts`)
+- `tool-activity.ts` — the live tool-call lines, built from session-log events (`tool-activity.test.ts`)
 - `repl.ts` — the read-task-print loop, given fake `ReplIO` and a real `AgentLoop` with a scripted `LlmAdapter` (`repl.test.ts`)
 - `tui/` — the Ink TUI: `App.tsx` (the component), `tui-io.ts` (bridges Ink to the `ReplIO`/approval-`ask` shapes the rest of the CLI is written against, tested without rendering anything in `tui-io.test.ts`), `mount.tsx` (wires the two together)
