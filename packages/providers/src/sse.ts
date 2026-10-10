@@ -73,3 +73,18 @@ export function sseBody(response: Response): ReadableStream<Uint8Array> | null {
   if (!response.body || !type.includes('text/event-stream')) return null
   return response.body
 }
+
+/**
+ * Thrown when a stream closes before the provider said the reply was done. A
+ * proxy timing out or a server restarting can end the body cleanly part-way
+ * through, and without this the half reply would be returned, and logged, as
+ * if it were the whole answer. Thrown instead, it is retried like any other
+ * failed request.
+ */
+export class IncompleteStreamError extends Error {
+  override readonly name = 'IncompleteStreamError'
+
+  constructor(provider: string) {
+    super(`${provider}: stream ended before the reply was complete`)
+  }
+}

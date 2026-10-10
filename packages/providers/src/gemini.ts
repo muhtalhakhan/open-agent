@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ProviderHttpError } from './errors.js'
-import { readSse, sseBody } from './sse.js'
+import { IncompleteStreamError, readSse, sseBody } from './sse.js'
 import type {
   GenerateOptions,
   LlmAdapter,
@@ -157,7 +157,7 @@ export class GeminiProvider implements LlmAdapter {
 }
 
 interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>
+  candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }>
 }
 
 function fromGeminiParts(parts: GeminiPart[]): Message {
@@ -195,12 +195,17 @@ async function readStream(
   onText: (event: TextStreamEvent) => void,
 ): Promise<GeminiPart[]> {
   const parts: GeminiPart[] = []
+  // Gemini has no end-of-stream event; the last chunk is the one carrying a
+  // finish reason.
+  let finished = false
   for await (const { data } of readSse(body)) {
     const chunk = JSON.parse(data) as GeminiResponse
+    if (chunk.candidates?.[0]?.finishReason) finished = true
     for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
       parts.push(part)
       if (part.text) onText({ type: 'delta', text: part.text })
     }
   }
+  if (!finished) throw new IncompleteStreamError('gemini')
   return parts
 }

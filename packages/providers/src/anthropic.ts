@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ProviderHttpError } from './errors.js'
-import { readSse, sseBody } from './sse.js'
+import { IncompleteStreamError, readSse, sseBody } from './sse.js'
 import type {
   GenerateOptions,
   LlmAdapter,
@@ -205,9 +205,12 @@ async function readStream(
 ): Promise<AnthropicBlock[]> {
   const blocks: AnthropicBlock[] = []
   const inputJson: string[] = []
+  let finished = false
   for await (const { data } of readSse(body)) {
     const event = JSON.parse(data) as AnthropicStreamEvent
-    if (event.type === 'content_block_start') {
+    if (event.type === 'message_stop') {
+      finished = true
+    } else if (event.type === 'content_block_start') {
       blocks[event.index] = { ...event.content_block }
       inputJson[event.index] = ''
     } else if (event.type === 'content_block_delta') {
@@ -227,6 +230,7 @@ async function readStream(
       throw new ProviderHttpError(status, 'anthropic', url, data)
     }
   }
+  if (!finished) throw new IncompleteStreamError('anthropic')
   for (const [index, block] of blocks.entries()) {
     if (block?.type === 'tool_use' && inputJson[index]) block.input = JSON.parse(inputJson[index])
   }

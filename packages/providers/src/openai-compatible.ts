@@ -1,5 +1,5 @@
 import { ProviderHttpError } from './errors.js'
-import { readSse, sseBody } from './sse.js'
+import { IncompleteStreamError, readSse, sseBody } from './sse.js'
 import type {
   GenerateOptions,
   LlmAdapter,
@@ -63,6 +63,7 @@ function fromOpenAiMessage(choiceMessage: {
 
 interface OpenAiChunk {
   choices?: Array<{
+    finish_reason?: string | null
     delta?: {
       content?: string | null
       tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>
@@ -84,11 +85,18 @@ async function readChunks(
 ): Promise<Message> {
   let content = ''
   const calls: Array<{ id: string; function: { name: string; arguments: string } }> = []
+  // Either marks the end: `[DONE]` is the protocol's, but not every
+  // compatible server sends it, while all of them set a finish reason.
+  let finished = false
   for await (const { data } of readSse(body)) {
-    if (data === '[DONE]') break
+    if (data === '[DONE]') {
+      finished = true
+      break
+    }
     const chunk = JSON.parse(data) as OpenAiChunk
     if (chunk.error)
       throw new Error(`${provider}: stream failed: ${chunk.error.message ?? JSON.stringify(chunk.error)}`)
+    if (chunk.choices?.[0]?.finish_reason) finished = true
     const delta = chunk.choices?.[0]?.delta
     if (!delta) continue
     if (delta.content) {
@@ -102,6 +110,7 @@ async function readChunks(
       if (part.function?.arguments) call.function.arguments += part.function.arguments
     }
   }
+  if (!finished) throw new IncompleteStreamError(provider)
   const toolCalls = calls.filter(Boolean)
   return fromOpenAiMessage({ content, tool_calls: toolCalls.length ? toolCalls : undefined })
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OpenAiCompatibleProvider } from './openai-compatible.js'
 import { recordText, sseResponse } from './sse-fixture.js'
+import { IncompleteStreamError } from './sse.js'
 
 function fakeFetch(responseBody: unknown, ok = true, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -227,6 +228,37 @@ describe('OpenAiCompatibleProvider', () => {
           },
         ),
       ).rejects.toThrow(/upstream died/)
+    })
+
+    it('accepts a finish reason in place of [DONE], since not every compatible server sends it', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([{ data: { choices: [{ delta: { content: 'done' }, finish_reason: 'stop' }] } }]),
+        )
+      const result = await new OpenAiCompatibleProvider(options(fetchFn)).generate(
+        { messages: [], tools: [] },
+        new AbortController().signal,
+        { onText: () => {} },
+      )
+      expect(result.message.content).toBe('done')
+    })
+
+    it('rejects a stream that closes before it says the reply is finished', async () => {
+      // A clean close part-way through: a proxy timing out, say. Returning it
+      // would log half an answer as the whole one.
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ data: { choices: [{ delta: { content: 'The answer is' } }] } }]))
+      await expect(
+        new OpenAiCompatibleProvider(options(fetchFn)).generate(
+          { messages: [], tools: [] },
+          new AbortController().signal,
+          {
+            onText: () => {},
+          },
+        ),
+      ).rejects.toBeInstanceOf(IncompleteStreamError)
     })
   })
 })

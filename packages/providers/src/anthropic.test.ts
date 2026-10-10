@@ -3,6 +3,7 @@ import type { LlmRequest } from '@open-agent/agent'
 import { AnthropicProvider } from './anthropic.js'
 import { ProviderHttpError } from './errors.js'
 import { recordText, sseResponse } from './sse-fixture.js'
+import { IncompleteStreamError } from './sse.js'
 
 describe('AnthropicProvider', () => {
   const mockTools = [
@@ -270,6 +271,26 @@ describe('AnthropicProvider', () => {
         .catch((e: unknown) => e)
       expect(err).toBeInstanceOf(ProviderHttpError)
       expect((err as ProviderHttpError).status).toBe(529)
+    })
+
+    it('rejects a stream that closes before message_stop', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            event: 'content_block_start',
+            data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          },
+          {
+            event: 'content_block_delta',
+            data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'It is' } },
+          },
+        ]),
+      )
+      await expect(
+        new AnthropicProvider({ apiKey: 'k', model: 'm', fetchFn }).generate(request, new AbortController().signal, {
+          onText: () => {},
+        }),
+      ).rejects.toBeInstanceOf(IncompleteStreamError)
     })
   })
 })

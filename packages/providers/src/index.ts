@@ -1,4 +1,5 @@
 export { ProviderHttpError, redactSecrets, redactUrl } from './errors.js'
+export { IncompleteStreamError } from './sse.js'
 // Credential resolution: `<NAME>` or `<NAME>_FILE` for secret files, with
 // validation that reports the variable it read and never the value.
 export { apiKeyVarsFor, resolveCredential } from './credentials.js'

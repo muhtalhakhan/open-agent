@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LlmRequest } from '@open-agent/agent'
 import { GeminiProvider } from './gemini.js'
 import { recordText, sseResponse } from './sse-fixture.js'
+import { IncompleteStreamError } from './sse.js'
 
 describe('GeminiProvider', () => {
   const mockTools = [
@@ -159,7 +160,10 @@ describe('GeminiProvider', () => {
           {
             data: {
               candidates: [
-                { content: { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { loc: 'SF' } } }] } },
+                {
+                  content: { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { loc: 'SF' } } }] },
+                  finishReason: 'STOP',
+                },
               ],
             },
           },
@@ -184,6 +188,21 @@ describe('GeminiProvider', () => {
         content: 'Checking the weather…',
         toolCalls: [{ name: 'get_weather', args: { loc: 'SF' } }],
       })
+    })
+
+    it('rejects a stream that closes before any chunk carries a finish reason', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([{ data: { candidates: [{ content: { role: 'model', parts: [{ text: 'half a' }] } }] } }]),
+        )
+      await expect(
+        new GeminiProvider({ apiKey: 'k', model: 'm', fetchFn }).generate(
+          { messages: [], tools: [] },
+          new AbortController().signal,
+          { onText: () => {} },
+        ),
+      ).rejects.toBeInstanceOf(IncompleteStreamError)
     })
   })
 })
