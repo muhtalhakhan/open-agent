@@ -1,8 +1,11 @@
 /** One line that's already happened — rendered once into the scrollback and never touched again. */
 export interface TranscriptEntry {
   id: number
-  /** `input` is an echo of something the user typed; `output` is everything else (banner, answers, status). */
-  kind: 'input' | 'output'
+  /**
+   * `input` is an echo of something the user typed; `activity` a finished
+   * tool call; `output` is everything else (banner, answers, status).
+   */
+  kind: 'input' | 'output' | 'activity'
   text: string
 }
 
@@ -28,4 +31,6 @@ export interface TuiHandlers {
    * `null` once it is finished and has moved into the transcript.
    */
   setLive(text: string | null): void
+  /** The tool call running right now, or `null` once it has finished. */
+  setActivity(text: string | null): void
 }

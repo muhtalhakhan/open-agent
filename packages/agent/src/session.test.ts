@@ -65,4 +65,42 @@ describe('SessionLog', () => {
     const log = new SessionLog()
     expect(log.getTaskSummary('nope')).toBeUndefined()
   })
+
+  describe('onAppend', () => {
+    it('hands each appended event to a listener until it unsubscribes', () => {
+      const log = new SessionLog()
+      const seen: string[] = []
+      const unsubscribe = log.onAppend((event) => seen.push(event.type))
+
+      log.append({ type: 'turn/start', taskId: 't1', at: 0 })
+      unsubscribe()
+      log.append({ type: 'turn/end', taskId: 't1', at: 1, reason: 'completed' })
+
+      expect(seen).toEqual(['turn/start'])
+    })
+
+    it('still records the event, and reaches later listeners, when one throws', () => {
+      const log = new SessionLog()
+      const seen: string[] = []
+      log.onAppend(() => {
+        throw new Error('broken view')
+      })
+      log.onAppend((event) => seen.push(event.type))
+
+      expect(() => log.append({ type: 'turn/start', taskId: 't1', at: 0 })).not.toThrow()
+      expect(log.all('t1')).toHaveLength(1)
+      expect(seen).toEqual(['turn/start'])
+    })
+
+    it('does not replay events restored from a stored session', () => {
+      const log = new SessionLog()
+      const seen: unknown[] = []
+      log.onAppend((event) => seen.push(event))
+
+      log.loadFrom({ id: 's', events: [{ type: 'turn/start', taskId: 't1', at: 0 }], savedAt: 0 } as never)
+
+      expect(seen).toEqual([])
+      expect(log.all('t1')).toHaveLength(1)
+    })
+  })
 })

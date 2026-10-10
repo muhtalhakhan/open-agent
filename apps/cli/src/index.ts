@@ -44,6 +44,7 @@ import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { createTerminalAnswerStream, type AnswerStream } from './answer-stream.js'
 import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
+import { createLineActivityView, type ToolActivityView } from './tool-activity.js'
 import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
@@ -158,6 +159,7 @@ async function main() {
   // Print mode has no stream: stdout is the answer alone, and a script that
   // captured half a reply could not be told to take it back.
   let answerStream: (() => AnswerStream) | undefined
+  let toolActivity: ToolActivityView | undefined
   const markdown = shouldRenderMarkdown(process.stdout.isTTY, process.env)
 
   if (headless) {
@@ -188,6 +190,7 @@ async function main() {
     io = tui.io
     ask = tui.io.ask
     answerStream = () => tui.io.answerStream(markdown ? renderMarkdown : undefined)
+    toolActivity = tui.io.toolActivity()
     teardown = () => tui.unmount()
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -200,6 +203,7 @@ async function main() {
       write: (text) => process.stdout.write(text),
     }
     answerStream = () => createTerminalAnswerStream((text) => void process.stdout.write(text), { markdown })
+    toolActivity = createLineActivityView((text) => void process.stdout.write(text), { color: markdown })
     // The same reader, deliberately: two on one stdin would race each other.
     ask = createApprovalAsk(reader, Boolean(process.stdin.isTTY))
     process.on('SIGINT', () => {
@@ -434,6 +438,7 @@ async function main() {
           sessionHistory(sessionStore, sessions, { onUnreadable: (id, err) => io.write(describeUnreadable(id, err)) }),
         formatAnswer: markdown ? renderMarkdown : undefined,
         answerStream,
+        toolActivity,
       })
       // Before the session is saved, so what the jobs did so far is in it.
       const stopped = await background.close()

@@ -4,6 +4,7 @@ import type { AnswerStream } from './answer-stream.js'
 import type { BackgroundJobs } from './background.js'
 import { formatHistory } from './history.js'
 import { executeTask, type MemoryHook } from './task.js'
+import { trackToolActivity, type ToolActivityView } from './tool-activity.js'
 
 export interface ReplIO {
   /** Resolves to the next line of input, or `null` on EOF (Ctrl+D). */
@@ -28,6 +29,8 @@ export interface ReplOptions {
    * never stream: nobody is watching them.
    */
   answerStream?: () => AnswerStream
+  /** Shows the foreground task's tool calls as they run. Background jobs' calls are not shown. */
+  toolActivity?: ToolActivityView
 }
 
 /** Lets the caller cancel whichever task is currently running (e.g. from a SIGINT handler). */
@@ -55,7 +58,7 @@ export async function runRepl(
   sessions: SessionLog,
   io: ReplIO,
   activeAbort: AbortRef,
-  { memory, background, history, formatAnswer = (answer) => answer, answerStream }: ReplOptions = {},
+  { memory, background, history, formatAnswer = (answer) => answer, answerStream, toolActivity }: ReplOptions = {},
 ): Promise<void> {
   io.write(
     background
@@ -84,7 +87,11 @@ export async function runRepl(
     activeAbort.current = controller
     io.setStatus?.('thinking…')
     const stream = answerStream?.()
-    const outcome = await executeTask(agentLoop, sessions, trimmed, controller.signal, memory, stream?.onText)
+    const outcome = await executeTask(agentLoop, sessions, trimmed, controller.signal, {
+      memory,
+      onText: stream?.onText,
+      onEvent: toolActivity && trackToolActivity(toolActivity),
+    })
     stream?.close()
     activeAbort.current = null
     io.setStatus?.(null)

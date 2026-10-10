@@ -1,4 +1,5 @@
-import type { AgentLoop, RunOptions, SessionLog } from '@open-agent/agent'
+import { randomUUID } from 'node:crypto'
+import type { AgentLoop, RunOptions, SessionEvent, SessionLog } from '@open-agent/agent'
 import type { MemoryProvider } from '@open-agent/memory'
 
 export interface MemoryHook {
@@ -11,6 +12,18 @@ export interface TaskOutcome {
   /** The model's final answer. Empty unless the task completed. */
   answer: string
   error?: string
+}
+
+export interface TaskOptions {
+  memory?: MemoryHook
+  /** The model's text as it is generated — see `RunOptions.onText`. */
+  onText?: RunOptions['onText']
+  /**
+   * Every event this task appends to the session log, as it is appended.
+   * Only this task's: a background job writing to the same log at the same
+   * time is not part of what the person is watching.
+   */
+  onEvent?: (event: SessionEvent) => void
 }
 
 /**
@@ -26,8 +39,7 @@ export async function executeTask(
   sessions: SessionLog,
   input: string,
   signal: AbortSignal,
-  memory?: MemoryHook,
-  onText?: RunOptions['onText'],
+  { memory, onText, onEvent }: TaskOptions = {},
 ): Promise<TaskOutcome> {
   // Recalled memories travel as turn context, not as part of the user's
   // message: the log should record what the user actually typed, and
@@ -40,7 +52,16 @@ export async function executeTask(
     }
   }
 
-  const task = await agentLoop.run(input, signal, undefined, { context, onText })
+  // The id is chosen here rather than by the loop so the subscription can be
+  // filtered to it before the task's first event is appended.
+  const taskId = randomUUID()
+  const unsubscribe = onEvent && sessions.onAppend((event) => event.taskId === taskId && onEvent(event))
+  let task
+  try {
+    task = await agentLoop.run(input, signal, taskId, { context, onText })
+  } finally {
+    unsubscribe?.()
+  }
 
   if (task.status !== 'completed') {
     return { status: task.status === 'cancelled' ? 'cancelled' : 'error', answer: '', error: task.error }
