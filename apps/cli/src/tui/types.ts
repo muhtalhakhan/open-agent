@@ -1,12 +1,10 @@
 /** One line that's already happened — rendered once into the scrollback and never touched again. */
 export interface TranscriptEntry {
   id: number
-  /**
-   * `input` is an echo of something the user typed; `activity` a finished
-   * tool call; `output` is everything else (banner, answers, status).
-   */
   kind: 'input' | 'output' | 'activity'
   text: string
+  /** Optional timestamp (e.g., ISO string) for audit/debug; not rendered by default. */
+  timestamp?: string
 }
 
 /**
@@ -24,13 +22,19 @@ export interface TuiHandlers {
    * REPL loop, so this is never called concurrently with itself.
    */
   requestInput(label: string): Promise<string | null>
-  /** A transient line shown above the input box (e.g. "thinking…"), or `null` to clear it. */
+  /**
+   * A transient line shown above the input box (e.g. "thinking…"), or `null` to clear it.
+   * Also used for status messages like "Tool call running" or "Network error".
+   */
   setStatus(text: string | null): void
   /**
    * The reply being generated right now, repainted in place as it grows, or
    * `null` once it is finished and has moved into the transcript.
    */
   setLive(text: string | null): void
-  /** The tool call running right now, or `null` once it has finished. */
+  /**
+   * The tool call running right now, or `null` once it has finished.
+   * Includes call description (e.g., "read_file {path:/workspace/foo.txt}") and outcome.
+   */
   setActivity(text: string | null): void
 }
