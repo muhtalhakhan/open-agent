@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-import { chmodSync, existsSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
@@ -52,6 +52,7 @@ import { createLineActivityView, type ToolActivityView } from './tool-activity.j
 import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
+import { loadProfile, duplicateProfile, exportProfile, importProfile } from './profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
@@ -142,13 +143,112 @@ async function main() {
   const headless = args.mode === 'print'
   const useTui = ttyBothEnds && !headless
 
+  let profileName: string | undefined
+  let profileModel: string | undefined
+  // Load profile first (if given) so it supplements / overrides .env.
+  if (args.profile !== undefined) {
+    const profileResult = loadProfile(args.profile)
+    if (!profileResult.ok) {
+      console.error(profileResult.error)
+      process.exitCode = 1
+      return
+    }
+    const profile = profileResult.profile
+    profileName = profile.name
+    profileModel = profile.model
+    // Profile takes precedence over env where both present; supplies missing values.
+    if (profile.model) process.env.OPENAI_MODEL = profile.model
+    if (profile.memory !== undefined) {
+      if (profile.memory) process.env.MEMORY_ENABLED = '1'
+      else delete process.env.MEMORY_ENABLED
+    }
+    if (profile.tools) {
+      if (profile.tools.browser) process.env.BROWSER_USE = '1'
+      else if (process.env.BROWSER_USE === undefined) process.env.BROWSER_USE = '0'
+      if (profile.tools.computer) process.env.COMPUTER_USE = '1'
+      else if (process.env.COMPUTER_USE === undefined) process.env.COMPUTER_USE = '0'
+      if (profile.tools.files) process.env.FILES_TOOL = '1'
+      else if (process.env.FILES_TOOL === undefined) process.env.FILES_TOOL = '0'
+      if (profile.tools.shell) process.env.SHELL_TOOL = '1'
+      else if (process.env.SHELL_TOOL === undefined) process.env.SHELL_TOOL = '0'
+      if (profile.tools.http) process.env.HTTP_TOOL = '1'
+      else if (process.env.HTTP_TOOL === undefined) process.env.HTTP_TOOL = '0'
+      if (profile.tools.docker) process.env.DOCKER_TOOL = '1'
+      else if (process.env.DOCKER_TOOL === undefined) process.env.DOCKER_TOOL = '0'
+      if (profile.tools.email) process.env.EMAIL_TOOL = '1'
+      else if (process.env.EMAIL_TOOL === undefined) process.env.EMAIL_TOOL = '0'
+      if (profile.tools.calendar) process.env.CALENDAR_TOOL = '1'
+      else if (process.env.CALENDAR_TOOL === undefined) process.env.CALENDAR_TOOL = '0'
+    }
+    // Profile permissions applied to env so config loader can pick them up.
+    if (profile.permissions) {
+      for (const [key, value] of Object.entries(profile.permissions)) {
+        process.env[`PERMISSION_${key}`] = value
+      }
+    }
+    // Report profile load once io is available (after setup below).
+    // (profileName and profileModel captured for the message below)
+  }
+
+  // Handle profile operations (duplicate/export/import) — pure actions, no loop needed.
+  if (args.duplicateProfile !== undefined) {
+    const source = args.profile ?? args.duplicateProfile
+    const newName = args.profile ? args.duplicateProfile : args.profile
+    // When called as --duplicate <source> <new-name> with two positionals not supported by parseArgs,
+    // use --profile for source and --duplicate for new name; fallback to profile-only.
+    if (!source || !newName) {
+      console.error('Usage: --duplicate <new-name> (with --profile <source>) or specify both')
+      process.exitCode = 1
+      return
+    }
+    const result = duplicateProfile(source, newName)
+    if (!result.ok) {
+      console.error(result.error)
+      process.exitCode = 1
+      return
+    }
+    console.log(`Profile duplicated: ${result.profilePath}`)
+    return
+  }
+  if (args.exportProfile !== undefined) {
+    const profileName = args.profile ?? args.exportProfile
+    const result = exportProfile(profileName)
+    if (!result.ok) {
+      console.error(result.error)
+      process.exitCode = 1
+      return
+    }
+    console.log(result.yaml)
+    return
+  }
+  if (args.importProfile !== undefined) {
+    const content = readFileSync(args.importProfile, 'utf8')
+    const result = importProfile(content, args.profile)
+    if (!result.ok) {
+      console.error(result.error)
+      process.exitCode = 1
+      return
+    }
+    console.log(`Profile imported: ${result.profilePath}`)
+    return
+  }
+
   const result = loadConfigFromEnv(process.env)
-  if (!result.ok) {
+  const profileConfigApplied = args.profile !== undefined
+
+  if (!result.ok && !profileConfigApplied) {
     console.error(result.error)
     process.exitCode = 1
     return
   }
-  const { config } = result
+  // Re-resolve config after profile overrides (profile already applied above)
+  const configResult = loadConfigFromEnv(process.env)
+  if (!configResult.ok) {
+    console.error(configResult.error)
+    process.exitCode = 1
+    return
+  }
+  const { config } = configResult
 
   const instructions = await loadProjectInstructions()
 
@@ -263,6 +363,10 @@ async function main() {
       }
     })
     teardown = () => rl.close()
+  }
+
+  if (profileName && profileModel) {
+    io.write(`Loaded profile: ${profileName} (model: ${profileModel})\n`)
   }
 
   // Surfaced on startup: a file that silently steers every turn is worth
