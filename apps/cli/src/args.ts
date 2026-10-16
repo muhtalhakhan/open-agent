@@ -14,6 +14,8 @@ export interface CliArgs {
   /** Print recent past tasks and exit. */
   history: boolean
   help: boolean
+  /** Load an agent profile (name under ~/.openagent/profiles/ or examples/profiles/, or a path) and apply its settings. */
+  profile?: string
 }
 
 export type ArgsResult = { ok: true; args: CliArgs } | { ok: false; error: string }
@@ -34,6 +36,7 @@ Options
   -y, --yes            approve "ask"-level tool calls without prompting
   --plan               review file edits as a diff before they run (interactive sessions)
   --resume [id]        resume the most recent or named session
+  --profile <name>     load an agent profile before starting
   --history            list recent past tasks and exit
   -h, --help           show this help
 
@@ -72,6 +75,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     plan: { type: 'boolean', default: false },
     resume: { type: 'string' },
     history: { type: 'boolean', default: false },
+    profile: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
@@ -83,6 +87,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     resume?: string | undefined
     history: boolean
     help: boolean
+    profile?: string | undefined
   }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
@@ -93,6 +98,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume?: string | undefined
       history: boolean
       help: boolean
+      profile?: string | undefined
     }
     positionals = parsed.positionals
   } catch (err) {
@@ -101,13 +107,29 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   if (values.help) {
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: false, help: true },
+      args: {
+        mode: 'repl',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: false,
+        help: true,
+        profile: undefined,
+      },
     }
   }
   if (values.history) {
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: true, help: false },
+      args: {
+        mode: 'repl',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: true,
+        help: false,
+        profile: undefined,
+      },
     }
   }
 
@@ -123,7 +145,15 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     if (positionals.length === 1 && positionals[0] === 'init') {
       return {
         ok: true,
-        args: { mode: 'init', approveAsk: false, plan: false, resume: undefined, history: false, help: false },
+        args: {
+          mode: 'init',
+          approveAsk: false,
+          plan: false,
+          resume: undefined,
+          history: false,
+          help: false,
+          profile: undefined,
+        },
       }
     }
     if (positionals.length > 0) {
@@ -138,6 +168,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         resume: resumeValue,
         history: false,
         help: false,
+        profile: values.profile,
       },
     }
   }
@@ -156,6 +187,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume: resumeValue,
       history: false,
       help: false,
+      profile: values.profile,
     },
   }
 }

@@ -1,0 +1,13 @@
+name: Coding Agent
+model: anthropic/claude-sonnet
+tools:
+  browser: true
+  computer: true
+  http: true
+  files: true
+  shell: true
+  docker: true
+memory: true
+permissions:
+  terminal.execute: ask
+  docker.run: ask
