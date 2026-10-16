@@ -97,9 +97,6 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     history: boolean
     help: boolean
     profile?: string | undefined
-    duplicateProfile?: string | undefined
-    exportProfile?: string | undefined
-    importProfile?: string | undefined
   }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
@@ -114,14 +111,12 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       history: boolean
       help: boolean
       profile?: string | undefined
-      duplicateProfile?: string | undefined
-      exportProfile?: string | undefined
-      importProfile?: string | undefined
     }
     positionals = parsed.positionals
-  } catch (err) {
-    return { ok: false, error: `${err instanceof Error ? err.message : String(err)}\n\n${USAGE}` }
+  } catch (e: any) {
+    return { ok: false, error: `Usage: ${e.message || String(e)}` }
   }
+
   if (values.help) {
     return {
       ok: true,
@@ -133,6 +128,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         history: false,
         help: true,
         profile: undefined,
+        duplicateProfile: undefined,
+        exportProfile: undefined,
+        importProfile: undefined,
       },
     }
   }
@@ -147,19 +145,17 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         history: true,
         help: false,
         profile: undefined,
+        duplicateProfile: undefined,
+        exportProfile: undefined,
+        importProfile: undefined,
       },
     }
   }
 
-  // parseArgs always returns a string for `resume`. Treat `--resume` (no value)
-  // as `true` (resume most recent) by leaving the value undefined; treat a
-  // bare token after `--resume` as that session id.
   const resumeValue: string | true | undefined =
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
 
   if (!values.print) {
-    // A word rather than a flag: it is a different program from the session,
-    // and `-p init` still means "run the task called init".
     if (positionals.length === 1 && positionals[0] === 'init') {
       return {
         ok: true,
@@ -171,6 +167,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
           history: false,
           help: false,
           profile: undefined,
+          duplicateProfile: undefined,
+          exportProfile: undefined,
+          importProfile: undefined,
         },
       }
     }
@@ -187,6 +186,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         history: false,
         help: false,
         profile: values.profile,
+        duplicateProfile: values.duplicateProfile,
+        exportProfile: values.exportProfile,
+        importProfile: values.importProfile,
       },
     }
   }
@@ -206,7 +208,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       history: false,
       help: false,
       profile: values.profile,
+      duplicateProfile: values.duplicateProfile,
+      exportProfile: values.exportProfile,
+      importProfile: values.importProfile,
     },
   }
 }
-// Note: duplicate/export/import flags to be added in args parsing for #131

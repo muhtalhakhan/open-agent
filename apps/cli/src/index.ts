@@ -192,16 +192,13 @@ async function main() {
 
   // Handle profile operations (duplicate/export/import) — pure actions, no loop needed.
   if (args.duplicateProfile !== undefined) {
-    const source = args.profile ?? args.duplicateProfile
-    const newName = args.profile ? args.duplicateProfile : args.profile
-    // When called as --duplicate <source> <new-name> with two positionals not supported by parseArgs,
-    // use --profile for source and --duplicate for new name; fallback to profile-only.
-    if (!source || !newName) {
-      console.error('Usage: --duplicate <new-name> (with --profile <source>) or specify both')
+    // Direct flags: --profile <source> --duplicate <new-name>
+    if (!args.profile) {
+      console.error('Usage: --duplicate requires --profile <source>')
       process.exitCode = 1
       return
     }
-    const result = duplicateProfile(source, newName)
+    const result = duplicateProfile(args.profile, args.duplicateProfile)
     if (!result.ok) {
       console.error(result.error)
       process.exitCode = 1
