@@ -42,16 +42,23 @@ describe('replayTask', () => {
 
     expect(events.map((event) => event.type)).toEqual([
       'task/start',
+      'step',
       'text',
       'text',
       'tool/start',
       'tool/end',
+      'step',
       'text',
       'text',
       'task/end',
     ])
+    expect(events.filter((event) => event.type === 'step')).toEqual([
+      { type: 'step', taskId: 't1', step: 1 },
+      { type: 'step', taskId: 't1', step: 2 },
+    ])
+    expect(events[5]).toMatchObject({ type: 'tool/end', ok: true, output: 'hello' })
     expect(events[0]).toEqual({ type: 'task/start', taskId: 't1', input: 'what does a say?' })
-    expect(events[3]).toMatchObject({ name: 'read_file', args: '{"path":"a"}' })
+    expect(events[4]).toMatchObject({ name: 'read_file', args: '{"path":"a"}' })
     expect(events.at(-1)).toEqual({
       type: 'task/end',
       taskId: 't1',
@@ -99,5 +106,26 @@ describe('replayTask', () => {
       type: 'notice',
       text: 'Decision layer: 1 tool offered, light model.',
     })
+  })
+
+  it('reports a retry with its reason, and counts steps from 1 again in each turn', () => {
+    const events: SessionEvent[] = [
+      { type: 'turn/start', taskId: 't1', at: 0 },
+      { type: 'user/message', taskId: 't1', at: 1, message: { role: 'user', content: 'go' } },
+      { type: 'step/start', taskId: 't1', at: 2 },
+      { type: 'retry', taskId: 't1', at: 3, attempt: 1, reason: '503 Service Unavailable' },
+      { type: 'turn/end', taskId: 't1', at: 4, reason: 'completed' },
+      { type: 'turn/start', taskId: 't1', at: 5 },
+      { type: 'user/message', taskId: 't1', at: 6, message: { role: 'user', content: 'again' } },
+      { type: 'step/start', taskId: 't1', at: 7 },
+      { type: 'turn/end', taskId: 't1', at: 8, reason: 'completed' },
+    ]
+
+    const replayed = replayTask('t1', events)
+
+    expect(replayed).toContainEqual({ type: 'retry', taskId: 't1', attempt: 1, reason: '503 Service Unavailable' })
+    expect(replayed.filter((event) => event.type === 'step').map((event) => (event as { step: number }).step)).toEqual([
+      1, 1,
+    ])
   })
 })

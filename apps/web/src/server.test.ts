@@ -207,7 +207,7 @@ describe('startWebServer', () => {
       { type: 'hello' },
       { type: 'task/start', taskId, input: 'say hello' },
       { type: 'tool/start', taskId, callId: 'call-1', name: 'read_file', args: '{"path":"a.txt"}' },
-      { type: 'tool/end', taskId, callId: 'call-1', ok: true, ms: 42 },
+      { type: 'tool/end', taskId, callId: 'call-1', ok: true, output: 'hello', ms: 42 },
       { type: 'text', taskId, event: { type: 'delta', text: 'Hel' } },
       { type: 'text', taskId, event: { type: 'delta', text: 'lo' } },
       { type: 'text', taskId, event: { type: 'end' } },

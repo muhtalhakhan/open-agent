@@ -9,8 +9,12 @@ export type TurnItem =
       args: string
       status: 'running' | 'ok' | 'failed'
       error?: string
+      output?: string
       ms?: number
     }
+  /** Where the next model request began, from the second one on: the first is the turn itself. */
+  | { kind: 'step'; step: number }
+  | { kind: 'retry'; attempt: number; reason: string }
   | { kind: 'notice'; text: string }
   | {
       kind: 'approval'
@@ -35,6 +39,8 @@ export interface Turn {
   status: 'running' | TaskEndStatus
   error?: string
   usage?: Usage
+  /** The step it is on, while it runs. */
+  step?: number
 }
 
 export type Entry = Turn | { kind: 'notice'; text: string }
@@ -95,6 +101,20 @@ export function reduce(state: Transcript, event: ServerEvent): Transcript {
           else turn.items[open] = { ...(turn.items[open] as Extract<TurnItem, { kind: 'text' }>), done: true }
         }
       })
+    case 'step':
+      return updateTurn(state, event.taskId, (turn) => {
+        turn.step = event.step
+        if (event.step > 1) turn.items.push({ kind: 'step', step: event.step })
+      })
+    case 'retry':
+      return updateTurn(state, event.taskId, (turn) => {
+        // The attempt that failed may have streamed half a reply. Its reset
+        // only arrives with the next attempt, after this; taking the text back
+        // here keeps the abandoned half off the screen either way.
+        const open = openText(turn)
+        if (open !== -1) turn.items.splice(open, 1)
+        turn.items.push({ kind: 'retry', attempt: event.attempt, reason: event.reason })
+      })
     case 'tool/start':
       return updateTurn(state, event.taskId, (turn) => {
         turn.items.push({ kind: 'tool', callId: event.callId, name: event.name, args: event.args, status: 'running' })
@@ -104,7 +124,13 @@ export function reduce(state: Transcript, event: ServerEvent): Transcript {
         const index = turn.items.findIndex((item) => item.kind === 'tool' && item.callId === event.callId)
         if (index === -1) return
         const item = turn.items[index] as Extract<TurnItem, { kind: 'tool' }>
-        turn.items[index] = { ...item, status: event.ok ? 'ok' : 'failed', error: event.error, ms: event.ms }
+        turn.items[index] = {
+          ...item,
+          status: event.ok ? 'ok' : 'failed',
+          error: event.error,
+          output: event.output,
+          ms: event.ms,
+        }
       })
     case 'approval/request': {
       const { type: _type, taskId, ...request } = event

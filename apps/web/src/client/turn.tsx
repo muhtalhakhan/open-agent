@@ -23,8 +23,8 @@ export function formatUsage(usage: Usage): string {
 
 function ToolRow({ item }: { item: Extract<TurnItem, { kind: 'tool' }> }) {
   const mark = item.status === 'running' ? '…' : item.status === 'ok' ? '✓' : '✗'
-  return (
-    <div className={`tool tool--${item.status}`}>
+  const row = (
+    <>
       <span className="tool__mark" aria-hidden="true">
         {mark}
       </span>
@@ -34,8 +34,34 @@ function ToolRow({ item }: { item: Extract<TurnItem, { kind: 'tool' }> }) {
       </code>
       {item.ms !== undefined && <span className="tool__ms">{formatDuration(item.ms)}</span>}
       {item.error && <div className="tool__error">{item.error}</div>}
-    </div>
+    </>
   )
+  // What a call returned is there to look at, not to read by default: most
+  // of it was for the model, and a page of file contents per call would bury
+  // the conversation.
+  if (item.output) {
+    return (
+      <details className={`tool tool--${item.status} tool--expandable`}>
+        <summary className="tool__summary">{row}</summary>
+        <pre className="tool__output">{item.output}</pre>
+      </details>
+    )
+  }
+  return <div className={`tool tool--${item.status}`}>{row}</div>
+}
+
+/**
+ * What a running turn is doing right now, in one line: which tool, or that
+ * it is waiting on the model. Nothing while text is streaming or a question
+ * is waiting, since those already show themselves.
+ */
+function activity(turn: Turn): string | null {
+  if (turn.status !== 'running') return null
+  const last = turn.items.at(-1)
+  if (last?.kind === 'approval' && last.state === 'pending') return null
+  if (last?.kind === 'text' && !last.done) return null
+  if (last?.kind === 'tool' && last.status === 'running') return `Step ${turn.step ?? 1} · running ${last.name}…`
+  return `Step ${turn.step ?? 1} · waiting for the model…`
 }
 
 const SCOPE_BUTTON: Record<ApprovalScope, string> = {
@@ -189,13 +215,21 @@ function TurnView({ turn, answer }: { turn: Turn; answer?: AnswerApproval }) {
             <ToolRow key={item.callId} item={item} />
           ) : item.kind === 'approval' ? (
             <ApprovalCard key={item.approvalId} item={item} answer={answer} />
+          ) : item.kind === 'step' ? (
+            <div key={index} className="step-divider">
+              Step {item.step}
+            </div>
+          ) : item.kind === 'retry' ? (
+            <div key={index} className="retry">
+              Retrying (attempt {item.attempt + 1}): {item.reason}
+            </div>
           ) : (
             <div key={index} className="notice notice--inline">
               {item.text}
             </div>
           ),
         )}
-        {turn.status === 'running' && turn.items.length === 0 && <div className="thinking">Thinking…</div>}
+        {activity(turn) && <div className="thinking">{activity(turn)}</div>}
         {turn.status === 'cancelled' && <div className="outcome">Stopped.</div>}
         {turn.status === 'error' && (
           <div className="outcome outcome--error">Task failed: {turn.error ?? 'unknown error'}</div>

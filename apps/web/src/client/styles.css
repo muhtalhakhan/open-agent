@@ -363,6 +363,68 @@ code {
   font-size: 12px;
 }
 
+.tool--expandable {
+  display: block;
+}
+
+.tool__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool__summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool__summary::after {
+  content: 'output';
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tool--expandable[open] .tool__summary::after {
+  content: 'hide';
+}
+
+.tool__output {
+  max-height: 280px;
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.step-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+
+.step-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--border);
+}
+
+.retry {
+  margin: 6px 0;
+  color: var(--notice-text);
+  font-size: 13px;
+}
+
 .tool__error {
   flex-basis: 100%;
   padding-left: calc(1em + 8px);

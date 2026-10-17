@@ -144,4 +144,41 @@ describe('reduce', () => {
       expect(onlyTurn(state).items[0]).toMatchObject({ state: 'denied' })
     })
   })
+
+  describe('live activity', () => {
+    const step = (n: number): ServerEvent => ({ type: 'step', taskId: 't1', step: n })
+
+    it('tracks the step, and marks where each one after the first began', () => {
+      const state = fold([start, step(1), toolStart, step(2)])
+
+      expect(onlyTurn(state).step).toBe(2)
+      expect(onlyTurn(state).items.map((item) => item.kind)).toEqual(['tool', 'step'])
+    })
+
+    it('takes back the half reply a failed attempt streamed, before its reset arrives', () => {
+      const state = fold([
+        start,
+        step(1),
+        delta('The answer is'),
+        { type: 'retry', taskId: 't1', attempt: 1, reason: '503' },
+        { type: 'text', taskId: 't1', event: { type: 'reset' } },
+        delta('42'),
+      ])
+
+      expect(onlyTurn(state).items).toEqual([
+        { kind: 'retry', attempt: 1, reason: '503' },
+        { kind: 'text', text: '42', done: false },
+      ])
+    })
+
+    it('keeps what a tool returned', () => {
+      const state = fold([
+        start,
+        toolStart,
+        { type: 'tool/end', taskId: 't1', callId: 'c1', ok: true, output: '# README', ms: 4 },
+      ])
+
+      expect(onlyTurn(state).items[0]).toMatchObject({ status: 'ok', output: '# README' })
+    })
+  })
 })

@@ -3,6 +3,8 @@ import type { ServerEvent } from './protocol.js'
 
 const ARGS_LENGTH = 200
 const ERROR_LENGTH = 300
+/** Enough to see what came back — the first lines of a file, a command's output — without shipping a whole page of it. */
+const OUTPUT_LENGTH = 2_000
 /** A past answer in full can be a whole report; the transcript has it, the list only needs to recognise it. */
 const PREVIEW_LENGTH = 200
 
@@ -13,18 +15,29 @@ export function clip(text: string, length: number): string {
 export const preview = (text: string) => clip(text.replace(/\s+/g, ' ').trim(), PREVIEW_LENGTH)
 
 /**
- * Turns a task's tool calls, as the session log records them, into the
- * stream's `tool/*` events: a call paired with its result by id, timed by the
- * distance between the two, and closed with the turn's reason if the turn
- * ended first (cancelled mid-tool), so nothing shows as running forever.
+ * Turns what a task does — steps, retries, tool calls, decision-layer
+ * choices — into the stream's events, as the session log records them. A
+ * call is paired with its result by id, timed by the distance between the
+ * two, and closed with the turn's reason if the turn ended first (cancelled
+ * mid-tool), so nothing shows as running forever.
  *
- * Shared by the live stream and the history replay, so a past task's tool
- * calls read exactly as they did while it ran.
+ * Shared by the live stream and the history replay, so a past task reads
+ * exactly as it did while it ran. The model's own text is not here: live it
+ * arrives streamed, and in a replay it comes from the logged replies.
  */
-export function toolProjector(taskId: string, emit: (event: ServerEvent) => void): (event: SessionEvent) => void {
+export function activityProjector(taskId: string, emit: (event: ServerEvent) => void): (event: SessionEvent) => void {
   const open = new Map<string, number>()
+  let step = 0
   return (event) => {
-    if (event.type === 'tool/call') {
+    if (event.type === 'turn/start') {
+      step = 0
+    } else if (event.type === 'step/start') {
+      emit({ type: 'step', taskId, step: ++step })
+    } else if (event.type === 'retry') {
+      emit({ type: 'retry', taskId, attempt: event.attempt, reason: clip(event.reason, ERROR_LENGTH) })
+    } else if (event.type === 'turn/decision') {
+      emit({ type: 'notice', text: describeDecision(event) })
+    } else if (event.type === 'tool/call') {
       open.set(event.call.id, event.at)
       emit({
         type: 'tool/start',
@@ -37,8 +50,19 @@ export function toolProjector(taskId: string, emit: (event: ServerEvent) => void
       const startedAt = open.get(event.callId)
       if (startedAt === undefined) return
       open.delete(event.callId)
-      const error = event.result.ok ? undefined : clip(event.result.error ?? event.result.content, ERROR_LENGTH)
-      emit({ type: 'tool/end', taskId, callId: event.callId, ok: event.result.ok, error, ms: event.at - startedAt })
+      const { ok, error, content } = event.result
+      emit({
+        type: 'tool/end',
+        taskId,
+        callId: event.callId,
+        ok,
+        ...(ok
+          ? content
+            ? { output: clip(content, OUTPUT_LENGTH) }
+            : {}
+          : { error: clip(error ?? content, ERROR_LENGTH) }),
+        ms: event.at - startedAt,
+      })
     } else if (event.type === 'turn/end') {
       for (const [callId, startedAt] of open) {
         emit({ type: 'tool/end', taskId, callId, ok: false, error: event.reason, ms: event.at - startedAt })
@@ -68,22 +92,20 @@ function describeDecision(event: Extract<SessionEvent, { type: 'turn/decision' }
 export function replayTask(taskId: string, events: SessionEvent[]): ServerEvent[] {
   const out: ServerEvent[] = []
   const emit = (event: ServerEvent) => void out.push(event)
-  const tools = toolProjector(taskId, emit)
+  const activity = activityProjector(taskId, emit)
   let open = false
   let answer = ''
   let usage: TokenUsage | undefined
 
   for (const event of events) {
     if (event.taskId !== taskId) continue
-    tools(event)
+    activity(event)
     if (event.type === 'user/message') {
       if (open) emit({ type: 'task/end', taskId, status: 'error', answer: '', error: 'interrupted' })
       open = true
       answer = ''
       usage = undefined
       emit({ type: 'task/start', taskId, input: event.message.content })
-    } else if (event.type === 'turn/decision') {
-      emit({ type: 'notice', text: describeDecision(event) })
     } else if (event.type === 'assistant/message') {
       if (event.usage) {
         usage ??= { inputTokens: 0, outputTokens: 0 }

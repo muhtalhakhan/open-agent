@@ -30,9 +30,14 @@ export type ServerEvent =
   | { type: 'notice'; text: string }
   | { type: 'task/start'; taskId: string; input: string }
   | { type: 'text'; taskId: string; event: TextEvent }
+  /** A new model request within the turn: step 1 is the first, each tool round adds one. */
+  | { type: 'step'; taskId: string; step: number }
+  /** The provider failed and the loop is trying again; any text streamed since the last step is taken back by a `text` reset. */
+  | { type: 'retry'; taskId: string; attempt: number; reason: string }
   /** `args` is already clipped: a `write_file` call's arguments can be the whole file. */
   | { type: 'tool/start'; taskId: string; callId: string; name: string; args: string }
-  | { type: 'tool/end'; taskId: string; callId: string; ok: boolean; error?: string; ms: number }
+  /** `output` is the start of what a successful call returned, for a person to glance at, not the whole of it. */
+  | { type: 'tool/end'; taskId: string; callId: string; ok: boolean; error?: string; output?: string; ms: number }
   | { type: 'task/end'; taskId: string; status: TaskEndStatus; answer: string; error?: string; usage?: Usage }
   /**
    * A tool call waiting for the person: answered with

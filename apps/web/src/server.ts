@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { taskRecords } from '@open-agent/agent'
 import type { RunTextEvent, SessionEvent, TaskRecord, TokenUsage } from '@open-agent/agent'
 import type { ApprovalScope, HistoryTask, HistoryTranscript, ServerEvent, TaskEndStatus } from './protocol.js'
-import { clip, preview, replayTask, toolProjector } from './project.js'
+import { activityProjector, clip, preview, replayTask } from './project.js'
 
 /** Where `vite build` puts the client. */
 export const CLIENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/client')
@@ -230,7 +230,7 @@ export async function startWebServer({
           emit({ type: 'text', taskId, event })
         }
       },
-      onEvent: toolProjector(taskId, emit),
+      onEvent: activityProjector(taskId, emit),
     }
 
     // Current before the task starts, not after: anything it does
