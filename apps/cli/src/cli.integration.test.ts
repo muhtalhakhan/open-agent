@@ -371,6 +371,18 @@ describe('CLI end to end', () => {
       const events = await readUntil(stream.body!, 'task/end')
 
       expect(events.at(-1)).toMatchObject({ type: 'task/end', status: 'completed', answer: 'ack' })
+
+      // The task just run is in the history, from the live session, and its
+      // transcript replays it.
+      const history = (await fetch(`http://127.0.0.1:${port}/api/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.json())) as { tasks: { taskId: string; sessionId?: string }[] }
+      expect(history.tasks[0]).toMatchObject({ prompt: 'what indentation?', status: 'completed' })
+      expect(history.tasks[0].sessionId).toBeUndefined()
+      const transcript = (await fetch(`http://127.0.0.1:${port}/api/history/${history.tasks[0].taskId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.json())) as { events: { type: string }[] }
+      expect(transcript.events.at(-1)).toMatchObject({ type: 'task/end', status: 'completed', answer: 'ack' })
       expect(provider.requests[0].messages.find((m) => m.role === 'user')?.content).toBe('what indentation?')
 
       child.kill('SIGINT')

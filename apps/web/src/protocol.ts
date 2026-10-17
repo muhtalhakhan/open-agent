@@ -31,3 +31,27 @@ export type ServerEvent =
   | { type: 'tool/start'; taskId: string; callId: string; name: string; args: string }
   | { type: 'tool/end'; taskId: string; callId: string; ok: boolean; error?: string; ms: number }
   | { type: 'task/end'; taskId: string; status: TaskEndStatus; answer: string; error?: string; usage?: Usage }
+
+/** One past task in `GET /api/history`: `TaskRecord` from the agent, restated, with the answer cut to a preview. */
+export interface HistoryTask {
+  taskId: string
+  /** The saved session it belongs to; absent for a task from the session still running. */
+  sessionId?: string
+  prompt: string
+  /** `interrupted` means it started and never ended: the process died mid-task. */
+  status: 'completed' | 'cancelled' | 'error' | 'interrupted'
+  startedAt: number
+  endedAt?: number
+  answer?: string
+  toolCalls: number
+  usage?: Usage
+}
+
+/**
+ * `GET /api/history/<task>`: the task's transcript as the same events the
+ * live stream sends, so the page draws a past task exactly as it drew it live.
+ */
+export interface HistoryTranscript {
+  task: HistoryTask
+  events: ServerEvent[]
+}

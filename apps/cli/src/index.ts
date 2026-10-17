@@ -381,6 +381,17 @@ async function main() {
           port,
           runTask: (input, signal, { onText, onEvent }) =>
             executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent }),
+          // The same sources as `:history`: saved sessions, plus this one,
+          // whose tasks are only on disk once the server stops.
+          history: {
+            list: () =>
+              sessionHistory(sessionStore, sessions, {
+                limit: 50,
+                onUnreadable: (id, err) => void process.stderr.write(describeUnreadable(id, err)),
+              }),
+            events: async (taskId, sessionId) =>
+              sessionId === undefined ? sessions.all(taskId) : (await sessionStore.load(sessionId))?.events,
+          },
         })
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err

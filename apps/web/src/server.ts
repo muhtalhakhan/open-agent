@@ -4,8 +4,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { RunTextEvent, SessionEvent, TokenUsage } from '@open-agent/agent'
-import type { ServerEvent, TaskEndStatus } from './protocol.js'
+import { taskRecords } from '@open-agent/agent'
+import type { RunTextEvent, SessionEvent, TaskRecord, TokenUsage } from '@open-agent/agent'
+import type { HistoryTask, HistoryTranscript, ServerEvent, TaskEndStatus } from './protocol.js'
+import { preview, replayTask, toolProjector } from './project.js'
 
 /** Where `vite build` puts the client. */
 export const CLIENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/client')
@@ -31,8 +33,22 @@ export interface TaskHooks {
  */
 export type RunTask = (input: string, signal: AbortSignal, hooks: TaskHooks) => Promise<TaskOutcome>
 
+/**
+ * Past tasks, from wherever the host keeps them: saved sessions and the one
+ * running now. Injected, like `runTask`, so the page lists exactly what
+ * `:history` does in the terminal.
+ */
+export interface HistorySource {
+  /** Recent tasks, newest first. */
+  list(): Promise<TaskRecord[]>
+  /** The events of one task, from the named saved session or, without one, the live session. */
+  events(taskId: string, sessionId?: string): Promise<SessionEvent[] | undefined>
+}
+
 export interface WebServerOptions {
   runTask: RunTask
+  /** Enables the history view; without it `/api/history` answers 404. */
+  history?: HistorySource
   /** `0` takes any free port. */
   port: number
   /** Generated when absent. Fixed only by tests. */
@@ -50,8 +66,6 @@ export interface WebServer {
 }
 
 const MAX_BODY_BYTES = 64 * 1024
-const ARGS_LENGTH = 200
-const ERROR_LENGTH = 300
 /** Enough to rebuild a long conversation on reload, not enough to grow without bound. */
 const MAX_REPLAY_EVENTS = 2000
 /** Under the idle timeout of anything that might sit between a browser and localhost. */
@@ -76,8 +90,18 @@ const PAGE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 }
 
-function clip(text: string, length: number): string {
-  return text.length > length ? `${text.slice(0, length - 1)}…` : text
+function toHistoryTask(record: TaskRecord): HistoryTask {
+  return {
+    taskId: record.taskId,
+    ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+    prompt: preview(record.prompt),
+    status: record.status,
+    startedAt: record.startedAt,
+    ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
+    ...(record.answer ? { answer: preview(record.answer) } : {}),
+    toolCalls: record.toolCalls,
+    ...(record.usage ? { usage: record.usage } : {}),
+  }
 }
 
 function sameToken(given: string | null, expected: string): boolean {
@@ -132,6 +156,7 @@ export async function startWebServer({
   port,
   token = randomBytes(24).toString('base64url'),
   clientDir: givenClientDir = CLIENT_DIR,
+  history,
 }: WebServerOptions): Promise<WebServer> {
   const clientDir = path.resolve(givenClientDir)
   const clients = new Set<ServerResponse>()
@@ -162,7 +187,6 @@ export async function startWebServer({
   function startTask(input: string): string {
     const taskId = randomUUID()
     const controller = new AbortController()
-    const openCalls = new Map<string, number>()
     streaming = ''
     emit({ type: 'task/start', taskId, input })
 
@@ -180,31 +204,7 @@ export async function startWebServer({
           emit({ type: 'text', taskId, event })
         }
       },
-      onEvent(event) {
-        if (event.type === 'tool/call') {
-          openCalls.set(event.call.id, event.at)
-          emit({
-            type: 'tool/start',
-            taskId,
-            callId: event.call.id,
-            name: event.call.name,
-            args: Object.keys(event.call.args).length ? clip(JSON.stringify(event.call.args), ARGS_LENGTH) : '',
-          })
-        } else if (event.type === 'tool/result') {
-          const startedAt = openCalls.get(event.callId)
-          if (startedAt === undefined) return
-          openCalls.delete(event.callId)
-          const error = event.result.ok ? undefined : clip(event.result.error ?? event.result.content, ERROR_LENGTH)
-          emit({ type: 'tool/end', taskId, callId: event.callId, ok: event.result.ok, error, ms: event.at - startedAt })
-        } else if (event.type === 'turn/end') {
-          // A call still open when the turn ends (cancelled mid-tool) would
-          // otherwise show as running forever.
-          for (const [callId, startedAt] of openCalls) {
-            emit({ type: 'tool/end', taskId, callId, ok: false, error: event.reason, ms: event.at - startedAt })
-          }
-          openCalls.clear()
-        }
-      },
+      onEvent: toolProjector(taskId, emit),
     }
 
     const done = runTask(input, controller.signal, hooks)
@@ -271,6 +271,26 @@ export async function startWebServer({
     res.end(head ? undefined : body)
   }
 
+  async function serveHistory(res: ServerResponse, url: URL): Promise<void> {
+    if (!history) return sendJson(res, 404, { error: 'History is not available.' })
+    if (url.pathname === '/api/history') {
+      const tasks: HistoryTask[] = (await history.list()).map(toHistoryTask)
+      return sendJson(res, 200, { tasks })
+    }
+    // Both ids end up naming files in the session store: held to the shapes
+    // the runtime generates, so nothing else reaches it.
+    const taskId = url.pathname.match(/^\/api\/history\/([A-Za-z0-9_-]{1,128})$/)?.[1]
+    const sessionId = url.searchParams.get('session') ?? undefined
+    if (!taskId || (sessionId !== undefined && !/^session_[0-9a-f]{1,64}$/.test(sessionId))) {
+      return sendJson(res, 400, { error: 'Bad task or session id.' })
+    }
+    const events = (await history.events(taskId, sessionId))?.filter((event) => event.taskId === taskId) ?? []
+    const [record] = taskRecords(events, sessionId)
+    if (!record) return sendJson(res, 404, { error: 'No such task.' })
+    const transcript: HistoryTranscript = { task: toHistoryTask(record), events: replayTask(taskId, events) }
+    return sendJson(res, 200, transcript)
+  }
+
   let origin = ''
   let allowedHosts = new Set<string>()
   let allowedOrigins = new Set<string>()
@@ -292,6 +312,7 @@ export async function startWebServer({
     }
 
     if (req.method === 'GET' && url.pathname === '/api/events') return openStream(req, res)
+    if (req.method === 'GET' && url.pathname.startsWith('/api/history')) return serveHistory(res, url)
     if (req.method !== 'POST') return sendJson(res, 404, { error: 'Not found.' })
 
     const requestOrigin = req.headers.origin

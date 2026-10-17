@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ServerEvent } from './protocol.js'
-import { startWebServer, type RunTask, type TaskHooks, type WebServer } from './server.js'
+import type { SessionEvent } from '@open-agent/agent'
+import { startWebServer, type RunTask, type TaskHooks, type WebServer, type WebServerOptions } from './server.js'
 
 const TOKEN = 'test-token'
 
@@ -119,8 +120,11 @@ afterEach(async () => {
   await rm(clientDir, { recursive: true, force: true })
 })
 
-async function start(runTask: RunTask = scriptedTask(() => {})): Promise<WebServer> {
-  server = await startWebServer({ runTask, port: 0, token: TOKEN, clientDir })
+async function start(
+  runTask: RunTask = scriptedTask(() => {}),
+  history?: WebServerOptions['history'],
+): Promise<WebServer> {
+  server = await startWebServer({ runTask, port: 0, token: TOKEN, clientDir, history })
   return server
 }
 
@@ -335,5 +339,99 @@ describe('startWebServer', () => {
 
     expect(page.status).toBe(503)
     expect(page.body).toContain('npm run build -w @open-agent/web')
+  })
+
+  describe('history', () => {
+    const saved: SessionEvent[] = [
+      { type: 'user/message', taskId: 't-old', at: 1000, message: { role: 'user', content: 'summarize the readme' } },
+      { type: 'assistant/message', taskId: 't-old', at: 2000, message: { role: 'assistant', content: 'A CLI agent.' } },
+      { type: 'turn/end', taskId: 't-old', at: 2001, reason: 'completed' },
+    ]
+    const asked: { taskId: string; sessionId?: string }[] = []
+    const source: WebServerOptions['history'] = {
+      async list() {
+        return [
+          {
+            taskId: 't-old',
+            sessionId: 'session_ab12',
+            prompt: 'summarize\n the   readme',
+            status: 'completed',
+            startedAt: 1000,
+            endedAt: 2001,
+            answer: 'A CLI agent.',
+            toolCalls: 0,
+          },
+        ]
+      },
+      async events(taskId, sessionId) {
+        asked.push({ taskId, sessionId })
+        return sessionId === 'session_ab12' ? saved : undefined
+      },
+    }
+    const get = (s: WebServer, path: string) => send(s, 'GET', path, { headers: { Authorization: `Bearer ${TOKEN}` } })
+
+    it('lists past tasks, with the prompt flattened to a preview', async () => {
+      const s = await start(undefined, source)
+
+      const reply = await get(s, '/api/history')
+
+      expect(reply.status).toBe(200)
+      expect(JSON.parse(reply.body).tasks).toEqual([
+        {
+          taskId: 't-old',
+          sessionId: 'session_ab12',
+          prompt: 'summarize the readme',
+          status: 'completed',
+          startedAt: 1000,
+          endedAt: 2001,
+          answer: 'A CLI agent.',
+          toolCalls: 0,
+        },
+      ])
+    })
+
+    it('returns one task with its transcript replayed as stream events', async () => {
+      const s = await start(undefined, source)
+
+      const reply = await get(s, '/api/history/t-old?session=session_ab12')
+      const body = JSON.parse(reply.body)
+
+      expect(reply.status).toBe(200)
+      expect(body.task).toMatchObject({ taskId: 't-old', status: 'completed' })
+      expect(body.events.map((event: { type: string }) => event.type)).toEqual([
+        'task/start',
+        'text',
+        'text',
+        'task/end',
+      ])
+    })
+
+    it('needs the token, like the rest of the API', async () => {
+      const s = await start(undefined, source)
+
+      expect((await send(s, 'GET', '/api/history')).status).toBe(401)
+      expect((await send(s, 'GET', '/api/history/t-old')).status).toBe(401)
+    })
+
+    it('refuses ids that are not the shape the runtime makes, before asking the store', async () => {
+      const s = await start(undefined, source)
+      asked.length = 0
+
+      const traversal = await get(s, '/api/history/t-old?session=..%2F..%2Fetc')
+      const badTask = await get(s, '/api/history/..%2Fx')
+
+      expect(traversal.status).toBe(400)
+      expect(badTask.status).toBe(400)
+      expect(asked).toEqual([])
+    })
+
+    it('says so when the task does not exist, or history is not available', async () => {
+      const withHistory = await start(undefined, source)
+      expect((await get(withHistory, '/api/history/nope')).status).toBe(404)
+      await withHistory.close()
+
+      const without = await start()
+      expect((await get(without, '/api/history')).status).toBe(404)
+    })
   })
 })

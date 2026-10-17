@@ -1,65 +1,34 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type KeyboardEvent } from 'react'
 import { cancelTask, sendTask, subscribe, type ConnectionState } from './api.js'
-import type { Usage } from '../protocol.js'
-import { reduce, type Entry, type Turn, type TurnItem } from './transcript.js'
+import { HistoryList, TaskTranscript } from './history.js'
+import { reduce, type Entry, type Turn } from './transcript.js'
+import { Entries } from './turn.js'
 
-function formatDuration(ms: number): string {
-  const safe = Math.max(0, ms)
-  return safe < 1000 ? `${Math.round(safe)}ms` : `${(safe / 1000).toFixed(1)}s`
+type Route = { view: 'chat' } | { view: 'history' } | { view: 'transcript'; taskId: string; sessionId?: string }
+
+/** `#/history` and `#/history/<session or live>/<task>`; anything else is the chat. */
+function parseRoute(hash: string): Route {
+  const [page, session, task] = hash.replace(/^#\/?/, '').split('/')
+  if (page !== 'history') return { view: 'chat' }
+  if (session && task) {
+    return { view: 'transcript', taskId: decodeURIComponent(task), sessionId: session === 'live' ? undefined : session }
+  }
+  return { view: 'history' }
 }
 
-const count = new Intl.NumberFormat('en-US')
-
-/** The same wording as the terminal's `formatUsage`, so the two read alike. */
-function formatUsage(usage: Usage): string {
-  const cached = usage.cachedInputTokens ? ` (${count.format(usage.cachedInputTokens)} cached)` : ''
-  return `${count.format(usage.inputTokens)} tokens in${cached} · ${count.format(usage.outputTokens)} out`
-}
-
-function ToolRow({ item }: { item: Extract<TurnItem, { kind: 'tool' }> }) {
-  const mark = item.status === 'running' ? '…' : item.status === 'ok' ? '✓' : '✗'
-  return (
-    <div className={`tool tool--${item.status}`}>
-      <span className="tool__mark" aria-hidden="true">
-        {mark}
-      </span>
-      <code className="tool__call">
-        {item.name}
-        {item.args && <span className="tool__args"> {item.args}</span>}
-      </code>
-      {item.ms !== undefined && <span className="tool__ms">{formatDuration(item.ms)}</span>}
-      {item.error && <div className="tool__error">{item.error}</div>}
-    </div>
-  )
-}
-
-function TurnView({ turn }: { turn: Turn }) {
-  return (
-    <section className="turn" aria-busy={turn.status === 'running'}>
-      <div className="turn__input">{turn.input}</div>
-      <div className="turn__reply">
-        {turn.items.map((item, index) =>
-          item.kind === 'text' ? (
-            <div key={index} className={item.done ? 'text' : 'text text--live'}>
-              {item.text}
-            </div>
-          ) : item.kind === 'tool' ? (
-            <ToolRow key={item.callId} item={item} />
-          ) : (
-            <div key={index} className="notice notice--inline">
-              {item.text}
-            </div>
-          ),
-        )}
-        {turn.status === 'running' && turn.items.length === 0 && <div className="thinking">Thinking…</div>}
-        {turn.status === 'cancelled' && <div className="outcome">Stopped.</div>}
-        {turn.status === 'error' && (
-          <div className="outcome outcome--error">Task failed: {turn.error ?? 'unknown error'}</div>
-        )}
-        {turn.usage && <div className="usage">{formatUsage(turn.usage)}</div>}
-      </div>
-    </section>
-  )
+/**
+ * The hash rather than the path: the server serves one page, and a hash
+ * change never reaches it, so a reload or a shared link lands on the same view
+ * without the server having to know the client's routes.
+ */
+function useRoute(): Route {
+  const [route, setRoute] = useState(() => parseRoute(window.location.hash))
+  useEffect(() => {
+    const onChange = () => setRoute(parseRoute(window.location.hash))
+    window.addEventListener('hashchange', onChange)
+    return () => window.removeEventListener('hashchange', onChange)
+  }, [])
+  return route
 }
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
@@ -68,7 +37,15 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
   rejected: 'Not authorised',
 }
 
-export function App({ token }: { token: string | null }) {
+function Chat({
+  token,
+  hidden,
+  onConnection,
+}: {
+  token: string
+  hidden: boolean
+  onConnection: (state: ConnectionState) => void
+}) {
   const [entries, dispatch] = useReducer(reduce, [] as Entry[])
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const [draft, setDraft] = useState('')
@@ -77,14 +54,21 @@ export function App({ token }: { token: string | null }) {
   const scroller = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
 
-  useEffect(() => (token ? subscribe(token, dispatch, setConnection) : undefined), [token])
+  useEffect(
+    () =>
+      subscribe(token, dispatch, (state) => {
+        setConnection(state)
+        onConnection(state)
+      }),
+    [token, onConnection],
+  )
 
   // Follow the conversation while the reader is at the bottom; leave them
   // alone once they have scrolled up to read something.
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight
-  }, [entries])
+  }, [entries, hidden])
   const onScroll = () => {
     const el = scroller.current
     if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
@@ -94,7 +78,7 @@ export function App({ token }: { token: string | null }) {
 
   const submit = useCallback(async () => {
     const input = draft.trim()
-    if (!token || !input || running || sending) return
+    if (!input || running || sending) return
     setSending(true)
     setError(null)
     const failure = await sendTask(token, input)
@@ -107,7 +91,7 @@ export function App({ token }: { token: string | null }) {
   }, [draft, token, running, sending])
 
   const stop = async () => {
-    if (!token || !running) return
+    if (!running) return
     const failure = await cancelTask(token, running.taskId)
     if (failure) setError(failure)
   }
@@ -119,24 +103,10 @@ export function App({ token }: { token: string | null }) {
     }
   }
 
-  if (!token) {
-    return (
-      <main className="empty">
-        <h1>OpenAgent</h1>
-        <p>
-          Open the address <code>open-agent web</code> printed in your terminal. It carries the key this page needs.
-        </p>
-      </main>
-    )
-  }
-
+  // Kept mounted while another view is open, so the stream, the draft and the
+  // scroll position are where they were on the way back.
   return (
-    <div className="app">
-      <header className="header">
-        <h1>OpenAgent</h1>
-        <span className={`connection connection--${connection}`}>{CONNECTION_LABEL[connection]}</span>
-      </header>
-
+    <div className="chat" hidden={hidden}>
       <div className="transcript" ref={scroller} onScroll={onScroll} aria-live="polite">
         {connection === 'rejected' && (
           <div className="banner">
@@ -146,15 +116,7 @@ export function App({ token }: { token: string | null }) {
         {entries.length === 0 && connection === 'open' && (
           <div className="placeholder">Give the agent a task to start.</div>
         )}
-        {entries.map((entry, index) =>
-          entry.kind === 'turn' ? (
-            <TurnView key={entry.taskId} turn={entry} />
-          ) : (
-            <div key={index} className="notice">
-              {entry.text}
-            </div>
-          ),
-        )}
+        <Entries entries={entries} />
       </div>
 
       <form
@@ -186,6 +148,45 @@ export function App({ token }: { token: string | null }) {
           </button>
         )}
       </form>
+    </div>
+  )
+}
+
+export function App({ token }: { token: string | null }) {
+  const route = useRoute()
+  const [connection, setConnection] = useState<ConnectionState>('connecting')
+
+  if (!token) {
+    return (
+      <main className="empty">
+        <h1>OpenAgent</h1>
+        <p>
+          Open the address <code>open-agent web</code> printed in your terminal. It carries the key this page needs.
+        </p>
+      </main>
+    )
+  }
+
+  return (
+    <div className="app">
+      <header className="header">
+        <h1>OpenAgent</h1>
+        <nav className="nav" aria-label="Views">
+          <a href="#/" aria-current={route.view === 'chat' ? 'page' : undefined}>
+            Chat
+          </a>
+          <a href="#/history" aria-current={route.view !== 'chat' ? 'page' : undefined}>
+            History
+          </a>
+        </nav>
+        <span className={`connection connection--${connection}`}>{CONNECTION_LABEL[connection]}</span>
+      </header>
+
+      <Chat token={token} hidden={route.view !== 'chat'} onConnection={setConnection} />
+      {route.view === 'history' && <HistoryList token={token} />}
+      {route.view === 'transcript' && (
+        <TaskTranscript token={token} taskId={route.taskId} sessionId={route.sessionId} />
+      )}
     </div>
   )
 }

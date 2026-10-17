@@ -1,4 +1,4 @@
-import type { ServerEvent } from '../protocol.js'
+import type { HistoryTask, HistoryTranscript, ServerEvent } from '../protocol.js'
 
 const TOKEN_KEY = 'open-agent:token'
 
@@ -75,4 +75,29 @@ export function subscribe(
     else onState('connecting')
   }
   return () => source.close()
+}
+
+async function get<T>(token: string, path: string): Promise<T | string> {
+  try {
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } })
+    const payload = (await res.json().catch(() => ({}))) as T & { error?: string }
+    return res.ok ? payload : (payload.error ?? `Request failed (${res.status}).`)
+  } catch {
+    return 'Could not reach the agent. Is `open-agent web` still running?'
+  }
+}
+
+/** Resolves to the tasks, or to an error message. */
+export async function fetchHistory(token: string): Promise<HistoryTask[] | string> {
+  const result = await get<{ tasks: HistoryTask[] }>(token, '/api/history')
+  return typeof result === 'string' ? result : result.tasks
+}
+
+export function fetchTranscript(
+  token: string,
+  taskId: string,
+  sessionId?: string,
+): Promise<HistoryTranscript | string> {
+  const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''
+  return get<HistoryTranscript>(token, `/api/history/${encodeURIComponent(taskId)}${query}`)
 }

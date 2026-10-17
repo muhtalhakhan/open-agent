@@ -65,7 +65,6 @@ code {
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
 }
@@ -97,6 +96,138 @@ code {
 
 .connection--rejected::before {
   background: var(--fail);
+}
+
+.chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat[hidden] {
+  display: none;
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+  margin-right: auto;
+  margin-left: 16px;
+}
+
+.nav a {
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.nav a[aria-current='page'] {
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.page__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.page__head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.error-text {
+  color: var(--fail);
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.history-row:hover,
+.history-row:focus-visible {
+  border-color: var(--accent);
+}
+
+.history-row__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.history-row__prompt {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.history-row__answer {
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.history-row__meta {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  font-weight: 600;
+}
+
+.status--completed {
+  color: var(--ok);
+}
+
+.status--error,
+.status--interrupted {
+  color: var(--fail);
 }
 
 .transcript {
