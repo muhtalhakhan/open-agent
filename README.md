@@ -160,6 +160,7 @@ packages/
   tools-files/     Filesystem tools confined to a workspace root (read_file)
   tools-http/      Direct HTTP requests to arbitrary APIs (http_request)
   tools-search/    Web search (web_search), over Brave or Tavily
+  tools-decision/  Typed judgments (classify, check, rank, score) from a DecisionModel — Jev today
   tools-mcp/       Generic MCP stdio client used by the tool packages above
   tools/           Remaining built-in tools (shell — planned)
   memory/          Long-term/semantic memory (Supermemory, mem0, in-memory)
