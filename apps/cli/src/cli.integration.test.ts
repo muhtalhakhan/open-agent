@@ -167,6 +167,87 @@ describe('CLI end to end', () => {
     expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
   })
 
+  describe('web', () => {
+    /** A port nothing is listening on, found by asking the OS for one and giving it back. */
+    function freePort(): Promise<number> {
+      return new Promise((resolve) => {
+        const probe = createServer()
+        probe.listen(0, '127.0.0.1', () => {
+          const { port } = probe.address() as AddressInfo
+          probe.close(() => resolve(port))
+        })
+      })
+    }
+
+    /** Reads server-sent events until one carries `type`, returning them all. */
+    async function readUntil(body: ReadableStream<Uint8Array>, type: string): Promise<{ type: string }[]> {
+      const events: { type: string }[] = []
+      const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+      let buffer = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) return events
+        buffer += value
+        let end: number
+        while ((end = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, end)
+          buffer = buffer.slice(end + 2)
+          if (!frame.startsWith('data: ')) continue
+          events.push(JSON.parse(frame.slice(6)))
+          if (events.at(-1)?.type === type) {
+            await reader.cancel()
+            return events
+          }
+        }
+      }
+    }
+
+    it('runs a task sent from the browser and saves the session on Ctrl+C', async () => {
+      const port = await freePort()
+      const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, 'web', '--port', String(port)], {
+        cwd: repo,
+        env: { ...process.env, ...env(), TMPDIR: repo },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      const url = await new Promise<string>((resolve, reject) => {
+        child.stdout.on('data', (chunk) => {
+          stdout += chunk
+          const match = stdout.match(/OpenAgent web UI: (\S+)/)
+          if (match) resolve(match[1])
+        })
+        child.on('close', () => reject(new Error(`exited before serving:\n${stdout}`)))
+      })
+      const exited = new Promise<number | null>((resolve) => child.on('close', resolve))
+      const token = new URL(url).searchParams.get('token')!
+      expect(new URL(url).host).toBe(`127.0.0.1:${port}`)
+
+      const stream = await fetch(`http://127.0.0.1:${port}/api/events?token=${token}`)
+      const sent = await fetch(`http://127.0.0.1:${port}/api/tasks`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: 'what indentation?' }),
+      })
+      expect(sent.status).toBe(202)
+      const events = await readUntil(stream.body!, 'task/end')
+
+      expect(events.at(-1)).toMatchObject({ type: 'task/end', status: 'completed', answer: 'ack' })
+      expect(provider.requests[0].messages.find((m) => m.role === 'user')?.content).toBe('what indentation?')
+
+      child.kill('SIGINT')
+      expect(await exited).toBe(0)
+      expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
+    })
+
+    it('refuses --plan, which needs a review the web UI cannot show yet', async () => {
+      const { stderr, code } = await runCli('', env(), repo, ['web', '--plan'])
+
+      expect(code).toBe(1)
+      expect(stderr).toContain('#109')
+      expect(provider.requests).toHaveLength(0)
+    })
+  })
+
   describe('print mode', () => {
     it('prints only the answer on stdout and exits 0', async () => {
       const { stdout, stderr, code } = await runCli('', env(), repo, ['-p', 'what indentation?'])

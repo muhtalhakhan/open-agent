@@ -16,6 +16,7 @@ import {
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountTakeoverTools } from '@open-agent/tools-computer'
 import { KeychainSecretStore } from '@open-agent/security'
+import { startWebServer, type WebServer } from '@open-agent/web'
 import { loadConfigFromEnv } from './config.js'
 import { runInit, type KeychainWriter } from './init.js'
 import { createTerminalInitIO } from './init-io.js'
@@ -26,7 +27,7 @@ import {
   createTerminalApprovalHandler,
 } from './approval.js'
 import { createBackgroundJobs, type BackgroundJobs } from './background.js'
-import { parseCliArgs, USAGE } from './args.js'
+import { DEFAULT_WEB_PORT, parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { createTerminalAnswerStream, type AnswerStream } from './answer-stream.js'
@@ -36,6 +37,7 @@ import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
+import { executeTask } from './task.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
@@ -124,7 +126,9 @@ async function main() {
     return
   }
   const headless = args.mode === 'print'
-  const useTui = ttyBothEnds && !headless
+  // The person is in a browser, not at this terminal: nothing here prompts.
+  const web = args.mode === 'web'
+  const useTui = ttyBothEnds && !headless && !web
 
   const result = loadConfigFromEnv(process.env)
   if (!result.ok) {
@@ -183,6 +187,8 @@ async function main() {
   const activeAbort: AbortRef = { current: null }
 
   let io: ReplIO
+  let webServer: WebServer | undefined
+  const pendingNotices: string[] = []
   let ask: (question: string) => Promise<string>
   let teardown: () => void
   // Print mode has no stream: stdout is the answer alone, and a script that
@@ -199,6 +205,22 @@ async function main() {
         return null
       },
       write: (text) => void process.stderr.write(text),
+    }
+    ask = async () => 'n'
+    teardown = () => {}
+  } else if (web) {
+    // Printed for whoever started the server and passed on to the browser:
+    // "the shell is unsandboxed" matters most to the person about to give the
+    // agent a task. Held until the server is up to receive it.
+    io = {
+      async prompt() {
+        return null
+      },
+      write: (text) => {
+        process.stdout.write(text)
+        if (webServer) webServer.notice(text)
+        else pendingNotices.push(text)
+      },
     }
     ask = async () => 'n'
     teardown = () => {}
@@ -267,33 +289,45 @@ async function main() {
     process.exitCode = 1
     return
   }
+  if (web && args.plan) {
+    console.error('--plan needs a diff review the web UI does not have yet (#109). Use it in the terminal.')
+    process.exitCode = 1
+    return
+  }
 
   // Background jobs exist only in the interactive session, and only once the
   // agent loop does; the router asks whichever set is live at call time.
   let background: BackgroundJobs | undefined
   tools.setUnattended((taskId) => background?.owns(taskId) ?? false)
-  tools.onApproval(
-    headless
-      ? createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg))
-      : createRoutingApprovalHandler(
-          (taskId) => background?.owns(taskId) ?? false,
-          args.plan
-            ? createPlanApprovalHandler(ask, (text) => io.write(text), { color: !useTui })
-            : createTerminalApprovalHandler(ask),
-          createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(`[background] ${msg}`)),
-        ),
-  )
+  if (headless) {
+    tools.onApproval(createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg)))
+  } else if (web) {
+    // Until the web UI can ask (#109), it answers as print mode does, and
+    // says so in the chat.
+    tools.onApproval(createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(msg)))
+  } else {
+    tools.onApproval(
+      createRoutingApprovalHandler(
+        (taskId) => background?.owns(taskId) ?? false,
+        args.plan
+          ? createPlanApprovalHandler(ask, (text) => io.write(text), { color: !useTui })
+          : createTerminalApprovalHandler(ask),
+        createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(`[background] ${msg}`)),
+      ),
+    )
+  }
   if (args.plan) {
     tools.enablePlans()
     io.write(`Plan mode: file edits are shown as a diff and reviewed before they run.\n`)
   }
 
-  // Handing the wheel to a person needs a person, so these exist in an
-  // interactive session and not in print mode. Not gated on COMPUTER_USE: a
-  // login wall is met by the browser tools far more often than by the
-  // computer ones, and the answer to it is the same handoff either way.
+  // Handing the wheel to a person needs a person at this machine's screen, so
+  // these exist in an interactive terminal session and not in print mode or
+  // the web UI, which has no way to offer the handoff yet. Not gated on
+  // COMPUTER_USE: a login wall is met by the browser tools far more often than
+  // by the computer ones, and the answer to it is the same handoff either way.
   let disposeTakeoverTools: (() => void) | undefined
-  if (!headless) {
+  if (!headless && !web) {
     const leases = new LeaseManager({
       sessions,
       handler: createTerminalTakeoverHandler(ask),
@@ -340,6 +374,30 @@ async function main() {
         signal: controller.signal,
         memory: memoryHook,
       })
+    } else if (web) {
+      const port = args.port ?? DEFAULT_WEB_PORT
+      try {
+        webServer = await startWebServer({
+          port,
+          runTask: (input, signal, { onText, onEvent }) =>
+            executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent }),
+        })
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err
+        console.error(`Port ${port} is already in use. Pick another with --port.`)
+        process.exitCode = 1
+        return
+      }
+      for (const text of pendingNotices.splice(0)) webServer.notice(text)
+      console.log(`\nOpenAgent web UI: ${webServer.url}\nOpen it in your browser. Ctrl+C stops the server.\n`)
+      // Once, so a second Ctrl+C falls through to the default and kills a
+      // shutdown that is stuck waiting on a task.
+      await new Promise<void>((resolve) => {
+        process.once('SIGINT', resolve)
+        process.once('SIGTERM', resolve)
+      })
+      // Waits out a running task, so what it did is in the session saved below.
+      await webServer.close()
     } else {
       background = createBackgroundJobs(loop, sessions, (text) => io.write(text))
       await runRepl(loop, sessions, io, activeAbort, {

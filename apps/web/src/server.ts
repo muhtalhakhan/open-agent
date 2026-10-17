@@ -1,0 +1,363 @@
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { RunTextEvent, SessionEvent } from '@open-agent/agent'
+import type { ServerEvent, TaskEndStatus } from './protocol.js'
+
+/** Where `vite build` puts the client. */
+export const CLIENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/client')
+
+export interface TaskOutcome {
+  status: TaskEndStatus
+  /** The model's final answer. Empty unless the task completed. */
+  answer: string
+  error?: string
+}
+
+export interface TaskHooks {
+  onText(event: RunTextEvent): void
+  /** This task's session events, as they are appended. */
+  onEvent(event: SessionEvent): void
+}
+
+/**
+ * Runs one task to the end. Injected rather than built here so the browser
+ * gets exactly the task the terminal does — memory recall, the session log,
+ * approvals — from the host that already assembled them.
+ */
+export type RunTask = (input: string, signal: AbortSignal, hooks: TaskHooks) => Promise<TaskOutcome>
+
+export interface WebServerOptions {
+  runTask: RunTask
+  /** `0` takes any free port. */
+  port: number
+  /** Generated when absent. Fixed only by tests. */
+  token?: string
+  clientDir?: string
+}
+
+export interface WebServer {
+  /** The address to open, token included. */
+  url: string
+  port: number
+  notice(text: string): void
+  /** Cancels a running task and waits for it, so the session log is complete once this resolves. */
+  close(): Promise<void>
+}
+
+const MAX_BODY_BYTES = 64 * 1024
+const ARGS_LENGTH = 200
+const ERROR_LENGTH = 300
+/** Enough to rebuild a long conversation on reload, not enough to grow without bound. */
+const MAX_REPLAY_EVENTS = 2000
+/** Under the idle timeout of anything that might sit between a browser and localhost. */
+const KEEPALIVE_MS = 15_000
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.woff2': 'font/woff2',
+}
+
+/** No inline script or style, nothing from elsewhere, and never framed — the page drives an agent with a shell. */
+const PAGE_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+}
+
+function clip(text: string, length: number): string {
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text
+}
+
+function sameToken(given: string | null, expected: string): boolean {
+  if (!given) return false
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...PAGE_HEADERS })
+  res.end(JSON.stringify(body))
+}
+
+function readBody(req: IncomingMessage): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    let size = 0
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > MAX_BODY_BYTES) {
+        resolve(null)
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', reject)
+  })
+}
+
+/**
+ * Serves the chat UI and the API behind it on 127.0.0.1, for one person at
+ * the machine. One task runs at a time, as in the terminal; every open tab
+ * sees the same conversation.
+ *
+ * The agent behind this can have a shell, so the server assumes the browser
+ * running it also has other sites open and defends against them:
+ *
+ * - Every API call carries a token printed in the terminal at startup. A page
+ *   on another site can send requests to localhost but cannot read the URL.
+ * - The `Host` header must name this server. A site that rebinds its own
+ *   domain to 127.0.0.1 is same-origin with itself, not with us, and its
+ *   requests still say its own name.
+ * - POSTs must be JSON from no origin or our own. JSON forces a CORS
+ *   preflight, which this server never answers, so a cross-site form or
+ *   `fetch` cannot reach the handler at all.
+ */
+export async function startWebServer({
+  runTask,
+  port,
+  token = randomBytes(24).toString('base64url'),
+  clientDir: givenClientDir = CLIENT_DIR,
+}: WebServerOptions): Promise<WebServer> {
+  const clientDir = path.resolve(givenClientDir)
+  const clients = new Set<ServerResponse>()
+  const replay: ServerEvent[] = []
+  let current: { taskId: string; controller: AbortController; done: Promise<void> } | null = null
+  // The reply being streamed right now. Deltas go to open tabs as they come
+  // but are not replayed one by one: a finished reply is recorded once, whole,
+  // and a tab that connects mid-reply is sent what has arrived so far.
+  let streaming = ''
+
+  const broadcast = (event: ServerEvent) => {
+    const frame = `data: ${JSON.stringify(event)}\n\n`
+    for (const res of clients) res.write(frame)
+  }
+  const record = (event: ServerEvent) => {
+    replay.push(event)
+    if (replay.length > MAX_REPLAY_EVENTS) replay.splice(0, replay.length - MAX_REPLAY_EVENTS)
+  }
+  const emit = (event: ServerEvent) => {
+    record(event)
+    broadcast(event)
+  }
+  const notice = (text: string) => {
+    const trimmed = text.trim()
+    if (trimmed) emit({ type: 'notice', text: trimmed })
+  }
+
+  function startTask(input: string): string {
+    const taskId = randomUUID()
+    const controller = new AbortController()
+    const openCalls = new Map<string, number>()
+    streaming = ''
+    emit({ type: 'task/start', taskId, input })
+
+    const hooks: TaskHooks = {
+      onText(event) {
+        if (event.type === 'delta') {
+          streaming += event.text
+          broadcast({ type: 'text', taskId, event })
+        } else if (event.type === 'reset') {
+          streaming = ''
+          broadcast({ type: 'text', taskId, event })
+        } else {
+          if (streaming) record({ type: 'text', taskId, event: { type: 'delta', text: streaming } })
+          streaming = ''
+          emit({ type: 'text', taskId, event })
+        }
+      },
+      onEvent(event) {
+        if (event.type === 'tool/call') {
+          openCalls.set(event.call.id, event.at)
+          emit({
+            type: 'tool/start',
+            taskId,
+            callId: event.call.id,
+            name: event.call.name,
+            args: Object.keys(event.call.args).length ? clip(JSON.stringify(event.call.args), ARGS_LENGTH) : '',
+          })
+        } else if (event.type === 'tool/result') {
+          const startedAt = openCalls.get(event.callId)
+          if (startedAt === undefined) return
+          openCalls.delete(event.callId)
+          const error = event.result.ok ? undefined : clip(event.result.error ?? event.result.content, ERROR_LENGTH)
+          emit({ type: 'tool/end', taskId, callId: event.callId, ok: event.result.ok, error, ms: event.at - startedAt })
+        } else if (event.type === 'turn/end') {
+          // A call still open when the turn ends (cancelled mid-tool) would
+          // otherwise show as running forever.
+          for (const [callId, startedAt] of openCalls) {
+            emit({ type: 'tool/end', taskId, callId, ok: false, error: event.reason, ms: event.at - startedAt })
+          }
+          openCalls.clear()
+        }
+      },
+    }
+
+    const done = runTask(input, controller.signal, hooks)
+      .catch((err): TaskOutcome => ({
+        status: 'error',
+        answer: '',
+        error: err instanceof Error ? err.message : String(err),
+      }))
+      .then((outcome) => {
+        streaming = ''
+        emit({ type: 'task/end', taskId, ...outcome })
+      })
+      .finally(() => {
+        current = null
+      })
+    current = { taskId, controller, done }
+    return taskId
+  }
+
+  function openStream(req: IncomingMessage, res: ServerResponse): void {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive',
+      ...PAGE_HEADERS,
+    })
+    const send = (event: ServerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`)
+    send({ type: 'hello' })
+    for (const event of replay) send(event)
+    if (current && streaming) send({ type: 'text', taskId: current.taskId, event: { type: 'delta', text: streaming } })
+    clients.add(res)
+    const keepalive = setInterval(() => res.write(': keepalive\n\n'), KEEPALIVE_MS)
+    req.on('close', () => {
+      clearInterval(keepalive)
+      clients.delete(res)
+    })
+  }
+
+  async function serveStatic(res: ServerResponse, pathname: string, head: boolean): Promise<void> {
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(pathname)
+    } catch {
+      return sendJson(res, 400, { error: 'Bad path.' })
+    }
+    const file = path.resolve(clientDir, `.${decoded === '/' ? '/index.html' : decoded}`)
+    if (file !== clientDir && !file.startsWith(clientDir + path.sep)) return sendJson(res, 404, { error: 'Not found.' })
+    let body: Buffer
+    try {
+      body = await readFile(file)
+    } catch {
+      if (decoded === '/') {
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', ...PAGE_HEADERS })
+        res.end('The web client has not been built. Run `npm run build -w @open-agent/web`, then reload.\n')
+        return
+      }
+      return sendJson(res, 404, { error: 'Not found.' })
+    }
+    const type = CONTENT_TYPES[path.extname(file)] ?? 'application/octet-stream'
+    // Vite fingerprints everything under assets/, so those never change;
+    // index.html names the current fingerprints and must always be fresh.
+    const cache = decoded.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache, ...PAGE_HEADERS })
+    res.end(head ? undefined : body)
+  }
+
+  let origin = ''
+  let allowedHosts = new Set<string>()
+  let allowedOrigins = new Set<string>()
+
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!allowedHosts.has(req.headers.host ?? '')) return sendJson(res, 403, { error: 'Unexpected Host header.' })
+    const url = new URL(req.url ?? '/', origin)
+
+    if (!url.pathname.startsWith('/api/')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed.' })
+      return serveStatic(res, url.pathname, req.method === 'HEAD')
+    }
+
+    // EventSource cannot set headers, so the stream takes the token in the
+    // query; everything else sends it as a bearer token.
+    const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1] ?? null
+    if (!sameToken(bearer ?? url.searchParams.get('token'), token)) {
+      return sendJson(res, 401, { error: 'Missing or wrong token. Open the URL printed in the terminal.' })
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/events') return openStream(req, res)
+    if (req.method !== 'POST') return sendJson(res, 404, { error: 'Not found.' })
+
+    const requestOrigin = req.headers.origin
+    if (requestOrigin !== undefined && !allowedOrigins.has(requestOrigin)) {
+      return sendJson(res, 403, { error: 'Cross-origin request refused.' })
+    }
+    if (!req.headers['content-type']?.startsWith('application/json')) {
+      return sendJson(res, 415, { error: 'Send JSON.' })
+    }
+
+    if (url.pathname === '/api/tasks') {
+      const raw = await readBody(req)
+      if (raw === null) return sendJson(res, 413, { error: 'Task too long.' })
+      let input: unknown
+      try {
+        input = (JSON.parse(raw) as { input?: unknown }).input
+      } catch {
+        return sendJson(res, 400, { error: 'Body is not JSON.' })
+      }
+      if (typeof input !== 'string' || !input.trim()) return sendJson(res, 400, { error: 'Give the task as "input".' })
+      if (current) return sendJson(res, 409, { error: 'A task is already running. Wait for it, or stop it.' })
+      return sendJson(res, 202, { taskId: startTask(input.trim()) })
+    }
+
+    const cancel = url.pathname.match(/^\/api\/tasks\/([^/]+)\/cancel$/)
+    if (cancel) {
+      if (!current || current.taskId !== cancel[1]) return sendJson(res, 404, { error: 'No such running task.' })
+      current.controller.abort()
+      return sendJson(res, 202, {})
+    }
+    return sendJson(res, 404, { error: 'Not found.' })
+  }
+
+  const server = createServer((req, res) => {
+    handle(req, res).catch((err) => {
+      if (!res.headersSent) sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+      else res.end()
+    })
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    // Loopback only. Anything wider would hand the agent to the network.
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  const bound = (server.address() as AddressInfo).port
+  origin = `http://127.0.0.1:${bound}`
+  allowedHosts = new Set([`127.0.0.1:${bound}`, `localhost:${bound}`])
+  allowedOrigins = new Set([...allowedHosts].map((host) => `http://${host}`))
+
+  return {
+    url: `${origin}/?token=${token}`,
+    port: bound,
+    notice,
+    async close() {
+      const running = current
+      running?.controller.abort()
+      await running?.done
+      for (const res of clients) res.end()
+      clients.clear()
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve())
+        server.closeAllConnections()
+      })
+    },
+  }
+}

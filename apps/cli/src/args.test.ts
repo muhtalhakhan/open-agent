@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCliArgs } from './args.js'
+import { DEFAULT_WEB_PORT, parseCliArgs } from './args.js'
 
 /** Unwraps a parse expected to succeed, so the assertions stay readable. */
 function ok(argv: string[]) {
@@ -34,6 +34,23 @@ describe('parseCliArgs', () => {
   it('runs the setup wizard for "init", and treats -p init as a task', () => {
     expect(ok(['init'])).toMatchObject({ mode: 'init' })
     expect(ok(['-p', 'init'])).toMatchObject({ mode: 'print', prompt: 'init' })
+  })
+
+  it('serves the web UI for "web", on the default port unless --port says otherwise', () => {
+    expect(ok(['web'])).toMatchObject({ mode: 'web', port: DEFAULT_WEB_PORT, approveAsk: false })
+    expect(ok(['web', '--port', '8080'])).toMatchObject({ mode: 'web', port: 8080 })
+    expect(ok(['web', '--yes']).approveAsk).toBe(true)
+    expect(ok(['-p', 'web'])).toMatchObject({ mode: 'print', prompt: 'web' })
+  })
+
+  it('rejects a port that is not one, and --port without "web"', () => {
+    for (const port of ['0', '65536', 'abc', '80.5', '']) {
+      const result = parseCliArgs(['web', '--port', port])
+      expect(result.ok, port).toBe(false)
+    }
+    const stray = parseCliArgs(['--port', '8080'])
+    expect(stray.ok).toBe(false)
+    if (!stray.ok) expect(stray.error).toContain('open-agent web')
   })
 
   it('turns plan mode on with --plan', () => {

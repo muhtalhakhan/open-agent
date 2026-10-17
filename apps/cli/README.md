@@ -29,6 +29,10 @@ Because nothing can answer an approval prompt, `ask`-level tool calls are denied
 
 Both modes share one task path (`task.ts`): recall memories, run the loop, store the answer. `repl.ts` and `headless.ts` differ only in the IO wrapped around it.
 
+## Web UI
+
+`open-agent web` serves a chat UI on 127.0.0.1 (port 7373, or `--port`) and prints the address to open, token included. It builds the same agent as the terminal and runs each message through the same `task.ts`; the server and the page live in `apps/web` (see its README). Nobody is at the terminal to answer an approval, so it uses print mode's policy until the page can ask (#109): `ask`-level calls are denied unless started with `--yes`, and each refusal shows in the chat. `--plan` is refused. Ctrl+C waits for a running task, then saves the session.
+
 ## Task history
 
 `open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, and the session id to pass to `--resume`. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
@@ -59,7 +63,8 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
-- `task.ts` — one task end to end, shared by both modes
+- `task.ts` — one task end to end, shared by the REPL, print mode and the web UI
+- `runtime.ts` — the tools, memory and model the config turns on, wired into one `AgentLoop` for whichever of those is running
 - `markdown.ts` — Markdown to styled terminal text for answers (`markdown.test.ts`)
 - `history.ts` — `--history` and `:history` formatting, merging saved sessions with the live one (`history.test.ts`)
 - `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)

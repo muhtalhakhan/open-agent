@@ -34,7 +34,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | ⏰  | Run scheduled tasks                           | 🟡 Library — `@open-agent/automation`: one-time and recurring (cron/interval) tasks, a job queue with retries, and notifications; not yet a CLI command                        |
 | 🤖  | Operate autonomously with configurable limits | 🟡 Partly — permission levels, approvals, sandboxing and prompt-injection defenses are in (Milestone 9); remote/cloud agents are Milestone 10                                  |
 
-A CLI is available today (`npm run cli`); the web UI described below is still a design doc, not code.
+A CLI is available today (`npm run cli`), and a first browser chat UI (`npm run web`); the rest of the web UI described below is still a design doc.
 
 See the [milestones](../../milestones) for the full roadmap and what's currently in progress.
 
@@ -138,6 +138,7 @@ cd open-agent
 npm install
 npm run cli -- init    # asks for the provider, key and tools, checks the model answers, writes .env
 npm run cli
+npm run web            # or chat in the browser: builds the page, then prints the address to open
 ```
 
 `init` keeps keys in the OS keychain when there is one, rather than in a plaintext `.env`. To configure by hand instead, `cp .env.example .env` and fill in `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` — any OpenAI-compatible endpoint works.
@@ -148,7 +149,7 @@ That starts an interactive terminal session against the real agent loop, tool re
 
 ```
 apps/
-  web/            Web UI (design only — no implementation yet)
+  web/            Web UI: a local chat server and its React client (`open-agent web`)
   cli/            Command-line interface (Ink-based TUI)
 packages/
   context/         Plugin/service kernel the rest of the runtime is built on
