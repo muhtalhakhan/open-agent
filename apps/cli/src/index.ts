@@ -5,33 +5,16 @@ import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import dotenv from 'dotenv'
 import {
-  AgentLoop,
   LeaseManager,
   SessionLog,
   SessionStore,
   ToolRegistry,
   buildSystemPrompt,
-  consoleLogger,
   loadProjectInstructions,
   readTaskHistory,
-  silentLogger,
 } from '@open-agent/agent'
-import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
-import type { MemoryProvider } from '@open-agent/memory'
-import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
-import { mountBrowserUseTools } from '@open-agent/tools-browser'
-import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
-import { httpRequestTool } from '@open-agent/tools-http'
-import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
-import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
-import { Context } from '@open-agent/context'
-import {
-  computerUseTaskTool,
-  computerScreenshotTool,
-  mountTakeoverTools,
-  createNutJsScreenshotOperator,
-  createUiTarsGuiAgentFactory,
-} from '@open-agent/tools-computer'
+import { OpenAiCompatibleProvider } from '@open-agent/providers'
+import { mountTakeoverTools } from '@open-agent/tools-computer'
 import { KeychainSecretStore } from '@open-agent/security'
 import { loadConfigFromEnv } from './config.js'
 import { runInit, type KeychainWriter } from './init.js'
@@ -52,6 +35,7 @@ import { createLineActivityView, type ToolActivityView } from './tool-activity.j
 import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
+import { createRuntime } from './runtime.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
@@ -195,7 +179,6 @@ async function main() {
     sessions.loadFrom(stored)
   }
 
-  const ctx = new Context()
   const tools = new ToolRegistry()
   const activeAbort: AbortRef = { current: null }
 
@@ -321,140 +304,22 @@ async function main() {
     disposeTakeoverTools = mountTakeoverTools(tools, leases)
   }
 
-  let disposeBrowserTools: (() => void) | undefined
-
-  // --- Computer-use tools (UI-TARS: screenshot + full mouse/keyboard loop) ---
-  if (config.computer.enabled) {
-    const factory = createUiTarsGuiAgentFactory({
-      model: {
-        // Same endpoint and key as the main LLM; COMPUTER_USE_MODEL only
-        // swaps the model, since UI-TARS wants a vision-capable one.
-        baseURL: config.llm.baseURL,
-        apiKey: config.llm.apiKey,
-        model: config.computer.model ?? config.llm.model,
-      },
-    })
-    tools.register(computerUseTaskTool(factory))
-    tools.register(computerScreenshotTool(createNutJsScreenshotOperator()))
-    io.write('Computer-use tools loaded (COMPUTER_USE=1).\n')
-  }
-  if (config.browser.enabled) {
-    // Via io.write, not console.log: in print mode that routes to stderr so
-    // it cannot land in the captured answer.
-    io.write('Starting browser-use (python -m browser_use.mcp)...\n')
-    // A shared profile is a browser already logged into everything the user
-    // is, reachable by any page the agent visits. Worth saying out loud when
-    // someone has asked for it.
-    io.write(
-      config.browser.profileDir
-        ? `Browser profile: ${config.browser.profileDir} (SHARED — the agent gets any session logged in there)\n`
-        : 'Browser profile: a throwaway one, discarded when this run ends\n',
-    )
-    disposeBrowserTools = await mountBrowserUseTools(tools, {
-      profileDir: config.browser.profileDir,
-      keepProfile: config.browser.keepProfile,
-      allowEnv: config.browser.allowEnv,
-    })
-  }
-
-  // One workspace for the file and shell tools alike: the capability the user
-  // granted is "this directory", not "this directory for reads and some other
-  // one for commands". `WORKSPACE_SESSION=1` provisions a throwaway directory
-  // per run instead, which is what keeps two concurrent agents out of each
-  // other's files.
-  let workspace: Workspace | undefined
-  let disposeFileTools: (() => void) | undefined
-  let disposeTerminalTools: (() => void) | undefined
-
-  if (config.files.enabled || config.shell.enabled) {
-    const policy = { deny: config.files.deny, allow: config.files.allow, readOnly: config.files.readOnly }
-    workspace = config.workspace.session
-      ? await createSessionWorkspace({ base: config.workspace.base, policy })
-      : await openWorkspace({ root: config.files.root ?? config.shell.root ?? process.cwd(), policy })
-
-    if (config.workspace.session) {
-      io.write(`Working in a session workspace at ${workspace.root}\n`)
-    }
-    if (config.files.enabled) disposeFileTools = mountFileTools(tools, workspace)
-
-    if (config.shell.enabled) {
-      const sandbox = await selectSandbox(config.shell.sandbox, {
-        docker: { image: config.shell.sandboxImage },
-      })
-
-      // Not registering the tools is the whole point of the check. Falling
-      // back to an unsandboxed shell because bwrap happened to be missing is
-      // exactly the failure the sandbox exists to prevent, so the shell stays
-      // off until someone says which of the two they want.
-      if (!sandbox) {
-        io.write(
-          `Shell tools are off: no sandbox is available (asked for "${config.shell.sandbox}").\n` +
-            `Install bubblewrap or Docker, or set SHELL_SANDBOX=none to run commands with your own privileges.\n`,
-        )
-      } else {
-        if (sandbox.name === 'none') {
-          io.write('Shell tools are UNSANDBOXED: commands run with your full privileges.\n')
-        } else {
-          io.write(`Shell sandbox: ${sandbox.describe()}\n`)
-        }
-        disposeTerminalTools = mountTerminalTools(tools, workspace, {
-          allowedCommands: config.shell.allowedCommands,
-          allowEnv: config.shell.allowEnv,
-          timeoutMs: config.shell.timeoutMs,
-          sandbox,
-          network: config.shell.network,
-        })
-      }
-    }
-  }
-
-  if (config.http.enabled) {
-    tools.register(
-      httpRequestTool({
-        allowedHosts: config.http.allowedHosts,
-        network: { deniedHosts: config.http.deniedHosts, allowLocal: config.http.allowLocal },
-        secrets: config.http.secrets,
-      }),
-    )
-  }
-
-  if (config.search.provider !== 'none') {
-    const searchProvider =
-      config.search.provider === 'brave'
-        ? new BraveSearchProvider({ apiKey: config.search.apiKey })
-        : new TavilySearchProvider({ apiKey: config.search.apiKey })
-    tools.register(webSearchTool(searchProvider))
-  }
-
-  if (config.memory.provider === 'supermemory') {
-    const { default: Supermemory } = await import('supermemory')
-    ctx.plugin(
-      memoryPlugin(
-        new SupermemoryProvider(new Supermemory({ apiKey: config.memory.apiKey, baseURL: config.memory.baseURL })),
-      ),
-    )
-  } else if (config.memory.provider === 'mem0') {
-    const { default: MemoryClient } = await import('mem0ai')
-    ctx.plugin(memoryPlugin(new Mem0Provider(new MemoryClient({ apiKey: config.memory.apiKey }))))
-  } else {
-    ctx.plugin(memoryPlugin(new InMemoryMemoryProvider()))
-  }
-
-  const llm = new OpenAiCompatibleProvider(config.llm)
-  const loop = new AgentLoop({
+  const runtime = await createRuntime({
+    config,
     sessions,
     tools,
-    llm,
+    // Via io.write, not console.log: in print mode that routes to stderr so
+    // a startup notice cannot land in the captured answer.
+    write: (text) => io.write(text),
+    cwd: process.cwd(),
     systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
-    // Wrapped so a resolved API key cannot reach the log through an
-    // error body, a tool argument, or anything else that happens to carry it.
-    logger: createRedactingLogger(process.env.DEBUG ? consoleLogger : silentLogger, config.secrets),
+    debug: Boolean(process.env.DEBUG),
   })
+  const loop = runtime.loop
 
   try {
-    const memory = ctx.get<MemoryProvider>('memory')!
     const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
-    const memoryHook = { provider: memory, containerTag }
+    const memoryHook = { provider: runtime.memory, containerTag }
 
     if (headless) {
       if (args.prompt === undefined && process.stdin.isTTY) {
@@ -506,13 +371,7 @@ async function main() {
     await background?.close()
     teardown()
     disposeTakeoverTools?.()
-    disposeBrowserTools?.()
-    // Before the workspace goes: a background process outlives the task that
-    // started it, and a session workspace is about to be deleted out from
-    // under anything still running in it.
-    disposeTerminalTools?.()
-    disposeFileTools?.()
-    await workspace?.dispose()
+    await runtime.dispose()
   }
 }
 
