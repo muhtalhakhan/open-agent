@@ -1,4 +1,4 @@
-import type { ApprovalScope, HistoryTask, HistoryTranscript, ServerEvent } from '../protocol.js'
+import type { ApprovalScope, HistoryTask, HistoryTranscript, MemoryListing, ServerEvent } from '../protocol.js'
 
 const TOKEN_KEY = 'open-agent:token'
 
@@ -109,4 +109,17 @@ export function fetchTranscript(
 ): Promise<HistoryTranscript | string> {
   const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''
   return get<HistoryTranscript>(token, `/api/history/${encodeURIComponent(taskId)}${query}`)
+}
+
+export function fetchMemory(token: string, query: string): Promise<MemoryListing | string> {
+  return get<MemoryListing>(token, `/api/memory${query ? `?q=${encodeURIComponent(query)}` : ''}`)
+}
+
+/** Resolves to an error message, or `null` once forgotten. */
+export function forgetMemory(token: string, id: string): Promise<string | null> {
+  return post(token, `/api/memory/${encodeURIComponent(id)}/forget`, {})
+}
+
+export function updateMemory(token: string, id: string, content: string): Promise<string | null> {
+  return post(token, `/api/memory/${encodeURIComponent(id)}`, { content })
 }

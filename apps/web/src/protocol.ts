@@ -84,3 +84,22 @@ export interface HistoryTranscript {
   task: HistoryTask
   events: ServerEvent[]
 }
+
+/** One stored memory, as the memory view shows it. */
+export interface MemoryRecord {
+  id: string
+  content: string
+  /** Present for a search result: how closely it matched. */
+  score?: number
+  metadata?: Record<string, unknown> | null
+}
+
+/** `GET /api/memory?q=`: what the agent remembers for this user, all of it or what matches `q`. */
+export interface MemoryListing {
+  provider: string
+  containerTag: string
+  /** Whether the backend can list everything; when it cannot, the view has to search. */
+  canList: boolean
+  query: string
+  items: MemoryRecord[]
+}

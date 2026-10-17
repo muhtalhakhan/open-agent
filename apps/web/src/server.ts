@@ -6,7 +6,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { taskRecords } from '@open-agent/agent'
 import type { RunTextEvent, SessionEvent, TaskRecord, TokenUsage } from '@open-agent/agent'
-import type { ApprovalScope, HistoryTask, HistoryTranscript, ServerEvent, TaskEndStatus } from './protocol.js'
+import type {
+  ApprovalScope,
+  HistoryTask,
+  HistoryTranscript,
+  MemoryListing,
+  MemoryRecord,
+  ServerEvent,
+  TaskEndStatus,
+} from './protocol.js'
 import { activityProjector, clip, preview, replayTask } from './project.js'
 
 /** Where `vite build` puts the client. */
@@ -45,8 +53,26 @@ export interface HistorySource {
   events(taskId: string, sessionId?: string): Promise<SessionEvent[] | undefined>
 }
 
+/**
+ * The agent's long-term memory for the person using this server, from the
+ * host that configured it. Each call is already scoped to their container,
+ * so the page can only reach its own user's memories.
+ */
+export interface MemorySource {
+  provider: string
+  containerTag: string
+  /** Absent when the backend cannot list everything; the page searches instead. */
+  list?(limit: number): Promise<MemoryRecord[]>
+  search(query: string, limit: number): Promise<MemoryRecord[]>
+  forget(id: string): Promise<boolean>
+  /** `false` when the backend could not apply it — some cannot edit at all. */
+  update(id: string, content: string): Promise<boolean>
+}
+
 export interface WebServerOptions {
   runTask: RunTask
+  /** Enables the memory view; without it `/api/memory` answers 404. */
+  memory?: MemorySource
   /** Enables the history view; without it `/api/history` answers 404. */
   history?: HistorySource
   /** `0` takes any free port. */
@@ -92,6 +118,9 @@ const MAX_BODY_BYTES = 64 * 1024
 /** Enough for any command or edit a person would actually read before approving it. */
 const APPROVAL_ARGS_LENGTH = 4_000
 const PLAN_LENGTH = 20_000
+const MEMORY_LIST_LIMIT = 200
+const MEMORY_SEARCH_LIMIT = 50
+const MEMORY_CONTENT_LENGTH = 10_000
 /** Enough to rebuild a long conversation on reload, not enough to grow without bound. */
 const MAX_REPLAY_EVENTS = 2000
 /** Under the idle timeout of anything that might sit between a browser and localhost. */
@@ -183,6 +212,7 @@ export async function startWebServer({
   token = randomBytes(24).toString('base64url'),
   clientDir: givenClientDir = CLIENT_DIR,
   history,
+  memory,
 }: WebServerOptions): Promise<WebServer> {
   const clientDir = path.resolve(givenClientDir)
   const clients = new Set<ServerResponse>()
@@ -391,6 +421,23 @@ export async function startWebServer({
 
     if (req.method === 'GET' && url.pathname === '/api/events') return openStream(req, res)
     if (req.method === 'GET' && url.pathname.startsWith('/api/history')) return serveHistory(res, url)
+    if (req.method === 'GET' && url.pathname === '/api/memory') {
+      if (!memory) return sendJson(res, 404, { error: 'Memory is not available.' })
+      const query = url.searchParams.get('q')?.trim() ?? ''
+      const items = query
+        ? await memory.search(query, MEMORY_SEARCH_LIMIT)
+        : memory.list
+          ? await memory.list(MEMORY_LIST_LIMIT)
+          : []
+      const listing: MemoryListing = {
+        provider: memory.provider,
+        containerTag: memory.containerTag,
+        canList: Boolean(memory.list),
+        query,
+        items,
+      }
+      return sendJson(res, 200, listing)
+    }
     if (req.method !== 'POST') return sendJson(res, 404, { error: 'Not found.' })
 
     const requestOrigin = req.headers.origin
@@ -425,6 +472,32 @@ export async function startWebServer({
       // question; answering it is what lets the cancellation through.
       denyPending(current.taskId)
       return sendJson(res, 202, {})
+    }
+
+    const memoryPath = url.pathname.match(/^\/api\/memory\/([^/]+?)(\/forget)?$/)
+    if (memoryPath) {
+      if (!memory) return sendJson(res, 404, { error: 'Memory is not available.' })
+      let id = ''
+      try {
+        id = decodeURIComponent(memoryPath[1])
+      } catch {
+        // A malformed escape is a bad id, answered as one below.
+      }
+      if (!/^[\w.:-]{1,200}$/.test(id)) return sendJson(res, 400, { error: 'Bad memory id.' })
+      if (memoryPath[2]) {
+        return (await memory.forget(id))
+          ? sendJson(res, 200, {})
+          : sendJson(res, 404, { error: 'No such memory, or it was already forgotten.' })
+      }
+      const content = body.content
+      if (typeof content !== 'string' || !content.trim() || content.length > MEMORY_CONTENT_LENGTH) {
+        return sendJson(res, 400, {
+          error: `Give the new text as "content", up to ${MEMORY_CONTENT_LENGTH} characters.`,
+        })
+      }
+      return (await memory.update(id, content.trim()))
+        ? sendJson(res, 200, {})
+        : sendJson(res, 409, { error: `The ${memory.provider} memory provider did not apply the edit.` })
     }
 
     const approval = url.pathname.match(/^\/api\/approvals\/([^/]+)$/)

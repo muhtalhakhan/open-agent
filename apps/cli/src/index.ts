@@ -393,6 +393,23 @@ async function main() {
           port,
           runTask: (input, signal, { onText, onEvent }) =>
             executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent }),
+          // Scoped to the container tasks recall from and remember into, so the
+          // page shows exactly what the agent can draw on, and nothing else.
+          memory: {
+            provider: runtime.memory.name,
+            containerTag,
+            ...(runtime.memory.list ? { list: (limit) => runtime.memory.list!(containerTag, { limit }) } : {}),
+            search: async (q, limit) =>
+              (await runtime.memory.recall({ q, containerTag, limit })).map(({ id, content, score, metadata }) => ({
+                id,
+                content,
+                score,
+                metadata,
+              })),
+            forget: async (id) =>
+              (await runtime.memory.forget({ containerTag, id, reason: 'forgotten from the web UI' })).forgotten,
+            update: async (id, content) => (await runtime.memory.update({ id, containerTag, content })).updated,
+          },
           // The same sources as `:history`: saved sessions, plus this one,
           // whose tasks are only on disk once the server stops.
           history: {

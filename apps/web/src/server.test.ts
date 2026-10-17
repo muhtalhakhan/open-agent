@@ -557,4 +557,121 @@ describe('startWebServer', () => {
       expect(task.answers).toEqual([{ approved: false }])
     })
   })
+
+  describe('memory', () => {
+    function memorySource(canList = true) {
+      const store = new Map([
+        ['m1', 'Prefers tabs over spaces'],
+        ['m2', 'Works on open-agent'],
+      ])
+      const calls: string[] = []
+      const source: NonNullable<WebServerOptions['memory']> = {
+        provider: 'in-memory',
+        containerTag: 'cli-user',
+        ...(canList ? { list: async () => [...store].reverse().map(([id, content]) => ({ id, content })) } : {}),
+        async search(query) {
+          calls.push(`search:${query}`)
+          return [...store]
+            .filter(([, content]) => content.toLowerCase().includes(query.toLowerCase()))
+            .map(([id, content]) => ({ id, content, score: 0.9 }))
+        },
+        async forget(id) {
+          calls.push(`forget:${id}`)
+          return store.delete(id)
+        },
+        async update(id, content) {
+          calls.push(`update:${id}`)
+          if (!store.has(id)) return false
+          store.set(id, content)
+          return true
+        },
+      }
+      return { source, store, calls }
+    }
+    const get = (s: WebServer, path: string) => send(s, 'GET', path, { headers: { Authorization: `Bearer ${TOKEN}` } })
+    const post = (s: WebServer, path: string, body: unknown) =>
+      send(s, 'POST', path, { headers: auth, body: JSON.stringify(body) })
+
+    it('lists everything when the backend can, and searches when asked', async () => {
+      const { source } = memorySource()
+      server = await startWebServer({
+        runTask: scriptedTask(() => {}),
+        port: 0,
+        token: TOKEN,
+        clientDir,
+        memory: source,
+      })
+
+      const all = JSON.parse((await get(server, '/api/memory')).body)
+      const found = JSON.parse((await get(server, '/api/memory?q=tabs')).body)
+
+      expect(all).toMatchObject({ provider: 'in-memory', containerTag: 'cli-user', canList: true, query: '' })
+      expect(all.items.map((m: { id: string }) => m.id)).toEqual(['m2', 'm1'])
+      expect(found.items).toEqual([{ id: 'm1', content: 'Prefers tabs over spaces', score: 0.9 }])
+    })
+
+    it('says it cannot list, rather than showing an empty memory, for a backend that only searches', async () => {
+      const { source } = memorySource(false)
+      server = await startWebServer({
+        runTask: scriptedTask(() => {}),
+        port: 0,
+        token: TOKEN,
+        clientDir,
+        memory: source,
+      })
+
+      expect(JSON.parse((await get(server, '/api/memory')).body)).toMatchObject({ canList: false, items: [] })
+    })
+
+    it('forgets and edits a memory, and says when it could not', async () => {
+      const { source, store } = memorySource()
+      server = await startWebServer({
+        runTask: scriptedTask(() => {}),
+        port: 0,
+        token: TOKEN,
+        clientDir,
+        memory: source,
+      })
+
+      expect((await post(server, '/api/memory/m1/forget', {})).status).toBe(200)
+      expect(store.has('m1')).toBe(false)
+      expect((await post(server, '/api/memory/m1/forget', {})).status).toBe(404)
+
+      expect((await post(server, '/api/memory/m2', { content: '  Maintains open-agent  ' })).status).toBe(200)
+      expect(store.get('m2')).toBe('Maintains open-agent')
+      expect((await post(server, '/api/memory/gone', { content: 'x' })).status).toBe(409)
+      expect((await post(server, '/api/memory/m2', { content: '   ' })).status).toBe(400)
+    })
+
+    it('guards changes like any other POST, and refuses ids that are not ids', async () => {
+      const { source, calls } = memorySource()
+      server = await startWebServer({
+        runTask: scriptedTask(() => {}),
+        port: 0,
+        token: TOKEN,
+        clientDir,
+        memory: source,
+      })
+
+      const crossSite = await send(server, 'POST', '/api/memory/m1/forget', {
+        headers: { ...auth, Origin: 'https://evil.example' },
+        body: '{}',
+      })
+      const noToken = await send(server, 'POST', '/api/memory/m1/forget', {
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const badId = await post(server, '/api/memory/a%2Fb/forget', {})
+      const malformed = await post(server, '/api/memory/%E0%A4%A/forget', {})
+
+      expect([crossSite.status, noToken.status, badId.status, malformed.status]).toEqual([403, 401, 400, 400])
+      expect(calls).toEqual([])
+    })
+
+    it('answers 404 when memory is not configured', async () => {
+      const s = await start()
+
+      expect((await get(s, '/api/memory')).status).toBe(404)
+    })
+  })
 })

@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type KeyboardEvent } from 'react'
 import { answerApproval, cancelTask, sendTask, subscribe, type ConnectionState } from './api.js'
 import { HistoryList, TaskTranscript } from './history.js'
+import { MemoryView } from './memory.js'
 import { reduce, type Entry, type Turn } from './transcript.js'
 import { Entries, type AnswerApproval } from './turn.js'
 
-type Route = { view: 'chat' } | { view: 'history' } | { view: 'transcript'; taskId: string; sessionId?: string }
+type Route =
+  | { view: 'chat' }
+  | { view: 'history' }
+  | { view: 'transcript'; taskId: string; sessionId?: string }
+  | { view: 'memory' }
 
-/** `#/history` and `#/history/<session or live>/<task>`; anything else is the chat. */
+/** `#/history`, `#/history/<session or live>/<task>` and `#/memory`; anything else is the chat. */
 function parseRoute(hash: string): Route {
   const [page, session, task] = hash.replace(/^#\/?/, '').split('/')
+  if (page === 'memory') return { view: 'memory' }
   if (page !== 'history') return { view: 'chat' }
   if (session && task) {
     return { view: 'transcript', taskId: decodeURIComponent(task), sessionId: session === 'live' ? undefined : session }
@@ -191,8 +197,14 @@ export function App({ token }: { token: string | null }) {
           <a href="#/" aria-current={route.view === 'chat' ? 'page' : undefined}>
             Chat
           </a>
-          <a href="#/history" aria-current={route.view !== 'chat' ? 'page' : undefined}>
+          <a
+            href="#/history"
+            aria-current={route.view === 'history' || route.view === 'transcript' ? 'page' : undefined}
+          >
             History
+          </a>
+          <a href="#/memory" aria-current={route.view === 'memory' ? 'page' : undefined}>
+            Memory
           </a>
         </nav>
         <span className={`connection connection--${connection}`}>{CONNECTION_LABEL[connection]}</span>
@@ -200,6 +212,7 @@ export function App({ token }: { token: string | null }) {
 
       <Chat token={token} hidden={route.view !== 'chat'} onConnection={setConnection} />
       {route.view === 'history' && <HistoryList token={token} />}
+      {route.view === 'memory' && <MemoryView token={token} />}
       {route.view === 'transcript' && (
         <TaskTranscript token={token} taskId={route.taskId} sessionId={route.sessionId} />
       )}

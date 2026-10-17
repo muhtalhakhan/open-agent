@@ -384,6 +384,13 @@ describe('CLI end to end', () => {
         headers: { Authorization: `Bearer ${token}` },
       }).then((res) => res.json())) as { events: { type: string }[] }
       expect(transcript.events.at(-1)).toMatchObject({ type: 'task/end', status: 'completed', answer: 'ack' })
+
+      // The answer was remembered, and the memory view lists it.
+      const memory = (await fetch(`http://127.0.0.1:${port}/api/memory`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.json())) as { provider: string; items: { content: string }[] }
+      expect(memory.provider).toBe('in-memory')
+      expect(memory.items.map((item) => item.content)).toEqual(['ack'])
       expect(provider.requests[0].messages.find((m) => m.role === 'user')?.content).toBe('what indentation?')
 
       child.kill('SIGINT')

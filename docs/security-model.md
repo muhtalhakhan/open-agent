@@ -235,3 +235,5 @@ Every tool invocation is logged with: timestamp, profile, tool name, arguments, 
 ## Privacy controls
 
 Users can view, export, and delete conversation history, task history, and long-term memory. Memory writes should be inspectable, not silent.
+
+> **Status:** the web UI's **Memory** view (`open-agent web`) lists, searches, edits and forgets the memories tasks recall from, scoped to the user's container. Export, and deleting saved sessions, are still to do.

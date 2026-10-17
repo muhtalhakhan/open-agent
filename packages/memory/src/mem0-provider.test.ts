@@ -49,4 +49,14 @@ describe('Mem0Provider', () => {
     const result = await provider.forget({ containerTag: 'user_123', content: 'loves TS' })
     expect(result).toEqual({ forgotten: false })
   })
+
+  it("lists a container's memories through getAll, with the ids forget() takes", async () => {
+    const client = fakeClient()
+    const provider = new Mem0Provider(client)
+
+    const listed = await provider.list('user-1')
+
+    expect(client.getAll).toHaveBeenCalledWith({ filters: { user_id: 'user-1' } })
+    expect(listed).toEqual([{ id: 'm0-1', content: 'User loves TypeScript', metadata: undefined }])
+  })
 })

@@ -14,6 +14,13 @@ export interface MemorySearchResult {
   metadata?: Record<string, unknown> | null
 }
 
+/** One stored memory, as a listing returns it. */
+export interface MemoryItem {
+  id: string
+  content: string
+  metadata?: Record<string, unknown> | null
+}
+
 export interface MemoryProfile {
   /** Durable facts/preferences that remain relevant long-term. */
   static: string[]
@@ -62,4 +69,13 @@ export interface MemoryProvider {
   forget(request: ForgetRequest): Promise<{ forgotten: boolean }>
   /** Edit/update an existing memory's content or metadata. */
   update(request: MemoryUpdate): Promise<{ updated: boolean }>
+  /**
+   * Every live memory in a container, newest first where the backend knows
+   * the order. What makes memory inspectable rather than only searchable.
+   *
+   * Optional: a backend with no listing that returns forgettable ids leaves it
+   * out, and a UI falls back to `recall()` — a search can still find any one
+   * memory, it just cannot show all of them at once.
+   */
+  list?(containerTag: string, options?: { limit?: number }): Promise<MemoryItem[]>
 }

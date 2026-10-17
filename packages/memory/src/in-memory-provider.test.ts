@@ -60,4 +60,19 @@ describe('InMemoryMemoryProvider', () => {
     const profile = await memory.profile('user_1')
     expect(profile.static.length + profile.dynamic.length).toBe(2)
   })
+
+  it("lists a container's live memories, newest first, leaving out forgotten ones and other containers", async () => {
+    const memory = new InMemoryMemoryProvider()
+    const { id: first } = await memory.remember({ content: 'prefers tabs', containerTag: 'u1' })
+    await memory.remember({ content: 'lives in Lahore', containerTag: 'u1' })
+    await memory.remember({ content: 'someone else', containerTag: 'u2' })
+    const { id: gone } = await memory.remember({ content: 'outdated', containerTag: 'u1' })
+    await memory.forget({ containerTag: 'u1', id: gone })
+
+    const listed = await memory.list('u1')
+
+    expect(listed.map((m) => m.content)).toEqual(['lives in Lahore', 'prefers tabs'])
+    expect(listed[1].id).toBe(first)
+    expect(await memory.list('u1', { limit: 1 })).toHaveLength(1)
+  })
 })
