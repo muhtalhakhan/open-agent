@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentLoop, RunOptions, SessionEvent, SessionLog } from '@open-agent/agent'
+import { totalUsage } from '@open-agent/agent'
+import type { AgentLoop, RunOptions, SessionEvent, SessionLog, TokenUsage } from '@open-agent/agent'
 import type { MemoryProvider } from '@open-agent/memory'
 
 export interface MemoryHook {
@@ -12,6 +13,11 @@ export interface TaskOutcome {
   /** The model's final answer. Empty unless the task completed. */
   answer: string
   error?: string
+  /**
+   * What the task cost, when the provider says. Reported however it ended: a
+   * cancelled or failed task spent tokens too.
+   */
+  usage?: TokenUsage
 }
 
 export interface TaskOptions {
@@ -63,11 +69,13 @@ export async function executeTask(
     unsubscribe?.()
   }
 
+  const usage = totalUsage(sessions.all(taskId))
+  const cost = usage ? { usage } : {}
   if (task.status !== 'completed') {
-    return { status: task.status === 'cancelled' ? 'cancelled' : 'error', answer: '', error: task.error }
+    return { status: task.status === 'cancelled' ? 'cancelled' : 'error', answer: '', error: task.error, ...cost }
   }
 
   const answer = sessions.deriveMessages(task.id).at(-1)?.content ?? ''
   if (memory && answer) await memory.provider.remember({ content: answer, containerTag: memory.containerTag })
-  return { status: 'completed', answer }
+  return { status: 'completed', answer, ...cost }
 }

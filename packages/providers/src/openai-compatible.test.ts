@@ -59,6 +59,31 @@ describe('OpenAiCompatibleProvider', () => {
     expect(result.message).toEqual({ role: 'assistant', content: 'the answer is 42', toolCalls: undefined })
   })
 
+  it('reports the token usage of a plain response, and none when the server leaves it out', async () => {
+    const request = { messages: [], tools: [] }
+    const withUsage = new OpenAiCompatibleProvider({
+      baseURL: 'https://api.example.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-test',
+      fetchFn: fakeFetch({
+        choices: [{ message: { content: 'hi' } }],
+        usage: { prompt_tokens: 50, completion_tokens: 3 },
+      }),
+    })
+    const without = new OpenAiCompatibleProvider({
+      baseURL: 'https://api.example.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-test',
+      fetchFn: fakeFetch({ choices: [{ message: { content: 'hi' } }] }),
+    })
+
+    expect((await withUsage.generate(request, new AbortController().signal)).usage).toEqual({
+      inputTokens: 50,
+      outputTokens: 3,
+    })
+    expect((await without.generate(request, new AbortController().signal)).usage).toBeUndefined()
+  })
+
   it('parses a tool-call response into ToolCall objects', async () => {
     const provider = new OpenAiCompatibleProvider({
       baseURL: 'https://api.example.com/v1',
@@ -242,6 +267,67 @@ describe('OpenAiCompatibleProvider', () => {
         { onText: () => {} },
       )
       expect(result.message.content).toBe('done')
+    })
+
+    it('asks a stream for its usage and reads it from the last chunk, after the finish reason', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          { data: { choices: [{ delta: { content: 'hi' } }] } },
+          { data: { choices: [{ delta: {}, finish_reason: 'stop' }] } },
+          {
+            data: {
+              choices: [],
+              usage: { prompt_tokens: 120, completion_tokens: 8, prompt_tokens_details: { cached_tokens: 100 } },
+            },
+          },
+          { data: '[DONE]' },
+        ]),
+      )
+      const result = await new OpenAiCompatibleProvider(options(fetchFn)).generate(
+        { messages: [], tools: [] },
+        new AbortController().signal,
+        { onText: () => {} },
+      )
+
+      expect(JSON.parse(fetchFn.mock.calls[0][1].body).stream_options).toEqual({ include_usage: true })
+      expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 8, cachedInputTokens: 100 })
+    })
+
+    it('streams without usage from then on when a server refuses stream_options', async () => {
+      const refusal = new Response(JSON.stringify({ detail: 'extra field not permitted: stream_options' }), {
+        status: 422,
+      })
+      const stream = () => sseResponse([{ data: { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] } }])
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValueOnce(refusal)
+        .mockResolvedValueOnce(stream())
+        .mockResolvedValueOnce(stream())
+      const provider = new OpenAiCompatibleProvider(options(fetchFn))
+      const request = { messages: [], tools: [] }
+
+      const first = await provider.generate(request, new AbortController().signal, { onText: () => {} })
+      await provider.generate(request, new AbortController().signal, { onText: () => {} })
+
+      expect(first.message.content).toBe('ok')
+      expect(first.usage).toBeUndefined()
+      const sent = fetchFn.mock.calls.map((call) => JSON.parse(call[1].body).stream_options)
+      expect(sent).toEqual([{ include_usage: true }, undefined, undefined])
+    })
+
+    it('does not retry a 400 that has nothing to do with stream_options', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(new Response('{"error":"model not found"}', { status: 400 }))
+
+      await expect(
+        new OpenAiCompatibleProvider(options(fetchFn)).generate(
+          { messages: [], tools: [] },
+          new AbortController().signal,
+          {
+            onText: () => {},
+          },
+        ),
+      ).rejects.toThrow('model not found')
+      expect(fetchFn).toHaveBeenCalledTimes(1)
     })
 
     it('rejects a stream that closes before it says the reply is finished', async () => {

@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { RunTextEvent, SessionEvent } from '@open-agent/agent'
+import type { RunTextEvent, SessionEvent, TokenUsage } from '@open-agent/agent'
 import type { ServerEvent, TaskEndStatus } from './protocol.js'
 
 /** Where `vite build` puts the client. */
@@ -15,6 +15,7 @@ export interface TaskOutcome {
   /** The model's final answer. Empty unless the task completed. */
   answer: string
   error?: string
+  usage?: TokenUsage
 }
 
 export interface TaskHooks {

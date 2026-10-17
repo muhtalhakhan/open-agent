@@ -61,8 +61,25 @@ export interface LlmRequest {
   tools: Pick<ToolDefinition, 'name' | 'description' | 'schema'>[]
 }
 
+/**
+ * Tokens one model request consumed, as the provider reported them — what it
+ * bills by. Counted by the provider rather than estimated here: tokenizers
+ * differ per model, and an estimate that disagrees with the invoice is worse
+ * than none.
+ */
+export interface TokenUsage {
+  /** Everything the model read: system prompt, history, tool schemas. Includes `cachedInputTokens`. */
+  inputTokens: number
+  /** What it wrote, reasoning included where the provider counts it as output. */
+  outputTokens: number
+  /** The part of `inputTokens` served from the provider's prompt cache, usually billed at a fraction. */
+  cachedInputTokens?: number
+}
+
 export interface LlmResponse {
   message: Message
+  /** Absent when the provider did not report it. */
+  usage?: TokenUsage
 }
 
 /**
@@ -95,7 +112,7 @@ export type SessionEvent =
   | { type: 'step/end'; taskId: string; at: number }
   | { type: 'system/message'; taskId: string; at: number; message: Message }
   | { type: 'user/message'; taskId: string; at: number; message: Message }
-  | { type: 'assistant/message'; taskId: string; at: number; message: Message }
+  | { type: 'assistant/message'; taskId: string; at: number; message: Message; usage?: TokenUsage }
   | { type: 'tool/call'; taskId: string; at: number; call: ToolCall }
   | { type: 'tool/result'; taskId: string; at: number; callId: string; result: ToolResult }
   | { type: 'retry'; taskId: string; at: number; attempt: number; reason: string }

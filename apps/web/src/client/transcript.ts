@@ -1,4 +1,4 @@
-import type { ServerEvent, TaskEndStatus } from '../protocol.js'
+import type { ServerEvent, TaskEndStatus, Usage } from '../protocol.js'
 
 export type TurnItem =
   | { kind: 'text'; text: string; done: boolean }
@@ -20,6 +20,7 @@ export interface Turn {
   items: TurnItem[]
   status: 'running' | TaskEndStatus
   error?: string
+  usage?: Usage
 }
 
 export type Entry = Turn | { kind: 'notice'; text: string }
@@ -95,6 +96,7 @@ export function reduce(state: Transcript, event: ServerEvent): Transcript {
       return updateTurn(state, event.taskId, (turn) => {
         turn.status = event.status
         turn.error = event.error
+        turn.usage = event.usage
         const open = openText(turn)
         if (open !== -1) {
           // Cancelled mid-sentence: what arrived is kept, but it is not an answer.

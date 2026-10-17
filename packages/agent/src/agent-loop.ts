@@ -129,7 +129,13 @@ export class AgentLoop {
         const messages = sessions.deriveMessages(taskId)
         const response = await this.generateWithRetry(messages, tools.list(), signal, taskId, options.onText)
 
-        sessions.append({ type: 'assistant/message', taskId, at: Date.now(), message: response.message })
+        sessions.append({
+          type: 'assistant/message',
+          taskId,
+          at: Date.now(),
+          message: response.message,
+          ...(response.usage ? { usage: response.usage } : {}),
+        })
 
         const toolCalls = response.message.toolCalls ?? []
         if (toolCalls.length === 0) {

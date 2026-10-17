@@ -8,6 +8,7 @@ import type {
   LlmResponse,
   Message,
   TextStreamEvent,
+  TokenUsage,
   ToolCall,
   ToolDefinition,
 } from '@open-agent/agent'
@@ -148,13 +149,18 @@ export class AnthropicProvider implements LlmAdapter {
 
     const events = options.onText ? sseBody(response) : null
     if (events && options.onText) {
-      return { message: fromAnthropicContent(await readStream(events, url, options.onText)) }
+      const { blocks, usage } = await readStream(events, url, options.onText)
+      const message = fromAnthropicContent(blocks)
+      return usage ? { message, usage } : { message }
     }
 
     const data = (await response.json()) as {
       content: AnthropicBlock[]
+      usage?: AnthropicUsage
     }
-    return { message: fromAnthropicContent(data.content) }
+    const message = fromAnthropicContent(data.content)
+    const usage = fromAnthropicUsage(data.usage)
+    return usage ? { message, usage } : { message }
   }
 }
 
@@ -182,6 +188,29 @@ function fromAnthropicContent(blocks: AnthropicBlock[]): Message {
   return message
 }
 
+interface AnthropicUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_input_tokens?: number | null
+  cache_read_input_tokens?: number | null
+}
+
+/**
+ * Anthropic counts cache writes and reads apart from `input_tokens`, which is
+ * only the uncached remainder. All three were read by the model, so all three
+ * are input here; reads are also reported as cached, since they bill lower.
+ */
+function fromAnthropicUsage(usage: AnthropicUsage | undefined): TokenUsage | undefined {
+  if (typeof usage?.input_tokens !== 'number' || typeof usage.output_tokens !== 'number') return undefined
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0
+  const cacheRead = usage.cache_read_input_tokens ?? 0
+  return {
+    inputTokens: usage.input_tokens + cacheWrite + cacheRead,
+    outputTokens: usage.output_tokens,
+    ...(usage.cache_read_input_tokens != null ? { cachedInputTokens: cacheRead } : {}),
+  }
+}
+
 type AnthropicStreamEvent =
   | { type: 'content_block_start'; index: number; content_block: AnthropicBlock }
   | {
@@ -190,7 +219,11 @@ type AnthropicStreamEvent =
       delta: { type: 'text_delta'; text: string } | { type: 'input_json_delta'; partial_json: string }
     }
   | { type: 'error'; error: { type: string; message: string } }
-  | { type: 'message_start' | 'message_delta' | 'message_stop' | 'content_block_stop' | 'ping' }
+  /** Carries the input side of the usage, and an output count that is only a placeholder. */
+  | { type: 'message_start'; message?: { usage?: AnthropicUsage } }
+  /** Carries the final output count, cumulative for the message. */
+  | { type: 'message_delta'; usage?: { output_tokens?: number } }
+  | { type: 'message_stop' | 'content_block_stop' | 'ping' }
 
 /**
  * Rebuilds the `content` array the non-streaming API returns from the
@@ -202,14 +235,19 @@ async function readStream(
   body: ReadableStream<Uint8Array>,
   url: string,
   onText: (event: TextStreamEvent) => void,
-): Promise<AnthropicBlock[]> {
+): Promise<{ blocks: AnthropicBlock[]; usage?: TokenUsage }> {
   const blocks: AnthropicBlock[] = []
+  let usage: AnthropicUsage | undefined
   const inputJson: string[] = []
   let finished = false
   for await (const { data } of readSse(body)) {
     const event = JSON.parse(data) as AnthropicStreamEvent
     if (event.type === 'message_stop') {
       finished = true
+    } else if (event.type === 'message_start') {
+      usage = event.message?.usage ? { ...event.message.usage } : usage
+    } else if (event.type === 'message_delta') {
+      if (usage && typeof event.usage?.output_tokens === 'number') usage.output_tokens = event.usage.output_tokens
     } else if (event.type === 'content_block_start') {
       blocks[event.index] = { ...event.content_block }
       inputJson[event.index] = ''
@@ -234,5 +272,5 @@ async function readStream(
   for (const [index, block] of blocks.entries()) {
     if (block?.type === 'tool_use' && inputJson[index]) block.input = JSON.parse(inputJson[index])
   }
-  return blocks.filter(Boolean)
+  return { blocks: blocks.filter(Boolean), usage: fromAnthropicUsage(usage) }
 }

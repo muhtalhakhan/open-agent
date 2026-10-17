@@ -35,7 +35,7 @@ Both modes share one task path (`task.ts`): recall memories, run the loop, store
 
 ## Task history
 
-`open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, and the session id to pass to `--resume`. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
+`open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, the session id to pass to `--resume`, and the tokens it used when the provider reported them. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
 
 ## Background jobs
 
@@ -63,7 +63,8 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
-- `task.ts` — one task end to end, shared by the REPL, print mode and the web UI
+- `task.ts` — one task end to end, shared by the REPL, print mode and the web UI; its outcome carries the task's token usage, which the REPL prints after each answer and print mode writes to stderr
+- `usage.ts` — the one-line token count all of them print (`usage.test.ts`)
 - `runtime.ts` — the tools, memory and model the config turns on, wired into one `AgentLoop` for whichever of those is running
 - `markdown.ts` — Markdown to styled terminal text for answers (`markdown.test.ts`)
 - `history.ts` — `--history` and `:history` formatting, merging saved sessions with the live one (`history.test.ts`)

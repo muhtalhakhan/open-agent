@@ -203,6 +203,19 @@ describe('startWebServer', () => {
     ])
   })
 
+  it('passes on what the task cost', async () => {
+    const s = await start(async () => ({
+      status: 'completed',
+      answer: 'hi',
+      usage: { inputTokens: 300, outputTokens: 4 },
+    }))
+
+    await postTask(s, 'go')
+    const events = await collect(s, (event) => event.type === 'task/end')
+
+    expect(events.at(-1)).toMatchObject({ type: 'task/end', usage: { inputTokens: 300, outputTokens: 4 } })
+  })
+
   it('carries a denied call through with its reason', async () => {
     const s = await start(scriptedTask((hooks) => toolCall(hooks, false)))
 

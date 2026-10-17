@@ -51,6 +51,12 @@ describe('reduce', () => {
     })
   })
 
+  it('keeps what the task cost', () => {
+    const state = fold([start, { ...completed('Hi'), usage: { inputTokens: 50, outputTokens: 2 } } as ServerEvent])
+
+    expect(onlyTurn(state).usage).toEqual({ inputTokens: 50, outputTokens: 2 })
+  })
+
   it('shows the answer from the end event when nothing was streamed', () => {
     const state = fold([start, completed('Hi there')])
 

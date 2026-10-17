@@ -5,6 +5,7 @@ import type { BackgroundJobs } from './background.js'
 import { formatHistory } from './history.js'
 import { executeTask, type MemoryHook } from './task.js'
 import { trackToolActivity, type ToolActivityView } from './tool-activity.js'
+import { formatUsage } from './usage.js'
 
 export interface ReplIO {
   /** Resolves to the next line of input, or `null` on EOF (Ctrl+D). */
@@ -102,6 +103,7 @@ export async function runRepl(
     } else {
       io.write(`\n[${outcome.status}]${outcome.error ? ` ${outcome.error}` : ''}\n\n`)
     }
+    if (outcome.usage) io.write(`[${formatUsage(outcome.usage)}]\n\n`)
   }
 }
 

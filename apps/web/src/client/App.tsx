@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type KeyboardEvent } from 'react'
 import { cancelTask, sendTask, subscribe, type ConnectionState } from './api.js'
+import type { Usage } from '../protocol.js'
 import { reduce, type Entry, type Turn, type TurnItem } from './transcript.js'
 
 function formatDuration(ms: number): string {
   const safe = Math.max(0, ms)
   return safe < 1000 ? `${Math.round(safe)}ms` : `${(safe / 1000).toFixed(1)}s`
+}
+
+const count = new Intl.NumberFormat('en-US')
+
+/** The same wording as the terminal's `formatUsage`, so the two read alike. */
+function formatUsage(usage: Usage): string {
+  const cached = usage.cachedInputTokens ? ` (${count.format(usage.cachedInputTokens)} cached)` : ''
+  return `${count.format(usage.inputTokens)} tokens in${cached} · ${count.format(usage.outputTokens)} out`
 }
 
 function ToolRow({ item }: { item: Extract<TurnItem, { kind: 'tool' }> }) {
@@ -47,6 +56,7 @@ function TurnView({ turn }: { turn: Turn }) {
         {turn.status === 'error' && (
           <div className="outcome outcome--error">Task failed: {turn.error ?? 'unknown error'}</div>
         )}
+        {turn.usage && <div className="usage">{formatUsage(turn.usage)}</div>}
       </div>
     </section>
   )

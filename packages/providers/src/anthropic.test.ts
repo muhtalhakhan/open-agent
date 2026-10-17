@@ -88,6 +88,23 @@ describe('AnthropicProvider', () => {
     expect(response.message.toolCalls?.[0].args).toEqual({ loc: 'SF' })
   })
 
+  it('reports usage from a plain response, counting cache writes as input', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: 'Hi' }],
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 300, cache_read_input_tokens: null },
+      }),
+    })
+
+    const result = await new AnthropicProvider({ apiKey: 'k', model: 'm', fetchFn }).generate(
+      { messages: [{ role: 'user', content: 'hi' }], tools: [] },
+      new AbortController().signal,
+    )
+
+    expect(result.usage).toEqual({ inputTokens: 310, outputTokens: 5 })
+  })
+
   it('coalesces consecutive tool results into a single user message', async () => {
     let capturedBody: unknown
     const fetchFn = vi.fn().mockImplementation(async (_url, options) => {
@@ -256,6 +273,48 @@ describe('AnthropicProvider', () => {
         content: 'It is sunny ☀.',
         toolCalls: [{ id: 'toolu_1', name: 'get_weather', args: { loc: 'SF' } }],
       })
+    })
+
+    it('adds the usage up from message_start and the final message_delta', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            event: 'message_start',
+            data: {
+              type: 'message_start',
+              message: {
+                content: [],
+                usage: {
+                  input_tokens: 20,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 900,
+                  output_tokens: 1,
+                },
+              },
+            },
+          },
+          {
+            event: 'content_block_start',
+            data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          },
+          {
+            event: 'content_block_delta',
+            data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hi' } },
+          },
+          { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+          { event: 'message_delta', data: { type: 'message_delta', delta: {}, usage: { output_tokens: 42 } } },
+          { event: 'message_stop', data: { type: 'message_stop' } },
+        ]),
+      )
+
+      const result = await new AnthropicProvider({ apiKey: 'k', model: 'm', fetchFn }).generate(
+        request,
+        new AbortController().signal,
+        { onText: () => {} },
+      )
+
+      // Cache reads are input the model read, not a discount on the count.
+      expect(result.usage).toEqual({ inputTokens: 920, outputTokens: 42, cachedInputTokens: 900 })
     })
 
     it('turns a mid-stream overload into a 529, so the fallback adapter still routes around it', async () => {

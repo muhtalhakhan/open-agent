@@ -50,6 +50,21 @@ describe('runHeadless', () => {
     expect(err).toHaveLength(0)
   })
 
+  it('reports what the task cost on stderr, keeping stdout to the answer', async () => {
+    const { sessions, loop } = loopWith({
+      name: 'billed',
+      async generate() {
+        return { message: { role: 'assistant', content: '42' }, usage: { inputTokens: 1200, outputTokens: 7 } }
+      },
+    })
+    const { out, err, io } = collect()
+
+    await runHeadless(loop, sessions, { prompt: 'x', io, signal: new AbortController().signal })
+
+    expect(out.join('')).toBe('42\n')
+    expect(err.join('')).toBe('1,200 tokens in · 7 out\n')
+  })
+
   it('never asks the provider to stream: stdout holds the finished answer alone', async () => {
     const seen: unknown[] = []
     const { sessions, loop } = loopWith({

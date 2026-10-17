@@ -79,6 +79,9 @@ vision(messages, images, options): Response
 > reply. All three adapters stream (`OpenAiCompatibleProvider` and
 > `AnthropicProvider` over SSE, `GeminiProvider` via `streamGenerateContent`),
 > but only when a caller listens: print mode and background jobs don't.
+> Each response also carries the provider's token count (`LlmResponse.usage`),
+> logged with the reply on `assistant/message` so a task's cost is a
+> projection of the log like everything else (`totalUsage()`).
 
 Provider config is `{ provider, model, apiKey, baseUrl? }` — enough to add any OpenAI-compatible endpoint (LM Studio, self-hosted vLLM, etc.) without new code, and a dedicated adapter only when a provider's API shape diverges (Anthropic, Gemini).
 

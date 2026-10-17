@@ -9,6 +9,13 @@ export type TextEvent = { type: 'delta'; text: string } | { type: 'reset' } | { 
 
 export type TaskEndStatus = 'completed' | 'cancelled' | 'error'
 
+/** `TokenUsage` from the agent, restated: what a task cost, as the provider reported it. */
+export interface Usage {
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens?: number
+}
+
 export type ServerEvent =
   /**
    * Opens every connection. Everything after it up to the live edge is a
@@ -23,4 +30,4 @@ export type ServerEvent =
   /** `args` is already clipped: a `write_file` call's arguments can be the whole file. */
   | { type: 'tool/start'; taskId: string; callId: string; name: string; args: string }
   | { type: 'tool/end'; taskId: string; callId: string; ok: boolean; error?: string; ms: number }
-  | { type: 'task/end'; taskId: string; status: TaskEndStatus; answer: string; error?: string }
+  | { type: 'task/end'; taskId: string; status: TaskEndStatus; answer: string; error?: string; usage?: Usage }
