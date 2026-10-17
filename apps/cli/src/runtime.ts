@@ -1,4 +1,11 @@
-import { AgentLoop, consoleLogger, silentLogger, type SessionLog, type ToolRegistry } from '@open-agent/agent'
+import {
+  AgentLoop,
+  consoleLogger,
+  silentLogger,
+  type DecisionLayerOptions,
+  type SessionLog,
+  type ToolRegistry,
+} from '@open-agent/agent'
 import { Context } from '@open-agent/context'
 import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
 import type { MemoryProvider } from '@open-agent/memory'
@@ -171,12 +178,20 @@ export async function createRuntime({
       tools.register(webSearchTool(searchProvider))
     }
 
+    let decisions: DecisionLayerOptions | undefined
     if (config.decision.provider === 'jev') {
       const decisionModel = new JevDecisionModel(config.decision)
       const destination = new URL(config.decision.baseURL ?? 'https://api.typesafe.ai').host
       disposeDecisionTools = mountDecisionTools(tools, decisionModel, { destination })
       // Named, since what the model passes these tools leaves the machine.
       write(`Decision tools loaded: classify, check, rank and score, answered by Jev at ${destination}.\n`)
+      const { pruneTools, routeModel } = config.decision.layer
+      if (pruneTools || routeModel) {
+        decisions = { model: decisionModel, pruneTools, routeModel }
+        // Unlike the tools, the layer sends every task, so it is named too.
+        const what = [pruneTools && 'which tools to offer', routeModel && `when ${config.llm.lightModel} will do`]
+        write(`Decision layer on: Jev decides ${what.filter(Boolean).join(' and ')}, for each task.\n`)
+      }
     }
 
     const ctx = new Context()
@@ -198,6 +213,10 @@ export async function createRuntime({
       sessions,
       tools,
       llm: new OpenAiCompatibleProvider(config.llm),
+      lightLlm: config.llm.lightModel
+        ? new OpenAiCompatibleProvider({ ...config.llm, model: config.llm.lightModel })
+        : undefined,
+      decisions,
       systemPrompt,
       // Wrapped so a resolved API key cannot reach the log through an
       // error body, a tool argument, or anything else that happens to carry it.

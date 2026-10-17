@@ -4,6 +4,8 @@ export { SessionStore, type StoredSession } from './session-store.js'
 export type { TaskSummary } from './session.js'
 export { readTaskHistory, taskRecords } from './task-history.js'
 export { totalUsage } from './usage.js'
+export { decideTurn } from './decision-layer.js'
+export type { DecisionLayerOptions, TurnDecision } from './decision-layer.js'
 export type { TaskHistoryOptions, TaskRecord } from './task-history.js'
 export { ToolRegistry } from './tools.js'
 export type {

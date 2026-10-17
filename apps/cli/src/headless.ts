@@ -46,7 +46,7 @@ export async function runHeadless(
   const outcome = await executeTask(agentLoop, sessions, trimmed, signal, { memory, onEvent })
   // On stderr with the other progress, where a CI log keeps a record of what
   // each run cost without it reaching the captured answer.
-  if (outcome.usage) io.err(`${formatUsage(outcome.usage)}\n`)
+  if (outcome.usage) io.err(`${formatUsage(outcome.usage)}${outcome.light ? ' · light model' : ''}\n`)
 
   if (outcome.status === 'completed') {
     // Exactly one trailing newline, so the output composes with other tools.

@@ -65,6 +65,39 @@ describe('runHeadless', () => {
     expect(err.join('')).toBe('1,200 tokens in · 7 out\n')
   })
 
+  it('says when the decision layer gave the task to the light model', async () => {
+    const sessions = new SessionLog()
+    const answer = (content: string): LlmAdapter => ({
+      name: content,
+      async generate() {
+        return { message: { role: 'assistant', content }, usage: { inputTokens: 100, outputTokens: 2 } }
+      },
+    })
+    const loop = new AgentLoop({
+      sessions,
+      tools: new ToolRegistry(),
+      llm: answer('big'),
+      lightLlm: answer('small'),
+      decisions: {
+        routeModel: true,
+        model: {
+          name: 'fake',
+          async decide() {
+            return {
+              answers: { route: { type: 'choice', choice: 'light', probabilities: { light: 0.95 }, confidence: 1 } },
+            }
+          },
+        },
+      },
+    })
+    const { out, err, io } = collect()
+
+    await runHeadless(loop, sessions, { prompt: 'x', io, signal: new AbortController().signal })
+
+    expect(out.join('')).toBe('small\n')
+    expect(err.join('')).toBe('100 tokens in · 2 out · light model\n')
+  })
+
   it('never asks the provider to stream: stdout holds the finished answer alone', async () => {
     const seen: unknown[] = []
     const { sessions, loop } = loopWith({

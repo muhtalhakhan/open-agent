@@ -203,9 +203,41 @@ describe('loadConfigFromEnv', () => {
     const on = loadConfigFromEnv({ ...llm, TYPESAFE_API_KEY: 'ts_1', TYPESAFE_DEFAULT_MODEL: 'jev-2' })
     const off = loadConfigFromEnv(llm)
 
-    expect(on.ok && on.config.decision).toEqual({ provider: 'jev', apiKey: 'ts_1', baseURL: undefined, model: 'jev-2' })
+    expect(on.ok && on.config.decision).toEqual({
+      provider: 'jev',
+      apiKey: 'ts_1',
+      baseURL: undefined,
+      model: 'jev-2',
+      layer: { pruneTools: false, routeModel: false },
+    })
     expect(on.ok && on.config.secrets).toContain('ts_1')
     expect(off.ok && off.config.decision).toEqual({ provider: 'none' })
+  })
+
+  it('turns on the parts of the decision layer DECISION_LAYER names, with the light model to route to', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-big',
+      OPENAI_MODEL_LIGHT: 'gpt-small',
+      TYPESAFE_API_KEY: 'ts_1',
+      DECISION_LAYER: 'tools, route',
+    })
+
+    expect(result.ok && result.config.decision).toMatchObject({ layer: { pruneTools: true, routeModel: true } })
+    expect(result.ok && result.config.llm.lightModel).toBe('gpt-small')
+  })
+
+  it('refuses a decision layer it cannot run, rather than quietly running without it', () => {
+    const llm = { OPENAI_BASE_URL: 'https://api.openai.com/v1', OPENAI_API_KEY: 'sk-x', OPENAI_MODEL: 'gpt-big' }
+
+    const noKey = loadConfigFromEnv({ ...llm, DECISION_LAYER: 'tools' })
+    const noLightModel = loadConfigFromEnv({ ...llm, TYPESAFE_API_KEY: 'ts_1', DECISION_LAYER: 'route' })
+    const typo = loadConfigFromEnv({ ...llm, TYPESAFE_API_KEY: 'ts_1', DECISION_LAYER: 'tool' })
+
+    expect(noKey).toEqual({ ok: false, error: expect.stringContaining('TYPESAFE_API_KEY') })
+    expect(noLightModel).toEqual({ ok: false, error: expect.stringContaining('OPENAI_MODEL_LIGHT') })
+    expect(typo).toEqual({ ok: false, error: expect.stringContaining('"tool"') })
   })
 
   it('refuses a TYPESAFE_BASE_URL that is not a URL', () => {

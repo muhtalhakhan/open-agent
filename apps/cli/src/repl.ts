@@ -103,7 +103,7 @@ export async function runRepl(
     } else {
       io.write(`\n[${outcome.status}]${outcome.error ? ` ${outcome.error}` : ''}\n\n`)
     }
-    if (outcome.usage) io.write(`[${formatUsage(outcome.usage)}]\n\n`)
+    if (outcome.usage) io.write(`[${formatUsage(outcome.usage)}${outcome.light ? ' · light model' : ''}]\n\n`)
   }
 }
 

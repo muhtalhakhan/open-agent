@@ -3,8 +3,9 @@ import type { SessionLog } from './session.js'
 import type { ToolRegistry } from './tools.js'
 import type { Logger } from './logger.js'
 import { silentLogger } from './logger.js'
-import type { GenerateOptions, LlmAdapter, LlmResponse, TaskState, TextStreamEvent } from './types.js'
+import type { GenerateOptions, LlmAdapter, LlmResponse, TaskState, TextStreamEvent, ToolDefinition } from './types.js'
 import { UNTRUSTED_CONTENT_GUIDANCE, isFenced } from './untrusted.js'
+import { decideTurn, type DecisionLayerOptions } from './decision-layer.js'
 
 export class CancelledError extends Error {
   constructor() {
@@ -52,6 +53,13 @@ export interface AgentLoopOptions {
   systemPrompt?: string
   /** Safety valve against a runaway tool-calling loop. */
   maxSteps?: number
+  /**
+   * A cheaper model for turns the decision layer judges light. Same tools,
+   * same log; only who answers changes.
+   */
+  lightLlm?: LlmAdapter
+  /** Decides per turn which tools to offer and whether `lightLlm` will do. Off unless given. */
+  decisions?: DecisionLayerOptions
   maxRetries?: number
   retryDelayMs?: number
   logger?: Logger
@@ -122,12 +130,48 @@ export class AgentLoop {
     tools.replayTask(taskId, sessions.all(taskId))
 
     try {
+      // Decided once, before the first request, and logged before it is
+      // acted on: the turn's tool list and model are part of what the model
+      // saw, so the transcript has to say what they were.
+      let llm = this.options.llm
+      let offered = (all: ToolDefinition[]) => all
+      if (this.options.decisions) {
+        const decision = await decideTurn(
+          this.options.decisions,
+          input,
+          tools.list(),
+          this.options.lightLlm !== undefined,
+          signal,
+        )
+        if (decision) {
+          sessions.append({ type: 'turn/decision', taskId, at: Date.now(), ...decision })
+          this.logger.info('turn/decision', {
+            taskId,
+            tools: decision.tools?.length,
+            llm: decision.llm,
+            error: decision.error,
+          })
+          if (decision.llm === 'light' && this.options.lightLlm) llm = this.options.lightLlm
+          if (decision.tools) {
+            const keep = new Set(decision.tools)
+            offered = (all) => all.filter((tool) => keep.has(tool.name))
+          }
+        }
+      }
+
       for (let step = 0; step < this.maxSteps; step++) {
         if (signal.aborted) throw new CancelledError()
 
         sessions.append({ type: 'step/start', taskId, at: Date.now() })
         const messages = sessions.deriveMessages(taskId)
-        const response = await this.generateWithRetry(messages, tools.list(), signal, taskId, options.onText)
+        const response = await this.generateWithRetry(
+          llm,
+          messages,
+          offered(tools.list()),
+          signal,
+          taskId,
+          options.onText,
+        )
 
         sessions.append({
           type: 'assistant/message',
@@ -176,6 +220,7 @@ export class AgentLoop {
   }
 
   private async generateWithRetry(
+    llm: LlmAdapter,
     messages: Parameters<LlmAdapter['generate']>[0]['messages'],
     toolDefs: Parameters<LlmAdapter['generate']>[0]['tools'],
     signal: AbortSignal,
@@ -204,7 +249,7 @@ export class AgentLoop {
       try {
         // A failed attempt may have streamed half an answer before it died.
         if (attempt > 0) emit?.({ type: 'reset' })
-        const response = await this.options.llm.generate({ messages, tools: toolDefs }, signal, generateOptions)
+        const response = await llm.generate({ messages, tools: toolDefs }, signal, generateOptions)
         emit?.({ type: 'end' })
         return response
       } catch (err) {

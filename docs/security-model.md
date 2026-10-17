@@ -174,6 +174,11 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > e.g. the decision tools, which only ever send to the configured Jev host) is
 > exempt: its arguments cannot choose where data goes, so URLs in them are
 > payload. Configuring the TypeSafe key is the consent for content reaching it.
+> The decision layer (`DECISION_LAYER`) goes further and sends every task's
+> text, with the tool names and descriptions, to TypeSafe before the first
+> request, so it is a separate opt-in from the key. It can only narrow what the
+> model is offered or pick the configured light model; it cannot add a tool or
+> change a permission, and a failed decision changes nothing.
 >
 > Not yet covered: there is still no classifier, and one rule is not a
 > taxonomy — a destination the task reached honestly earlier is trusted for the

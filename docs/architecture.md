@@ -71,7 +71,20 @@ vision()
 > response, which is all the session log ever records. `tool_call()` and
 > `vision()` are design targets, not code.
 
-Beside it sits a second, much smaller seam: `DecisionModel` (`name` + `decide()`), for typed judgments (yes/no, choice, score) that come back as probabilities rather than prose. `JevDecisionModel` in `packages/providers` implements it against TypeSafe's Jev; the agent can call it through `tools-decision`, and a runtime decision layer (tool pruning, model routing) is planned on the same seam to cut LLM spend, measured by the per-task token usage the session log records.
+Beside it sits a second, much smaller seam: `DecisionModel` (`name` + `decide()`), for typed judgments (yes/no, choice, score) that come back as probabilities rather than prose. `JevDecisionModel` in `packages/providers` implements it against TypeSafe's Jev. It is used two ways:
+
+- **As agent tools** (`tools-decision`): the model calls `classify_items`, `check_claims`, `rank_candidates` or `score_items` when it would otherwise label, verify or sift a list in its own tokens.
+- **As a runtime decision layer** (`decision-layer.ts`, opt-in): once per turn, before the first LLM request, one decision call chooses which tool schemas to send (every schema is otherwise re-sent on every step) and whether a cheaper `lightLlm` will do. The choice is appended to the session log as `turn/decision` before it is acted on, and any failure, timeout or unsure answer falls back to all tools and the default model.
+
+```
+User task ──▶ AgentLoop ──▶ decideTurn ──▶ DecisionModel (Jev)        ~100s of ms, one call
+                 │              │
+                 │              └─ turn/decision {tools, llm} ──▶ SessionLog
+                 ▼
+             LlmAdapter (default or light) ◀── only the kept tool schemas
+```
+
+Whether it saves money is measured, not assumed: every reply logs the provider's token usage (`assistant/message.usage`), and every decision logs its own (`turn/decision.usage`).
 
 It never knows whether the backend is OpenAI, Gemini, Claude, Grok, DeepSeek, OpenRouter, Ollama, LM Studio, or a custom endpoint. Switching providers is a config change:
 

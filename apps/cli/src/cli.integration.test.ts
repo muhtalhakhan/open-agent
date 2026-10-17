@@ -239,6 +239,73 @@ describe('CLI end to end', () => {
     }
   })
 
+  it('with DECISION_LAYER, offers only the tools Jev keeps and answers with the light model', async () => {
+    const jev = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        const { state, questions } = JSON.parse(raw)
+        const answers: Record<string, unknown> = {}
+        for (const [key, text] of Object.entries(state.tools ?? {}) as [string, string][]) {
+          answers[key] = { type: 'noul', noul: text.startsWith('read_file') ? 0.95 : 0.02 }
+        }
+        if (questions.route) {
+          answers.route = {
+            type: 'choice',
+            choice: 'light',
+            probabilities: { light: 0.93, heavy: 0.07 },
+            confidence: 0.9,
+          }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ model: 'jev-test', answers, usage: { input_tokens: 500, output_tokens: 9 } }))
+      })
+    })
+    const modelRequests: { model: string; tools?: { function: { name: string } }[] }[] = []
+    const model = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        modelRequests.push(JSON.parse(raw))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'done' } }] }))
+      })
+    })
+    const listen = (server: Server) =>
+      new Promise<number>((resolve) =>
+        server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)),
+      )
+    const [jevPort, modelPort] = await Promise.all([listen(jev), listen(model)])
+
+    try {
+      const { stdout, stderr, code } = await runCli(
+        '',
+        {
+          OPENAI_BASE_URL: `http://127.0.0.1:${modelPort}`,
+          OPENAI_API_KEY: 'test-key',
+          OPENAI_MODEL: 'big-model',
+          OPENAI_MODEL_LIGHT: 'small-model',
+          FILES_TOOL: '1',
+          TYPESAFE_API_KEY: 'ts_test',
+          TYPESAFE_BASE_URL: `http://127.0.0.1:${jevPort}`,
+          DECISION_LAYER: 'tools,route',
+        },
+        repo,
+        ['-p', 'what does the README say?'],
+      )
+
+      expect(code).toBe(0)
+      expect(stdout).toBe('done\n')
+      expect(stderr).toContain('Decision layer on')
+      expect(modelRequests).toHaveLength(1)
+      expect(modelRequests[0].model).toBe('small-model')
+      expect(modelRequests[0].tools?.map((tool) => tool.function.name)).toEqual(['read_file'])
+    } finally {
+      await new Promise((done) => jev.close(done))
+      await new Promise((done) => model.close(done))
+    }
+  })
+
   describe('web', () => {
     /** A port nothing is listening on, found by asking the OS for one and giving it back. */
     function freePort(): Promise<number> {

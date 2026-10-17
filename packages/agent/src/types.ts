@@ -170,6 +170,21 @@ export type SessionEvent =
   | { type: 'tool/call'; taskId: string; at: number; call: ToolCall }
   | { type: 'tool/result'; taskId: string; at: number; callId: string; result: ToolResult }
   | { type: 'retry'; taskId: string; at: number; attempt: number; reason: string }
+  /**
+   * What the decision layer chose for a turn, before its first request: the
+   * tools the model was offered (absent: all) and which model answered. Logged
+   * because both change what the model saw.
+   */
+  | {
+      type: 'turn/decision'
+      taskId: string
+      at: number
+      tools?: string[]
+      llm: 'default' | 'light'
+      /** What deciding cost, in the decision model's own tokens. */
+      usage?: TokenUsage
+      error?: string
+    }
   | {
       type: 'lease/requested'
       taskId: string
