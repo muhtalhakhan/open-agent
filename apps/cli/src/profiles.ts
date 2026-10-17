@@ -69,15 +69,19 @@ export function duplicateProfile(
   sourceNameOrPath: string,
   newName: string,
 ): { ok: true; profilePath: string } | { ok: false; error: string } {
-  const source = loadProfile(sourceNameOrPath)
-  if (!source.ok) return source
-  const newProfile: AgentProfile = { ...source.profile, name: newName, memory: false }
-  const homeDir = os.homedir()
-  const outDir = path.join(homeDir, '.openagent', 'profiles')
-  fs.mkdirSync(outDir, { recursive: true })
-  const outPath = path.join(outDir, `${newName}.yaml`)
-  fs.writeFileSync(outPath, yaml.stringify(newProfile))
-  return { ok: true, profilePath: outPath }
+  try {
+    const source = loadProfile(sourceNameOrPath)
+    if (!source.ok) return source
+    const newProfile: AgentProfile = { ...source.profile, name: newName, memory: false }
+    const homeDir = os.homedir()
+    const outDir = path.join(homeDir, '.openagent', 'profiles')
+    fs.mkdirSync(outDir, { recursive: true })
+    const outPath = path.join(outDir, `${newName}.yaml`)
+    fs.writeFileSync(outPath, yaml.stringify(newProfile))
+    return { ok: true, profilePath: outPath }
+  } catch (err) {
+    return { ok: false, error: `Failed to duplicate profile: ${err instanceof Error ? err.message : String(err)}` }
+  }
 }
 
 /** Export profile to YAML string (no session data; clean memory). */
