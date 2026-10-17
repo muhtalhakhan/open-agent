@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type KeyboardEvent } from 'react'
-import { cancelTask, sendTask, subscribe, type ConnectionState } from './api.js'
+import { answerApproval, cancelTask, sendTask, subscribe, type ConnectionState } from './api.js'
 import { HistoryList, TaskTranscript } from './history.js'
 import { reduce, type Entry, type Turn } from './transcript.js'
-import { Entries } from './turn.js'
+import { Entries, type AnswerApproval } from './turn.js'
 
 type Route = { view: 'chat' } | { view: 'history' } | { view: 'transcript'; taskId: string; sessionId?: string }
 
@@ -75,6 +75,18 @@ function Chat({
   }
 
   const running = entries.findLast((entry): entry is Turn => entry.kind === 'turn' && entry.status === 'running')
+  const waiting = running?.items.some((item) => item.kind === 'approval' && item.state === 'pending') ?? false
+
+  // A question in a background tab is easy to miss, and the agent is parked
+  // until someone answers it.
+  useEffect(() => {
+    document.title = waiting ? 'Approval needed · OpenAgent' : 'OpenAgent'
+  }, [waiting])
+
+  const answer = useCallback<AnswerApproval>(
+    (approvalId, decision) => answerApproval(token, approvalId, decision),
+    [token],
+  )
 
   const submit = useCallback(async () => {
     const input = draft.trim()
@@ -116,7 +128,7 @@ function Chat({
         {entries.length === 0 && connection === 'open' && (
           <div className="placeholder">Give the agent a task to start.</div>
         )}
-        <Entries entries={entries} />
+        <Entries entries={entries} answer={answer} />
       </div>
 
       <form
@@ -132,7 +144,11 @@ function Chat({
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={
-            running ? 'Waiting for the current task…' : 'Describe a task. Enter sends, Shift+Enter adds a line.'
+            waiting
+              ? 'The agent is waiting for your answer above.'
+              : running
+                ? 'Waiting for the current task…'
+                : 'Describe a task. Enter sends, Shift+Enter adds a line.'
           }
           rows={3}
           disabled={connection !== 'open'}

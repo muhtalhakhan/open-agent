@@ -56,7 +56,7 @@ In the interactive session
 
 Background jobs cannot stop to ask for approval, so "ask"-level tool
 calls in them are denied unless the session was started with --yes.
-The web UI cannot ask yet either, and follows the same rule.
+The web UI asks in the browser, with the same choices as the terminal.
 
 Exit codes (print mode)
   0  the task completed

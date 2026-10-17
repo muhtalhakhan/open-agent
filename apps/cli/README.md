@@ -31,7 +31,7 @@ Both modes share one task path (`task.ts`): recall memories, run the loop, store
 
 ## Web UI
 
-`open-agent web` serves a chat UI on 127.0.0.1 (port 7373, or `--port`) and prints the address to open, token included. It builds the same agent as the terminal and runs each message through the same `task.ts`; the server and the page live in `apps/web` (see its README). Nobody is at the terminal to answer an approval, so it uses print mode's policy until the page can ask (#109): `ask`-level calls are denied unless started with `--yes`, and each refusal shows in the chat. `--plan` is refused. Ctrl+C waits for a running task, then saves the session.
+`open-agent web` serves a chat UI on 127.0.0.1 (port 7373, or `--port`) and prints the address to open, token included. It builds the same agent as the terminal and runs each message through the same `task.ts`; the server and the page live in `apps/web` (see its README). Approvals are asked in the browser, with the same choices as the terminal prompt; `--yes` approves `ask`-level calls without asking, as elsewhere, and `--plan` shows file edits there as a diff to review. Ctrl+C waits for a running task, then saves the session.
 
 ## Task history
 

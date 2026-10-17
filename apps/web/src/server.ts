@@ -6,8 +6,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { taskRecords } from '@open-agent/agent'
 import type { RunTextEvent, SessionEvent, TaskRecord, TokenUsage } from '@open-agent/agent'
-import type { HistoryTask, HistoryTranscript, ServerEvent, TaskEndStatus } from './protocol.js'
-import { preview, replayTask, toolProjector } from './project.js'
+import type { ApprovalScope, HistoryTask, HistoryTranscript, ServerEvent, TaskEndStatus } from './protocol.js'
+import { clip, preview, replayTask, toolProjector } from './project.js'
 
 /** Where `vite build` puts the client. */
 export const CLIENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/client')
@@ -56,16 +56,42 @@ export interface WebServerOptions {
   clientDir?: string
 }
 
+/** A tool call the registry wants a person to decide on; see `ApprovalHandler`. */
+export interface ApprovalRequest {
+  tool: string
+  level: 'safe' | 'ask' | 'dangerous'
+  args: Record<string, unknown>
+  /** From `approvalScopes`: what the page may offer, and all the server will accept. */
+  scopes: ApprovalScope[]
+  escalation?: { rule: string; reason: string }
+  planPreview?: string
+}
+
+export interface ApprovalAnswer {
+  approved: boolean
+  scope?: ApprovalScope
+}
+
 export interface WebServer {
   /** The address to open, token included. */
   url: string
   port: number
   notice(text: string): void
+  /**
+   * Puts a tool call in front of the person in the browser and resolves with
+   * their answer. Denied straight away when no task is running to attach it
+   * to, and when the task is stopped or the server closes while it waits:
+   * the agent is never left waiting on a question nobody can see.
+   */
+  requestApproval(request: ApprovalRequest): Promise<ApprovalAnswer>
   /** Cancels a running task and waits for it, so the session log is complete once this resolves. */
   close(): Promise<void>
 }
 
 const MAX_BODY_BYTES = 64 * 1024
+/** Enough for any command or edit a person would actually read before approving it. */
+const APPROVAL_ARGS_LENGTH = 4_000
+const PLAN_LENGTH = 20_000
 /** Enough to rebuild a long conversation on reload, not enough to grow without bound. */
 const MAX_REPLAY_EVENTS = 2000
 /** Under the idle timeout of anything that might sit between a browser and localhost. */
@@ -207,7 +233,15 @@ export async function startWebServer({
       onEvent: toolProjector(taskId, emit),
     }
 
-    const done = runTask(input, controller.signal, hooks)
+    // Current before the task starts, not after: anything it does
+    // synchronously, asking for approval above all, has to find it.
+    const task: { taskId: string; controller: AbortController; done: Promise<void> } = {
+      taskId,
+      controller,
+      done: Promise.resolve(),
+    }
+    current = task
+    task.done = runTask(input, controller.signal, hooks)
       .catch((err): TaskOutcome => ({
         status: 'error',
         answer: '',
@@ -215,13 +249,57 @@ export async function startWebServer({
       }))
       .then((outcome) => {
         streaming = ''
+        denyPending(taskId)
         emit({ type: 'task/end', taskId, ...outcome })
       })
       .finally(() => {
-        current = null
+        if (current === task) current = null
       })
-    current = { taskId, controller, done }
     return taskId
+  }
+
+  const pending = new Map<
+    string,
+    { taskId: string; scopes: ApprovalScope[]; resolve: (answer: ApprovalAnswer) => void }
+  >()
+
+  function requestApproval(request: ApprovalRequest): Promise<ApprovalAnswer> {
+    if (!current) return Promise.resolve({ approved: false })
+    const { taskId } = current
+    const approvalId = randomUUID()
+    emit({
+      type: 'approval/request',
+      taskId,
+      approvalId,
+      tool: request.tool,
+      level: request.level,
+      args: clip(JSON.stringify(request.args, null, 2), APPROVAL_ARGS_LENGTH),
+      scopes: request.scopes,
+      ...(request.escalation ? { escalation: request.escalation } : {}),
+      ...(request.planPreview !== undefined ? { planPreview: clip(request.planPreview, PLAN_LENGTH) } : {}),
+    })
+    return new Promise((resolve) => pending.set(approvalId, { taskId, scopes: request.scopes, resolve }))
+  }
+
+  function settle(approvalId: string, answer: ApprovalAnswer): boolean {
+    const waiting = pending.get(approvalId)
+    if (!waiting) return false
+    pending.delete(approvalId)
+    waiting.resolve(answer)
+    emit({
+      type: 'approval/resolved',
+      taskId: waiting.taskId,
+      approvalId,
+      approved: answer.approved,
+      ...(answer.approved ? { scope: answer.scope ?? 'once' } : {}),
+    })
+    return true
+  }
+
+  function denyPending(taskId?: string): void {
+    for (const [approvalId, waiting] of pending) {
+      if (taskId === undefined || waiting.taskId === taskId) settle(approvalId, { approved: false })
+    }
   }
 
   function openStream(req: IncomingMessage, res: ServerResponse): void {
@@ -323,15 +401,17 @@ export async function startWebServer({
       return sendJson(res, 415, { error: 'Send JSON.' })
     }
 
+    const raw = await readBody(req)
+    if (raw === null) return sendJson(res, 413, { error: 'Request too large.' })
+    let body: Record<string, unknown>
+    try {
+      body = (JSON.parse(raw || '{}') ?? {}) as Record<string, unknown>
+    } catch {
+      return sendJson(res, 400, { error: 'Body is not JSON.' })
+    }
+
     if (url.pathname === '/api/tasks') {
-      const raw = await readBody(req)
-      if (raw === null) return sendJson(res, 413, { error: 'Task too long.' })
-      let input: unknown
-      try {
-        input = (JSON.parse(raw) as { input?: unknown }).input
-      } catch {
-        return sendJson(res, 400, { error: 'Body is not JSON.' })
-      }
+      const input = body.input
       if (typeof input !== 'string' || !input.trim()) return sendJson(res, 400, { error: 'Give the task as "input".' })
       if (current) return sendJson(res, 409, { error: 'A task is already running. Wait for it, or stop it.' })
       return sendJson(res, 202, { taskId: startTask(input.trim()) })
@@ -341,7 +421,25 @@ export async function startWebServer({
     if (cancel) {
       if (!current || current.taskId !== cancel[1]) return sendJson(res, 404, { error: 'No such running task.' })
       current.controller.abort()
+      // Before the abort can take effect the loop may be parked on a
+      // question; answering it is what lets the cancellation through.
+      denyPending(current.taskId)
       return sendJson(res, 202, {})
+    }
+
+    const approval = url.pathname.match(/^\/api\/approvals\/([^/]+)$/)
+    if (approval) {
+      const waiting = pending.get(approval[1])
+      if (!waiting) return sendJson(res, 404, { error: 'That approval was already answered, or its task ended.' })
+      if (typeof body.approved !== 'boolean') return sendJson(res, 400, { error: 'Send "approved": true or false.' })
+      const scope = (body.scope ?? 'once') as ApprovalScope
+      // The page only shows the scopes it was offered, but the server is what
+      // the registry trusts: a request for a wider one is refused here.
+      if (body.approved && !waiting.scopes.includes(scope)) {
+        return sendJson(res, 400, { error: `"${String(scope)}" is not on offer for this call.` })
+      }
+      settle(approval[1], body.approved ? { approved: true, scope } : { approved: false })
+      return sendJson(res, 200, {})
     }
     return sendJson(res, 404, { error: 'Not found.' })
   }
@@ -370,9 +468,11 @@ export async function startWebServer({
     url: `${origin}/?token=${token}`,
     port: bound,
     notice,
+    requestApproval,
     async close() {
       const running = current
       running?.controller.abort()
+      denyPending()
       await running?.done
       for (const res of clients) res.end()
       clients.clear()

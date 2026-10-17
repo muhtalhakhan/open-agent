@@ -5,7 +5,15 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ServerEvent } from './protocol.js'
 import type { SessionEvent } from '@open-agent/agent'
-import { startWebServer, type RunTask, type TaskHooks, type WebServer, type WebServerOptions } from './server.js'
+import {
+  startWebServer,
+  type ApprovalAnswer,
+  type ApprovalRequest,
+  type RunTask,
+  type TaskHooks,
+  type WebServer,
+  type WebServerOptions,
+} from './server.js'
 
 const TOKEN = 'test-token'
 
@@ -432,6 +440,121 @@ describe('startWebServer', () => {
 
       const without = await start()
       expect((await get(without, '/api/history')).status).toBe(404)
+    })
+  })
+
+  describe('approvals', () => {
+    /** A task that asks for approval once, then reports what it was told. */
+    function askingTask(request: Partial<ApprovalRequest> = {}) {
+      const answers: ApprovalAnswer[] = []
+      let ask!: (r: ApprovalRequest) => Promise<ApprovalAnswer>
+      const runTask: RunTask = async () => {
+        const answer = await ask({
+          tool: 'write_file',
+          level: 'ask',
+          args: { path: 'report.md', content: '# Report' },
+          scopes: ['once', 'task', 'session'],
+          ...request,
+        })
+        answers.push(answer)
+        return { status: 'completed', answer: answer.approved ? 'wrote it' : 'did not write it' }
+      }
+      return { runTask, answers, bind: (s: WebServer) => (ask = s.requestApproval) }
+    }
+    const answer = (s: WebServer, approvalId: string, body: unknown) =>
+      send(s, 'POST', `/api/approvals/${approvalId}`, { headers: auth, body: JSON.stringify(body) })
+    const nextRequest = (s: WebServer) => collect(s, (event) => event.type === 'approval/request')
+
+    it('puts the call in front of the page and runs it with the scope chosen', async () => {
+      const task = askingTask()
+      const s = await start(task.runTask)
+      task.bind(s)
+
+      await postTask(s, 'write the report')
+      const request = (await nextRequest(s)).at(-1) as Extract<ServerEvent, { type: 'approval/request' }>
+      expect(request).toMatchObject({ tool: 'write_file', level: 'ask', scopes: ['once', 'task', 'session'] })
+      expect(request.args).toContain('"path": "report.md"')
+
+      expect((await answer(s, request.approvalId, { approved: true, scope: 'task' })).status).toBe(200)
+      const events = await collect(s, (event) => event.type === 'task/end')
+
+      expect(task.answers).toEqual([{ approved: true, scope: 'task' }])
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'approval/resolved', approved: true, scope: 'task' }),
+      )
+    })
+
+    it('refuses a scope the call was not offered, so the page cannot widen it', async () => {
+      const task = askingTask({ level: 'dangerous', scopes: ['once'] })
+      const s = await start(task.runTask)
+      task.bind(s)
+
+      await postTask(s, 'go')
+      const request = (await nextRequest(s)).at(-1) as Extract<ServerEvent, { type: 'approval/request' }>
+
+      expect((await answer(s, request.approvalId, { approved: true, scope: 'session' })).status).toBe(400)
+      expect(task.answers).toEqual([])
+      expect((await answer(s, request.approvalId, { approved: false })).status).toBe(200)
+      await collect(s, (event) => event.type === 'task/end')
+      expect(task.answers).toEqual([{ approved: false }])
+    })
+
+    it('takes the first answer and refuses a second, as when two tabs answer', async () => {
+      const task = askingTask()
+      const s = await start(task.runTask)
+      task.bind(s)
+
+      await postTask(s, 'go')
+      const request = (await nextRequest(s)).at(-1) as Extract<ServerEvent, { type: 'approval/request' }>
+
+      expect((await answer(s, request.approvalId, { approved: false })).status).toBe(200)
+      expect((await answer(s, request.approvalId, { approved: true })).status).toBe(404)
+      await collect(s, (event) => event.type === 'task/end')
+      expect(task.answers).toEqual([{ approved: false }])
+    })
+
+    it('shows a pending question to a tab that connects while it waits', async () => {
+      const task = askingTask({ escalation: { rule: 'exfiltration-after-ingest', reason: 'new host' } })
+      const s = await start(task.runTask)
+      task.bind(s)
+
+      await postTask(s, 'go')
+      await nextRequest(s)
+      const late = await nextRequest(s)
+
+      expect(late.at(-1)).toMatchObject({ type: 'approval/request', escalation: { reason: 'new host' } })
+    })
+
+    it('denies a waiting question when the task is stopped, so the stop goes through', async () => {
+      const task = askingTask()
+      const s = await start(task.runTask)
+      task.bind(s)
+
+      const { taskId } = JSON.parse((await postTask(s, 'go')).body) as { taskId: string }
+      await nextRequest(s)
+      await send(s, 'POST', `/api/tasks/${taskId}/cancel`, { headers: auth, body: '{}' })
+      await collect(s, (event) => event.type === 'task/end')
+
+      expect(task.answers).toEqual([{ approved: false }])
+    })
+
+    it('denies at once when no task is running, and when the server closes', async () => {
+      const idle = await start()
+      expect(await idle.requestApproval({ tool: 'x', level: 'ask', args: {}, scopes: ['once'] })).toEqual({
+        approved: false,
+      })
+      await idle.close()
+
+      const task = askingTask()
+      const s = await start(task.runTask)
+      task.bind(s)
+      await postTask(s, 'go')
+      await nextRequest(s)
+
+      await s.close()
+      server = undefined
+
+      expect(task.answers).toEqual([{ approved: false }])
     })
   })
 })

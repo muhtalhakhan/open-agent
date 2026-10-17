@@ -420,6 +420,110 @@ code {
   cursor: default;
 }
 
+.button--secondary {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.approval {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.approval--approved,
+.approval--denied {
+  border-color: var(--border);
+}
+
+.approval__reason {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--notice-bg);
+  color: var(--notice-text);
+  font-size: 14px;
+}
+
+.approval__title {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.approval__args,
+.diff {
+  max-height: 320px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff__line--add {
+  color: var(--ok);
+}
+
+.diff__line--remove {
+  color: var(--fail);
+}
+
+.diff__line--hunk {
+  color: var(--muted);
+}
+
+.approval__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.approval__actions .button {
+  align-self: auto;
+  padding: 7px 12px;
+  font-size: 14px;
+}
+
+.approval__confirm {
+  flex-basis: 100%;
+  font-size: 14px;
+}
+
+.approval__outcome {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.approval__outcome--approved {
+  color: var(--ok);
+}
+
+.approval__outcome--denied {
+  color: var(--fail);
+}
+
+.level {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.level--dangerous {
+  background: var(--fail);
+  color: var(--accent-text);
+}
+
 .button--stop {
   background: var(--fail);
 }

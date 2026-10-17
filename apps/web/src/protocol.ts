@@ -16,6 +16,9 @@ export interface Usage {
   cachedInputTokens?: number
 }
 
+/** How long an approval lasts: this call, the rest of this task, or the rest of the session. */
+export type ApprovalScope = 'once' | 'task' | 'session'
+
 export type ServerEvent =
   /**
    * Opens every connection. Everything after it up to the live edge is a
@@ -31,6 +34,27 @@ export type ServerEvent =
   | { type: 'tool/start'; taskId: string; callId: string; name: string; args: string }
   | { type: 'tool/end'; taskId: string; callId: string; ok: boolean; error?: string; ms: number }
   | { type: 'task/end'; taskId: string; status: TaskEndStatus; answer: string; error?: string; usage?: Usage }
+  /**
+   * A tool call waiting for the person: answered with
+   * `POST /api/approvals/<approvalId>`. Replayed to a tab that connects while
+   * it is pending, so a reload never strands the agent waiting on nobody.
+   */
+  | {
+      type: 'approval/request'
+      taskId: string
+      approvalId: string
+      tool: string
+      level: 'safe' | 'ask' | 'dangerous'
+      /** Pretty-printed JSON, clipped only at a length no reviewer reads past. */
+      args: string
+      /** The answers worth offering; the server refuses any other. */
+      scopes: ApprovalScope[]
+      /** Present when a sequence rule held a call its own level would have let through; the reason leads. */
+      escalation?: { rule: string; reason: string }
+      /** Plan mode: the diff of what the call would change. Approving it is approving the change. */
+      planPreview?: string
+    }
+  | { type: 'approval/resolved'; taskId: string; approvalId: string; approved: boolean; scope?: ApprovalScope }
 
 /** One past task in `GET /api/history`: `TaskRecord` from the agent, restated, with the answer cut to a preview. */
 export interface HistoryTask {

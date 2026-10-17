@@ -44,7 +44,9 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > whether a call was `granted` by a human or `remembered` from an earlier answer,
 > and `listApprovals()`/`revokeApprovals()` make what is remembered visible and
 > reversible. The CLI prompt offers once / task / always, with `always` confirmed
-> separately. Profile-scoped grants wait on profiles existing.
+> separately, and the web UI's approval card offers the same choices from the
+> same function (`approvalScopes`), with the server refusing any scope the call
+> was not offered. Profile-scoped grants wait on profiles existing.
 
 ## Sandboxing
 

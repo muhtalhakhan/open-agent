@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline/promises'
 import dotenv from 'dotenv'
 import {
   LeaseManager,
+  approvalScopes,
   SessionLog,
   SessionStore,
   ToolRegistry,
@@ -289,12 +290,6 @@ async function main() {
     process.exitCode = 1
     return
   }
-  if (web && args.plan) {
-    console.error('--plan needs a diff review the web UI does not have yet (#109). Use it in the terminal.')
-    process.exitCode = 1
-    return
-  }
-
   // Background jobs exist only in the interactive session, and only once the
   // agent loop does; the router asks whichever set is live at call time.
   let background: BackgroundJobs | undefined
@@ -302,9 +297,26 @@ async function main() {
   if (headless) {
     tools.onApproval(createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg)))
   } else if (web) {
-    // Until the web UI can ask (#109), it answers as print mode does, and
-    // says so in the chat.
-    tools.onApproval(createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(msg)))
+    // The person is in the browser, so the question goes there, with the
+    // choices the terminal would offer for the same call. `--yes` still means
+    // what it does everywhere else: nobody is asked about `ask`-level calls.
+    tools.onApproval(
+      args.approveAsk
+        ? createNonInteractiveApprovalHandler(true, (msg) => io.write(msg))
+        : async (call, tool, context) =>
+            webServer
+              ? webServer.requestApproval({
+                  tool: tool.name,
+                  level: tool.permissionLevel,
+                  args: call.args,
+                  scopes: approvalScopes(tool, context),
+                  ...(context.escalation
+                    ? { escalation: { rule: context.escalation.rule, reason: context.escalation.reason } }
+                    : {}),
+                  ...(context.planPreview !== undefined ? { planPreview: context.planPreview } : {}),
+                })
+              : false,
+    )
   } else {
     tools.onApproval(
       createRoutingApprovalHandler(

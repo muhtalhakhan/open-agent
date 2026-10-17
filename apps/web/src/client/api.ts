@@ -1,4 +1,4 @@
-import type { HistoryTask, HistoryTranscript, ServerEvent } from '../protocol.js'
+import type { ApprovalScope, HistoryTask, HistoryTranscript, ServerEvent } from '../protocol.js'
 
 const TOKEN_KEY = 'open-agent:token'
 
@@ -47,6 +47,15 @@ async function post(token: string, path: string, body: unknown): Promise<string 
 /** Resolves to an error message, or `null` once the task has been accepted. */
 export function sendTask(token: string, input: string): Promise<string | null> {
   return post(token, '/api/tasks', { input })
+}
+
+/** Resolves to an error message, or `null` once the answer was taken. */
+export function answerApproval(
+  token: string,
+  approvalId: string,
+  answer: { approved: true; scope: ApprovalScope } | { approved: false },
+): Promise<string | null> {
+  return post(token, `/api/approvals/${encodeURIComponent(approvalId)}`, answer)
 }
 
 export function cancelTask(token: string, taskId: string): Promise<string | null> {

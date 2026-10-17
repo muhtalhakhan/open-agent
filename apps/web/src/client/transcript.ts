@@ -1,4 +1,4 @@
-import type { ServerEvent, TaskEndStatus, Usage } from '../protocol.js'
+import type { ApprovalScope, ServerEvent, TaskEndStatus, Usage } from '../protocol.js'
 
 export type TurnItem =
   | { kind: 'text'; text: string; done: boolean }
@@ -12,6 +12,20 @@ export type TurnItem =
       ms?: number
     }
   | { kind: 'notice'; text: string }
+  | {
+      kind: 'approval'
+      approvalId: string
+      tool: string
+      level: 'safe' | 'ask' | 'dangerous'
+      args: string
+      scopes: ApprovalScope[]
+      escalation?: { rule: string; reason: string }
+      planPreview?: string
+      state: 'pending' | 'approved' | 'denied'
+      scope?: ApprovalScope
+    }
+
+export type ApprovalItem = Extract<TurnItem, { kind: 'approval' }>
 
 export interface Turn {
   kind: 'turn'
@@ -92,9 +106,30 @@ export function reduce(state: Transcript, event: ServerEvent): Transcript {
         const item = turn.items[index] as Extract<TurnItem, { kind: 'tool' }>
         turn.items[index] = { ...item, status: event.ok ? 'ok' : 'failed', error: event.error, ms: event.ms }
       })
+    case 'approval/request': {
+      const { type: _type, taskId, ...request } = event
+      return updateTurn(state, taskId, (turn) => {
+        turn.items.push({ kind: 'approval', ...request, state: 'pending' })
+      })
+    }
+    case 'approval/resolved':
+      return updateTurn(state, event.taskId, (turn) => {
+        const index = turn.items.findIndex((item) => item.kind === 'approval' && item.approvalId === event.approvalId)
+        if (index === -1) return
+        turn.items[index] = {
+          ...(turn.items[index] as ApprovalItem),
+          state: event.approved ? 'approved' : 'denied',
+          scope: event.scope,
+        }
+      })
     case 'task/end':
       return updateTurn(state, event.taskId, (turn) => {
         turn.status = event.status
+        // The server answers every question before a task ends; this only
+        // covers a replay that lost the answer to trimming.
+        turn.items = turn.items.map((item) =>
+          item.kind === 'approval' && item.state === 'pending' ? { ...item, state: 'denied' } : item,
+        )
         turn.error = event.error
         turn.usage = event.usage
         const open = openText(turn)

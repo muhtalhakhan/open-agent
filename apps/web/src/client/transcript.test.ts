@@ -105,4 +105,43 @@ describe('reduce', () => {
 
     expect(fold([delta('x', 'gone')], state)).toBe(state)
   })
+
+  describe('approvals', () => {
+    const request: ServerEvent = {
+      type: 'approval/request',
+      taskId: 't1',
+      approvalId: 'a1',
+      tool: 'write_file',
+      level: 'ask',
+      args: '{}',
+      scopes: ['once', 'task', 'session'],
+    }
+
+    it('shows a question in the turn, then how it was answered', () => {
+      const asked = fold([start, request])
+      expect(onlyTurn(asked).items).toEqual([
+        {
+          kind: 'approval',
+          approvalId: 'a1',
+          tool: 'write_file',
+          level: 'ask',
+          args: '{}',
+          scopes: ['once', 'task', 'session'],
+          state: 'pending',
+        },
+      ])
+
+      const answered = fold(
+        [{ type: 'approval/resolved', taskId: 't1', approvalId: 'a1', approved: true, scope: 'task' }],
+        asked,
+      )
+      expect(onlyTurn(answered).items[0]).toMatchObject({ state: 'approved', scope: 'task' })
+    })
+
+    it('never leaves a question pending once its task has ended', () => {
+      const state = fold([start, request, { type: 'task/end', taskId: 't1', status: 'cancelled', answer: '' }])
+
+      expect(onlyTurn(state).items[0]).toMatchObject({ state: 'denied' })
+    })
+  })
 })

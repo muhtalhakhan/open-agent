@@ -7,7 +7,7 @@ export { totalUsage } from './usage.js'
 export { decideTurn } from './decision-layer.js'
 export type { DecisionLayerOptions, TurnDecision } from './decision-layer.js'
 export type { TaskHistoryOptions, TaskRecord } from './task-history.js'
-export { ToolRegistry } from './tools.js'
+export { ToolRegistry, approvalScopes } from './tools.js'
 export type {
   ApprovalContext,
   ApprovalDecision,
