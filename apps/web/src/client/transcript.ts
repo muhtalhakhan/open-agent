@@ -15,6 +15,8 @@ export type TurnItem =
   /** Where the next model request began, from the second one on: the first is the turn itself. */
   | { kind: 'step'; step: number }
   | { kind: 'retry'; attempt: number; reason: string }
+  /** The latest picture a tool showed, updated in place: one live view of the page, not a stack of frames. */
+  | { kind: 'screen'; mimeType: string; data: string; caption?: string }
   | { kind: 'notice'; text: string }
   | {
       kind: 'approval'
@@ -114,6 +116,13 @@ export function reduce(state: Transcript, event: ServerEvent): Transcript {
         const open = openText(turn)
         if (open !== -1) turn.items.splice(open, 1)
         turn.items.push({ kind: 'retry', attempt: event.attempt, reason: event.reason })
+      })
+    case 'screen':
+      return updateTurn(state, event.taskId, (turn) => {
+        const { type: _type, taskId: _taskId, ...picture } = event
+        const index = turn.items.findIndex((item) => item.kind === 'screen')
+        if (index === -1) turn.items.push({ kind: 'screen', ...picture })
+        else turn.items[index] = { kind: 'screen', ...picture }
       })
     case 'tool/start':
       return updateTurn(state, event.taskId, (turn) => {

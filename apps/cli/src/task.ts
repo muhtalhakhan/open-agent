@@ -26,6 +26,8 @@ export interface TaskOptions {
   memory?: MemoryHook
   /** The model's text as it is generated — see `RunOptions.onText`. */
   onText?: RunOptions['onText']
+  /** What tools show while they run, such as screenshots — see `RunOptions.onAttachment`. */
+  onAttachment?: RunOptions['onAttachment']
   /**
    * Every event this task appends to the session log, as it is appended.
    * Only this task's: a background job writing to the same log at the same
@@ -47,7 +49,7 @@ export async function executeTask(
   sessions: SessionLog,
   input: string,
   signal: AbortSignal,
-  { memory, onText, onEvent }: TaskOptions = {},
+  { memory, onText, onEvent, onAttachment }: TaskOptions = {},
 ): Promise<TaskOutcome> {
   // Recalled memories travel as turn context, not as part of the user's
   // message: the log should record what the user actually typed, and
@@ -66,7 +68,7 @@ export async function executeTask(
   const unsubscribe = onEvent && sessions.onAppend((event) => event.taskId === taskId && onEvent(event))
   let task
   try {
-    task = await agentLoop.run(input, signal, taskId, { context, onText })
+    task = await agentLoop.run(input, signal, taskId, { context, onText, onAttachment })
   } finally {
     unsubscribe?.()
   }

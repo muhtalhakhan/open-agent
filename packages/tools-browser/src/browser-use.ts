@@ -1,6 +1,6 @@
 import type { Context, Disposer, Plugin } from '@open-agent/context'
-import type { PermissionLevel, ToolDefinition, ToolRegistry } from '@open-agent/agent'
-import { mcpToolDefinition, spawnMcpServer } from '@open-agent/tools-mcp'
+import type { PermissionLevel, ToolDefinition, ToolExecutionContext, ToolRegistry } from '@open-agent/agent'
+import { imageAttachments, mcpToolDefinition, spawnMcpServer } from '@open-agent/tools-mcp'
 import type { McpStdioClient } from '@open-agent/tools-mcp'
 import { DEFAULT_PROFILE_ENV_VARS, createBrowserProfile, profileEnv, type BrowserProfile } from './profile.js'
 
@@ -22,7 +22,28 @@ export interface BrowserUseOptions {
   profileEnvVars?: readonly string[]
   /** Credential-looking variables to pass through to the browser subprocess. */
   allowEnv?: readonly string[]
+  /**
+   * Show a screenshot of the page after each action that changes it, to
+   * whoever is watching the task (default true). Costs a screenshot per
+   * action, so it is only taken when a host is listening for attachments.
+   */
+  liveView?: boolean
+  /** How long a live-view screenshot may take before it is given up (default 5s). */
+  screenshotTimeoutMs?: number
 }
+
+const SCREENSHOT_TOOL = 'browser_screenshot'
+/** Long enough for a full-page capture, short enough that nobody waits on one. */
+const SCREENSHOT_TIMEOUT_MS = 5_000
+/** The tools after which the page has likely changed, and a fresh look is worth taking. */
+const CHANGES_PAGE = new Set([
+  'browser_navigate',
+  'browser_click',
+  'browser_type',
+  'browser_scroll',
+  'browser_switch_tab',
+  'browser_go_back',
+])
 
 /**
  * Permission policy for browser-use's MCP tools. Navigation, clicking,
@@ -76,9 +97,22 @@ export class BrowserUseTools {
     if (!this.client) throw new Error('call connect() before tools()')
     const client = this.client
     const descriptors = await client.listTools()
-    return descriptors.map((descriptor) =>
-      mcpToolDefinition(client, descriptor, PERMISSION_OVERRIDES[descriptor.name] ?? 'safe'),
-    )
+    const timeoutMs = this.options.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS
+    const canWatch = this.options.liveView !== false && descriptors.some((d) => d.name === SCREENSHOT_TOOL)
+    return descriptors.map((descriptor) => {
+      const tool = mcpToolDefinition(client, descriptor, PERMISSION_OVERRIDES[descriptor.name] ?? 'safe')
+      if (!canWatch || !CHANGES_PAGE.has(descriptor.name)) return tool
+      return {
+        ...tool,
+        async execute(args, context) {
+          const result = await tool.execute(args, context)
+          if (result.ok && context.onAttachment) {
+            await showPage(client, context, `after ${descriptor.name}`, timeoutMs)
+          }
+          return result
+        },
+      }
+    })
   }
 
   close(): void {
@@ -90,6 +124,32 @@ export class BrowserUseTools {
     this.close()
     await this.profile?.dispose()
     this.profile = undefined
+  }
+}
+
+/**
+ * Takes a screenshot for whoever is watching. A side call the model never
+ * made and never sees: nothing of it is logged or returned, and a failure
+ * to take it is dropped rather than failing the action it follows.
+ */
+async function showPage(
+  client: McpStdioClient,
+  context: ToolExecutionContext,
+  caption: string,
+  timeoutMs: number,
+): Promise<void> {
+  try {
+    // Bounded: the action it follows has already finished, and a slow or
+    // stuck screenshot must not hold the task up waiting for a picture.
+    const shot = await Promise.race([
+      client.callTool(SCREENSHOT_TOOL, {}),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('screenshot timed out')), timeoutMs).unref(),
+      ),
+    ])
+    for (const attachment of imageAttachments(shot, caption)) context.onAttachment?.(attachment)
+  } catch {
+    // The page is shown on the next action that changes it.
   }
 }
 

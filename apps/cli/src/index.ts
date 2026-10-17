@@ -428,8 +428,8 @@ async function main() {
       try {
         webServer = await startWebServer({
           port,
-          runTask: (input, signal, { onText, onEvent }) =>
-            executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent }),
+          runTask: (input, signal, { onText, onEvent, onAttachment }) =>
+            executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent, onAttachment }),
           settings: webSettings(),
           // Scoped to the container tasks recall from and remember into, so the
           // page shows exactly what the agent can draw on, and nothing else.

@@ -77,3 +77,9 @@ ctx.dispose() // shuts down MCP and cleans up
 ```
 
 `src/browser-use.test.ts` runs against a fake MCP server in `test-fixtures/` that mimics a slice of browser-use's real tool list, so the permission-policy mapping and registry wiring are tested end to end without needing Python or browser-use installed in CI.
+
+## Live view
+
+When a host is watching a task (the web UI is), every action that changes the page — navigate, click, type, scroll, switch tab, go back — is followed by a `browser_screenshot` the model never made, and the image goes to the host through `ToolExecutionContext.onAttachment`. It is display only: never logged, never in the model's context, so a page cannot steer the agent through what it draws. A screenshot that takes longer than `screenshotTimeoutMs` (default 5s) is given up on rather than holding up the task, and nobody watching means no screenshot is taken at all. `liveView: false` turns it off.
+
+Image blocks a browser tool returns itself (`browser_screenshot` called by the model) reach the host the same way, through `@open-agent/tools-mcp`, while the model is only told an image was there.

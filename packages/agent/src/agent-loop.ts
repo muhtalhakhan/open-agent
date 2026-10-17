@@ -3,7 +3,16 @@ import type { SessionLog } from './session.js'
 import type { ToolRegistry } from './tools.js'
 import type { Logger } from './logger.js'
 import { silentLogger } from './logger.js'
-import type { GenerateOptions, LlmAdapter, LlmResponse, TaskState, TextStreamEvent, ToolDefinition } from './types.js'
+import type {
+  GenerateOptions,
+  LlmAdapter,
+  LlmResponse,
+  TaskState,
+  TextStreamEvent,
+  ToolAttachment,
+  ToolCall,
+  ToolDefinition,
+} from './types.js'
 import { UNTRUSTED_CONTENT_GUIDANCE, isFenced } from './untrusted.js'
 import { decideTurn, type DecisionLayerOptions } from './decision-layer.js'
 
@@ -36,6 +45,12 @@ export interface RunOptions {
    * complete, so nothing about transcripts or `--resume` changes.
    */
   onText?: (event: RunTextEvent) => void
+  /**
+   * What tools show while they run — a browser's screenshots — for a person
+   * watching. Display only, and so neither logged nor sent to the model; see
+   * `ToolExecutionContext.onAttachment`.
+   */
+  onAttachment?: (attachment: ToolAttachment, call: ToolCall) => void
 }
 
 export type RunTextEvent = TextStreamEvent | { type: 'end' }
@@ -197,7 +212,12 @@ export class AgentLoop {
           sessions.append({ type: 'tool/call', taskId, at: Date.now(), call })
           // Untrusted output arrives already fenced (see ToolRegistry.execute),
           // so the log holds exactly what the model will be shown.
-          const result = await tools.execute(call, { taskId, signal })
+          const onAttachment = options.onAttachment
+          const result = await tools.execute(call, {
+            taskId,
+            signal,
+            ...(onAttachment ? { onAttachment: (attachment: ToolAttachment) => onAttachment(attachment, call) } : {}),
+          })
           sessions.append({ type: 'tool/result', taskId, at: Date.now(), callId: call.id, result })
           this.logger.info('tool/result', { taskId, tool: call.name, ok: result.ok })
         }
