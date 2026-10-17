@@ -13,6 +13,8 @@ import type {
   MemoryListing,
   MemoryRecord,
   ServerEvent,
+  SettingsGroup,
+  SettingsView,
   TaskEndStatus,
 } from './protocol.js'
 import { activityProjector, clip, preview, replayTask } from './project.js'
@@ -69,8 +71,24 @@ export interface MemorySource {
   update(id: string, content: string): Promise<boolean>
 }
 
+/**
+ * The host's configuration, as far as the settings view may see and change
+ * it. The host decides which settings exist and where they are written; a
+ * secret's value is never part of what `read()` returns.
+ */
+export interface SettingsSource {
+  envPath: string
+  /** Where new keys go: a keychain's name, or `.env`. */
+  secretStore: string
+  read(): SettingsGroup[]
+  /** Names to new values, `null` to remove. Validated as a whole; nothing is written when it fails. */
+  apply(changes: Record<string, string | null>): { ok: true } | { ok: false; error: string }
+}
+
 export interface WebServerOptions {
   runTask: RunTask
+  /** Enables the settings view; without it `/api/settings` answers 404. */
+  settings?: SettingsSource
   /** Enables the memory view; without it `/api/memory` answers 404. */
   memory?: MemorySource
   /** Enables the history view; without it `/api/history` answers 404. */
@@ -213,6 +231,7 @@ export async function startWebServer({
   clientDir: givenClientDir = CLIENT_DIR,
   history,
   memory,
+  settings,
 }: WebServerOptions): Promise<WebServer> {
   const clientDir = path.resolve(givenClientDir)
   const clients = new Set<ServerResponse>()
@@ -399,6 +418,10 @@ export async function startWebServer({
     return sendJson(res, 200, transcript)
   }
 
+  // The running agent was built from the settings it started with; a saved
+  // change reaches it only through a restart, and the page says so.
+  let restartNeeded = false
+
   let origin = ''
   let allowedHosts = new Set<string>()
   let allowedOrigins = new Set<string>()
@@ -421,6 +444,16 @@ export async function startWebServer({
 
     if (req.method === 'GET' && url.pathname === '/api/events') return openStream(req, res)
     if (req.method === 'GET' && url.pathname.startsWith('/api/history')) return serveHistory(res, url)
+    if (req.method === 'GET' && url.pathname === '/api/settings') {
+      if (!settings) return sendJson(res, 404, { error: 'Settings are not available.' })
+      const view: SettingsView = {
+        envPath: settings.envPath,
+        secretStore: settings.secretStore,
+        groups: settings.read(),
+        restartNeeded,
+      }
+      return sendJson(res, 200, view)
+    }
     if (req.method === 'GET' && url.pathname === '/api/memory') {
       if (!memory) return sendJson(res, 404, { error: 'Memory is not available.' })
       const query = url.searchParams.get('q')?.trim() ?? ''
@@ -472,6 +505,21 @@ export async function startWebServer({
       // question; answering it is what lets the cancellation through.
       denyPending(current.taskId)
       return sendJson(res, 202, {})
+    }
+
+    if (url.pathname === '/api/settings') {
+      if (!settings) return sendJson(res, 404, { error: 'Settings are not available.' })
+      const changes = body.changes
+      const valid =
+        changes !== null &&
+        typeof changes === 'object' &&
+        !Array.isArray(changes) &&
+        Object.values(changes).every((value) => value === null || typeof value === 'string')
+      if (!valid) return sendJson(res, 400, { error: 'Send "changes": names to strings, or null to remove.' })
+      const result = settings.apply(changes as Record<string, string | null>)
+      if (!result.ok) return sendJson(res, 400, { error: result.error })
+      restartNeeded = true
+      return sendJson(res, 200, { restartNeeded })
     }
 
     const memoryPath = url.pathname.match(/^\/api\/memory\/([^/]+?)(\/forget)?$/)

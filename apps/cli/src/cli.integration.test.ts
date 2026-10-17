@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -396,6 +396,56 @@ describe('CLI end to end', () => {
       child.kill('SIGINT')
       expect(await exited).toBe(0)
       expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
+    })
+
+    it('saves settings to the .env it was started with, refusing what the page may not change', async () => {
+      const envFile = path.join(repo, 'agent.env')
+      await writeFile(
+        envFile,
+        `# kept\nOPENAI_BASE_URL=${provider.url}\nOPENAI_MODEL=test-model\nOPENAI_API_KEY=test-key\n`,
+        { mode: 0o600 },
+      )
+      const port = await freePort()
+      // Only the file configures it: none of the provider variables are in the environment.
+      const { OPENAI_BASE_URL: _url, OPENAI_API_KEY: _key, OPENAI_MODEL: _model, ...inherited } = process.env
+      const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, 'web', '--port', String(port)], {
+        cwd: repo,
+        env: { ...inherited, OPEN_AGENT_ENV_FILE: envFile, TMPDIR: repo },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      try {
+        let stdout = ''
+        const url = await new Promise<string>((resolve, reject) => {
+          child.stdout.on('data', (chunk) => {
+            stdout += chunk
+            const match = stdout.match(/OpenAgent web UI: (\S+)/)
+            if (match) resolve(match[1])
+          })
+          child.on('close', () => reject(new Error(`exited before serving:\n${stdout}`)))
+        })
+        const token = new URL(url).searchParams.get('token')!
+        const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+        const save = (changes: Record<string, string | null>) =>
+          fetch(`http://127.0.0.1:${port}/api/settings`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ changes }),
+          })
+
+        const view = await fetch(`http://127.0.0.1:${port}/api/settings`, { headers }).then((res) => res.text())
+        expect(view).not.toContain('test-key')
+
+        expect((await save({ SHELL_SANDBOX: 'none' })).status).toBe(400)
+        expect((await save({ BROWSER_USE: '1', TAVILY_API_KEY: 'tvly-new' })).status).toBe(200)
+
+        expect(await readFile(envFile, 'utf8')).toBe(
+          `# kept\nOPENAI_BASE_URL=${provider.url}\nOPENAI_MODEL=test-model\nOPENAI_API_KEY=test-key\nBROWSER_USE=1\nTAVILY_API_KEY=tvly-new\n`,
+        )
+        expect((await stat(envFile)).mode & 0o777).toBe(0o600)
+      } finally {
+        child.kill('SIGINT')
+        await new Promise((done) => child.on('close', done))
+      }
     })
 
     it('with --plan, shows the diff in the browser and writes the file only once it is approved', async () => {

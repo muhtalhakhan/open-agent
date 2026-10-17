@@ -1,4 +1,11 @@
-import type { ApprovalScope, HistoryTask, HistoryTranscript, MemoryListing, ServerEvent } from '../protocol.js'
+import type {
+  ApprovalScope,
+  HistoryTask,
+  HistoryTranscript,
+  MemoryListing,
+  ServerEvent,
+  SettingsView,
+} from '../protocol.js'
 
 const TOKEN_KEY = 'open-agent:token'
 
@@ -122,4 +129,13 @@ export function forgetMemory(token: string, id: string): Promise<string | null> 
 
 export function updateMemory(token: string, id: string, content: string): Promise<string | null> {
   return post(token, `/api/memory/${encodeURIComponent(id)}`, { content })
+}
+
+export function fetchSettings(token: string): Promise<SettingsView | string> {
+  return get<SettingsView>(token, '/api/settings')
+}
+
+/** Resolves to an error message, or `null` once saved. */
+export function saveSettings(token: string, changes: Record<string, string | null>): Promise<string | null> {
+  return post(token, '/api/settings', { changes })
 }

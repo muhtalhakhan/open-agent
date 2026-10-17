@@ -167,6 +167,92 @@ code {
   color: var(--fail);
 }
 
+.settings-group {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.settings-group h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.settings-group > .muted {
+  margin: 0 0 12px;
+}
+
+.setting {
+  margin-bottom: 12px;
+}
+
+.setting__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.setting__label code {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.setting input[type='text'],
+.setting input[type='url'],
+.setting input[type='password'],
+.setting select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.setting input:disabled,
+.setting select:disabled {
+  opacity: 0.6;
+}
+
+.setting__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.setting__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.setting__source--unset {
+  font-style: italic;
+}
+
+.setting__source--shell {
+  color: var(--notice-text);
+}
+
+.setting__help {
+  flex-basis: 100%;
+}
+
+.settings-group .button {
+  align-self: auto;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+
 .memory-search {
   display: flex;
   flex-wrap: wrap;

@@ -674,4 +674,79 @@ describe('startWebServer', () => {
       expect((await get(s, '/api/memory')).status).toBe(404)
     })
   })
+
+  describe('settings', () => {
+    function settingsSource() {
+      const applied: Record<string, string | null>[] = []
+      const source: NonNullable<WebServerOptions['settings']> = {
+        envPath: '/project/.env',
+        secretStore: '.env',
+        read: () => [
+          {
+            id: 'model',
+            title: 'Model',
+            description: '',
+            settings: [
+              { name: 'OPENAI_MODEL', label: 'Model', kind: 'text', value: 'gpt-4o-mini', source: 'env-file' },
+              { name: 'OPENAI_API_KEY', label: 'API key', kind: 'secret', source: 'env-file' },
+            ],
+          },
+        ],
+        apply(changes) {
+          if ('SHELL_SANDBOX' in changes) return { ok: false, error: '"SHELL_SANDBOX" cannot be changed here.' }
+          applied.push(changes)
+          return { ok: true }
+        },
+      }
+      return { source, applied }
+    }
+    const startWith = async (settings: WebServerOptions['settings']) => {
+      server = await startWebServer({ runTask: scriptedTask(() => {}), port: 0, token: TOKEN, clientDir, settings })
+      return server
+    }
+    const save = (s: WebServer, body: unknown, headers: Record<string, string> = {}) =>
+      send(s, 'POST', '/api/settings', { headers: { ...auth, ...headers }, body: JSON.stringify(body) })
+
+    it('shows the settings, and asks for a restart once one was saved', async () => {
+      const { source, applied } = settingsSource()
+      const s = await startWith(source)
+      const read = async () =>
+        JSON.parse((await send(s, 'GET', '/api/settings', { headers: { Authorization: `Bearer ${TOKEN}` } })).body)
+
+      expect(await read()).toMatchObject({ envPath: '/project/.env', secretStore: '.env', restartNeeded: false })
+      expect((await save(s, { changes: { OPENAI_API_KEY: 'sk-new' } })).status).toBe(200)
+
+      expect(applied).toEqual([{ OPENAI_API_KEY: 'sk-new' }])
+      expect(await read()).toMatchObject({ restartNeeded: true })
+    })
+
+    it('passes on the host refusing a change, and refuses a body that is not changes', async () => {
+      const s = await startWith(settingsSource().source)
+
+      const refused = await save(s, { changes: { SHELL_SANDBOX: 'none' } })
+      const malformed = await Promise.all([
+        save(s, { changes: ['OPENAI_MODEL'] }),
+        save(s, { changes: { OPENAI_MODEL: 42 } }),
+        save(s, {}),
+      ])
+
+      expect(refused.status).toBe(400)
+      expect(JSON.parse(refused.body).error).toContain('cannot be changed here')
+      expect(malformed.map((reply) => reply.status)).toEqual([400, 400, 400])
+    })
+
+    it('guards saving like every other POST', async () => {
+      const { source, applied } = settingsSource()
+      const s = await startWith(source)
+
+      const crossSite = await save(s, { changes: { OPENAI_MODEL: 'x' } }, { Origin: 'https://evil.example' })
+      const noToken = await send(s, 'POST', '/api/settings', {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes: { OPENAI_MODEL: 'x' } }),
+      })
+
+      expect([crossSite.status, noToken.status]).toEqual([403, 401])
+      expect(applied).toEqual([])
+    })
+  })
 })

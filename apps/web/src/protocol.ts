@@ -103,3 +103,47 @@ export interface MemoryListing {
   query: string
   items: MemoryRecord[]
 }
+
+/**
+ * One setting as the settings view shows it. A secret's value never leaves
+ * the server: the page learns only whether it is set, and where.
+ */
+export interface SettingView {
+  name: string
+  label: string
+  kind: 'url' | 'text' | 'secret' | 'toggle' | 'choice'
+  help?: string
+  /** For a `choice`: the values it takes. `''` means unset. */
+  options?: string[]
+  /** The current value, for anything but a secret. */
+  value?: string
+  /**
+   * Where the running value comes from. `shell` means an environment
+   * variable set before `.env` was read, which `.env` cannot override — the
+   * page cannot change it either.
+   */
+  source: 'env-file' | 'keychain' | 'shell' | 'unset'
+}
+
+export interface SettingsGroup {
+  id: string
+  title: string
+  description: string
+  settings: SettingView[]
+}
+
+/** `GET /api/settings`. */
+export interface SettingsView {
+  /** The `.env` the CLI reads, and so the one changes are written to. */
+  envPath: string
+  /** Where new keys go: the keychain's name when one is configured, else `.env`. */
+  secretStore: string
+  groups: SettingsGroup[]
+  /** Set once a change was saved: the running agent still has the old settings until it restarts. */
+  restartNeeded: boolean
+}
+
+/** `POST /api/settings`: names to new values, `null` to remove. Only what changed. */
+export interface SettingsChanges {
+  changes: Record<string, string | null>
+}

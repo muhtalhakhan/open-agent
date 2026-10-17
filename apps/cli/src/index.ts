@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-import { chmodSync, existsSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
@@ -17,7 +17,7 @@ import {
 import { OpenAiCompatibleProvider } from '@open-agent/providers'
 import { mountTakeoverTools } from '@open-agent/tools-computer'
 import { KeychainSecretStore } from '@open-agent/security'
-import { startWebServer, type WebServer } from '@open-agent/web'
+import { startWebServer, type SettingsSource, type WebServer } from '@open-agent/web'
 import { loadConfigFromEnv } from './config.js'
 import { runInit, type KeychainWriter } from './init.js'
 import { createTerminalInitIO } from './init-io.js'
@@ -38,11 +38,20 @@ import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
+import { applySettings, readSettings, type SettingsDeps } from './settings.js'
 import { executeTask } from './task.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
-const ENV_PATH = path.resolve(__dirname, '../../../.env')
+// OPEN_AGENT_ENV_FILE moves it, for a deployment that keeps config outside
+// the checkout, and for anything that must not touch the real one.
+const ENV_PATH = process.env.OPEN_AGENT_ENV_FILE
+  ? path.resolve(process.env.OPEN_AGENT_ENV_FILE)
+  : path.resolve(__dirname, '../../../.env')
+// Before .env is loaded: what the shell itself set, which .env cannot
+// override. The web settings view must not offer to change those, since an
+// edit to .env would be saved and then silently ignored.
+const SHELL_ENV: Readonly<Record<string, string | undefined>> = { ...process.env }
 dotenv.config({ path: ENV_PATH })
 
 /** How long `init` waits for the model to answer its one test request. */
@@ -65,6 +74,39 @@ function readStdin(): Promise<string> {
     process.stdin.on('end', () => resolve(data))
     process.stdin.on('error', reject)
   })
+}
+
+/** Writes `.env` readable by its owner alone, as `init` does: it may hold keys. */
+function writeEnvFile(file: string, content: string): void {
+  writeFileSync(file, content, { mode: 0o600 })
+  // `mode` applies only to a file being created; one being replaced keeps
+  // whatever permissions it had.
+  chmodSync(file, 0o600)
+}
+
+/** The settings view's access to `.env` and, when configured, the keychain. */
+function webSettings(): SettingsSource {
+  let keychain: KeychainSecretStore | undefined
+  if (process.env.SECRET_STORE === 'keychain') {
+    keychain = new KeychainSecretStore({ service: process.env.SECRET_STORE_SERVICE?.trim() || undefined })
+  }
+  const deps: SettingsDeps = {
+    envPath: ENV_PATH,
+    readEnv: () => (existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null),
+    writeEnv: (content) => writeEnvFile(ENV_PATH, content),
+    shellEnv: SHELL_ENV,
+    keychain,
+    validate: (env) => {
+      const result = loadConfigFromEnv(env)
+      return result.ok ? undefined : result.error
+    },
+  }
+  return {
+    envPath: ENV_PATH,
+    secretStore: keychain ? keychain.name : '.env',
+    read: () => readSettings(deps),
+    apply: (changes) => applySettings(deps, changes),
+  }
 }
 
 async function main() {
@@ -92,12 +134,7 @@ async function main() {
       process.exitCode = await runInit(io, {
         envPath: ENV_PATH,
         exists: existsSync,
-        writeEnv(file, content) {
-          writeFileSync(file, content, { mode: 0o600 })
-          // `mode` applies only to a file being created; one being replaced
-          // keeps whatever permissions it had.
-          chmodSync(file, 0o600)
-        },
+        writeEnv: writeEnvFile,
         async check(llm) {
           try {
             await new OpenAiCompatibleProvider(llm).generate(
@@ -393,6 +430,7 @@ async function main() {
           port,
           runTask: (input, signal, { onText, onEvent }) =>
             executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent }),
+          settings: webSettings(),
           // Scoped to the container tasks recall from and remember into, so the
           // page shows exactly what the agent can draw on, and nothing else.
           memory: {

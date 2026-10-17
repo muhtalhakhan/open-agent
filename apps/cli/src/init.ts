@@ -285,12 +285,15 @@ async function wizard(io: InitIO, deps: InitDeps): Promise<number> {
  * make it fit would write a config that silently fails to authenticate.
  */
 export function renderEnv(entries: Array<[string, string]>): string {
-  const lines = entries.map(([name, value]) => {
-    if (/[\r\n]/.test(value)) throw new Error(`${name} contains a line break, which .env cannot hold`)
-    if (!/[\s#"'`$\\]/.test(value)) return `${name}=${value}`
-    if (!value.includes("'")) return `${name}='${value}'`
-    if (!value.includes('"') && !value.includes('\\')) return `${name}="${value}"`
-    throw new Error(`${name} has a ' together with a " or a backslash, which .env cannot hold`)
-  })
+  const lines = entries.map(([name, value]) => renderEnvLine(name, value))
   return `# Written by \`open-agent init\`. Every setting is described in .env.example.\n${lines.join('\n')}\n`
+}
+
+/** One `NAME=value` line, quoted as `renderEnv` describes. Throws for a value .env cannot hold. */
+export function renderEnvLine(name: string, value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`${name} contains a line break, which .env cannot hold`)
+  if (!/[\s#"'`$\\]/.test(value)) return `${name}=${value}`
+  if (!value.includes("'")) return `${name}='${value}'`
+  if (!value.includes('"') && !value.includes('\\')) return `${name}="${value}"`
+  throw new Error(`${name} has a ' together with a " or a backslash, which .env cannot hold`)
 }

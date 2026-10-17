@@ -93,6 +93,8 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 
 ## Secrets
 
+> The web UI's settings view (`open-agent web`) writes keys to the keychain when `SECRET_STORE=keychain` and otherwise to `.env` with mode 0600, and never sends a stored key back to the browser. It can only change an allowlist that excludes the shell, the sandbox, the file workspace and browser-profile sharing.
+
 - API keys and credentials are stored outside of model-visible context (env vars / secret store), injected only at the point a tool executes, and redacted from logs.
 - The model never sees raw API keys, even for tools that use them internally.
 
