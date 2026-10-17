@@ -258,7 +258,7 @@ export class ToolRegistry {
     // Before the permission level, because the whole point is a call whose own
     // level would have let it through unexamined.
     const taskId = context.taskId
-    const escalation = detectExfiltration(call, this.activityFor(taskId))
+    const escalation = tool.fixedDestination ? undefined : detectExfiltration(call, this.activityFor(taskId))
 
     // In plan mode a tool that provides a preview is a review, not a
     // checklist item — so even a `safe` file edit is put in front of a

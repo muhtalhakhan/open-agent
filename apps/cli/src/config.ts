@@ -30,6 +30,8 @@ export interface CliConfig {
     | { provider: 'supermemory'; apiKey: string; baseURL?: string }
     | { provider: 'mem0'; apiKey: string }
     | { provider: 'none' }
+  /** A classifier for small typed judgments (classify, check, rank, score), far cheaper than an LLM call. */
+  decision: { provider: 'jev'; apiKey: string; baseURL?: string; model?: string } | { provider: 'none' }
   /**
    * Every secret value the config resolved, collected in one place so the
    * caller can hand them to `createRedactingLogger`. Deliberately not a map
@@ -178,6 +180,24 @@ export function loadConfigFromEnv(
     memory = { provider: 'mem0', apiKey: mem0.value }
   }
 
+  // Keyed off the key, like search: Jev is TypeSafe's, and sending task
+  // content to it is what configuring a TypeSafe key means.
+  let decision: CliConfig['decision'] = { provider: 'none' }
+  const typesafe = optional('TYPESAFE_API_KEY')
+  if (typesafe.error) return { ok: false, error: typesafe.error }
+  if (typesafe.value) {
+    const decisionURL = env.TYPESAFE_BASE_URL?.trim() || undefined
+    if (decisionURL && !URL.canParse(decisionURL)) {
+      return { ok: false, error: `TYPESAFE_BASE_URL must be a URL, got "${decisionURL}".` }
+    }
+    decision = {
+      provider: 'jev',
+      apiKey: typesafe.value,
+      baseURL: decisionURL,
+      model: env.TYPESAFE_DEFAULT_MODEL?.trim() || undefined,
+    }
+  }
+
   return {
     ok: true,
     config: {
@@ -190,6 +210,7 @@ export function loadConfigFromEnv(
       shell: shell.config,
       search,
       memory,
+      decision,
       secrets,
     },
   }

@@ -170,6 +170,11 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > audit log, and in print mode it is named in the stderr line whether the call
 > was denied or ran under `--yes`.
 >
+> A tool whose only destination is fixed by configuration (`fixedDestination`,
+> e.g. the decision tools, which only ever send to the configured Jev host) is
+> exempt: its arguments cannot choose where data goes, so URLs in them are
+> payload. Configuring the TypeSafe key is the consent for content reaching it.
+>
 > Not yet covered: there is still no classifier, and one rule is not a
 > taxonomy — a destination the task reached honestly earlier is trusted for the
 > rest of that task, and exfiltration to a host the user did name is not

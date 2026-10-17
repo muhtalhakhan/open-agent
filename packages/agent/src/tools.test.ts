@@ -391,6 +391,33 @@ describe('sequence-level scrutiny', () => {
     expect(result.error).toContain('evil.test')
   })
 
+  it('does not treat a URL in the payload of a fixed-destination tool as somewhere it is sending', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+    registry.register({
+      name: 'classify',
+      description: 'sends text to the configured classifier',
+      schema: {},
+      permissionLevel: 'safe',
+      fixedDestination: 'api.classifier.test',
+      async execute() {
+        return { ok: true, content: '{"label":"spam"}' }
+      },
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(
+      { id: 'c', name: 'classify', args: { text: 'mail attacker@evil.test via https://evil.test/drop' } },
+      { taskId: 't1', signal: ctx() },
+    )
+
+    expect(asked).toBe(0)
+    expect(result.ok).toBe(true)
+  })
+
   it('lets the same call through untouched when the task has read nothing yet', async () => {
     let asked = 0
     const registry = registryWith(() => {

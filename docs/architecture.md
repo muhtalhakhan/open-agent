@@ -71,6 +71,8 @@ vision()
 > response, which is all the session log ever records. `tool_call()` and
 > `vision()` are design targets, not code.
 
+Beside it sits a second, much smaller seam: `DecisionModel` (`name` + `decide()`), for typed judgments (yes/no, choice, score) that come back as probabilities rather than prose. `JevDecisionModel` in `packages/providers` implements it against TypeSafe's Jev; the agent can call it through `tools-decision`, and a runtime decision layer (tool pruning, model routing) is planned on the same seam to cut LLM spend, measured by the per-task token usage the session log records.
+
 It never knows whether the backend is OpenAI, Gemini, Claude, Grok, DeepSeek, OpenRouter, Ollama, LM Studio, or a custom endpoint. Switching providers is a config change:
 
 ```yaml
@@ -103,6 +105,7 @@ packages/
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
   tools-terminal/ ✅ run_command + background process management (start/list/read/stop), workspace-rooted, timed out and killed by process group, sandboxed via bubblewrap or Docker with a read-only filesystem and no network by default
   tools-http/  ✅ http_request: direct calls to APIs with no MCP server, behind a host allowlist and secret placeholders
+  tools-decision/ ✅ classify_items/check_claims/rank_candidates/score_items: typed judgments with calibrated probabilities from a DecisionModel (Jev today), for the small calls not worth an LLM round-trip
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
   tools/       🚧 Remaining built-in tools: shell (Milestone 5)

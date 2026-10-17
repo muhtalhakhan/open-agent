@@ -37,6 +37,15 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
    * the next call might be the content's idea rather than the user's.
    */
   untrustedOutput?: boolean
+  /**
+   * The one host this tool sends anything to, when configuration fixes it and
+   * no argument can change it: a classifier API, a search API. The
+   * exfiltration rule exists to catch data leaving for a place the content
+   * chose; here the arguments cannot choose, so a URL in them is payload, not
+   * a destination, and the rule does not apply. Leave it unset for any tool
+   * whose arguments can name where it connects.
+   */
+  fixedDestination?: string
   execute(args: Args, context: ToolExecutionContext): Promise<ToolResult>
   /**
    * Optional: a human-readable preview of what executing these args would
@@ -102,6 +111,51 @@ export interface GenerateOptions {
 export interface LlmAdapter {
   name: string
   generate(request: LlmRequest, signal: AbortSignal, options?: GenerateOptions): Promise<LlmResponse>
+}
+
+/**
+ * One typed judgment for a `DecisionModel`: a yes/no, a pick from fixed
+ * options, or a position on an ordered scale. The answer is always one of
+ * the shapes the question allows — never prose, so nothing has to be parsed.
+ */
+export type DecisionQuestion =
+  | { type: 'yesno'; instructions: string; yes?: string; no?: string }
+  /** `options` maps each label to what it means; the description is what the model judges by. */
+  | { type: 'choice'; instructions: string; options: Record<string, string | null> }
+  /** `levels` are ordered lowest first. */
+  | { type: 'score'; instructions: string; levels: string[] }
+
+export type DecisionAnswer =
+  /** Probability that the answer is yes, 0 to 1. */
+  | { type: 'yesno'; probability: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  /** `score` is a probability-weighted index into `levels`, and may fall between two of them. */
+  | { type: 'score'; score: number; confidence: number }
+
+export interface DecisionRequest {
+  /**
+   * What the questions are about, as text or as named parts. Questions refer
+   * to a part by its path in backticks (`items.a1`), so keep the names plain.
+   */
+  evidence: string | Record<string, unknown>
+  questions: Record<string, DecisionQuestion>
+}
+
+export interface DecisionResponse {
+  /** Keyed like the questions. A question the model returned no valid answer for is absent. */
+  answers: Record<string, DecisionAnswer>
+  usage?: TokenUsage
+}
+
+/**
+ * A model for small, typed judgments — classify, check, score, rank — that
+ * is far cheaper and faster than asking the LLM in prose. The same seam as
+ * `LlmAdapter`: `name` plus one method, so the agent core never knows which
+ * vendor answers.
+ */
+export interface DecisionModel {
+  name: string
+  decide(request: DecisionRequest, signal: AbortSignal): Promise<DecisionResponse>
 }
 
 /** A durable, append-only fact about a task. Session state is always a projection of this log. */

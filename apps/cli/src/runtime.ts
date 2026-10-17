@@ -2,7 +2,7 @@ import { AgentLoop, consoleLogger, silentLogger, type SessionLog, type ToolRegis
 import { Context } from '@open-agent/context'
 import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
 import type { MemoryProvider } from '@open-agent/memory'
-import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
+import { JevDecisionModel, OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
 import {
   computerUseTaskTool,
@@ -13,6 +13,7 @@ import {
 import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
 import { httpRequestTool } from '@open-agent/tools-http'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
+import { mountDecisionTools } from '@open-agent/tools-decision'
 import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
 import type { CliConfig } from './config.js'
 
@@ -59,8 +60,10 @@ export async function createRuntime({
   let workspace: Workspace | undefined
   let disposeFileTools: (() => void) | undefined
   let disposeTerminalTools: (() => void) | undefined
+  let disposeDecisionTools: (() => void) | undefined
 
   const dispose = async () => {
+    disposeDecisionTools?.()
     disposeBrowserTools?.()
     // Before the workspace goes: a background process outlives the task that
     // started it, and a session workspace is about to be deleted out from
@@ -166,6 +169,14 @@ export async function createRuntime({
           ? new BraveSearchProvider({ apiKey: config.search.apiKey })
           : new TavilySearchProvider({ apiKey: config.search.apiKey })
       tools.register(webSearchTool(searchProvider))
+    }
+
+    if (config.decision.provider === 'jev') {
+      const decisionModel = new JevDecisionModel(config.decision)
+      const destination = new URL(config.decision.baseURL ?? 'https://api.typesafe.ai').host
+      disposeDecisionTools = mountDecisionTools(tools, decisionModel, { destination })
+      // Named, since what the model passes these tools leaves the machine.
+      write(`Decision tools loaded: classify, check, rank and score, answered by Jev at ${destination}.\n`)
     }
 
     const ctx = new Context()

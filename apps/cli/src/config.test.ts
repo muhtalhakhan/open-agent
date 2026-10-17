@@ -35,6 +35,7 @@ describe('loadConfigFromEnv', () => {
         },
         search: { provider: 'none' },
         memory: { provider: 'none' },
+        decision: { provider: 'none' },
         secrets: ['sk-x'],
       },
     })
@@ -194,6 +195,28 @@ describe('loadConfigFromEnv', () => {
       TAVILY_API_KEY: 'tvly-1',
     })
     expect(result.ok && result.config.search).toEqual({ provider: 'tavily', apiKey: 'tvly-1' })
+  })
+
+  it('turns the Jev decision model on when TYPESAFE_API_KEY is set, and off without it', () => {
+    const llm = { OPENAI_BASE_URL: 'https://api.openai.com/v1', OPENAI_API_KEY: 'sk-x', OPENAI_MODEL: 'gpt-4o-mini' }
+
+    const on = loadConfigFromEnv({ ...llm, TYPESAFE_API_KEY: 'ts_1', TYPESAFE_DEFAULT_MODEL: 'jev-2' })
+    const off = loadConfigFromEnv(llm)
+
+    expect(on.ok && on.config.decision).toEqual({ provider: 'jev', apiKey: 'ts_1', baseURL: undefined, model: 'jev-2' })
+    expect(on.ok && on.config.secrets).toContain('ts_1')
+    expect(off.ok && off.config.decision).toEqual({ provider: 'none' })
+  })
+
+  it('refuses a TYPESAFE_BASE_URL that is not a URL', () => {
+    const result = loadConfigFromEnv({
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-x',
+      OPENAI_MODEL: 'gpt-4o-mini',
+      TYPESAFE_API_KEY: 'ts_1',
+      TYPESAFE_BASE_URL: 'api.typesafe.ai',
+    })
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('TYPESAFE_BASE_URL') })
   })
 
   it('prefers brave when both search keys are set', () => {

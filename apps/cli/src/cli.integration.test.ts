@@ -167,6 +167,78 @@ describe('CLI end to end', () => {
     expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
   })
 
+  it('lets the model check a claim with Jev when a TypeSafe key is configured', async () => {
+    const jevRequests: { auth?: string; body: { questions: Record<string, { type: string }> } }[] = []
+    const jev = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        jevRequests.push({ auth: req.headers.authorization, body: JSON.parse(raw) })
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ model: 'jev-test', answers: { q0: { type: 'noul', noul: 0.93 } } }))
+      })
+    })
+    // A model that checks a claim first, then answers with what came back.
+    const modelRequests: { messages: { role: string; content: string | null }[] }[] = []
+    const model = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        const body = JSON.parse(raw)
+        modelRequests.push(body)
+        const result = body.messages.find((m: { role: string }) => m.role === 'tool')
+        const message = result
+          ? { role: 'assistant', content: `checked: ${result.content}` }
+          : {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'c1',
+                  type: 'function',
+                  function: {
+                    name: 'check_claims',
+                    arguments: JSON.stringify({ evidence: '12 passed, 0 failed', checks: { pass: 'Did all pass?' } }),
+                  },
+                },
+              ],
+            }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message }] }))
+      })
+    })
+    const listen = (server: Server) =>
+      new Promise<number>((resolve) =>
+        server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)),
+      )
+    const [jevPort, modelPort] = await Promise.all([listen(jev), listen(model)])
+
+    try {
+      const { stdout, stderr, code } = await runCli(
+        '',
+        {
+          OPENAI_BASE_URL: `http://127.0.0.1:${modelPort}`,
+          OPENAI_API_KEY: 'test-key',
+          OPENAI_MODEL: 'test-model',
+          TYPESAFE_API_KEY: 'ts_test',
+          TYPESAFE_BASE_URL: `http://127.0.0.1:${jevPort}`,
+        },
+        repo,
+        ['-p', 'did the tests pass?'],
+      )
+
+      expect(code).toBe(0)
+      expect(stderr).toContain('Decision tools loaded')
+      expect(jevRequests).toHaveLength(1)
+      expect(jevRequests[0].auth).toBe('Bearer ts_test')
+      expect(jevRequests[0].body.questions.q0.type).toBe('noul')
+      expect(stdout).toBe('checked: [{"id":"pass","probability":0.93,"verdict":"yes"}]\n')
+    } finally {
+      await new Promise((done) => jev.close(done))
+      await new Promise((done) => model.close(done))
+    }
+  })
+
   describe('web', () => {
     /** A port nothing is listening on, found by asking the OS for one and giving it back. */
     function freePort(): Promise<number> {
