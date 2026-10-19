@@ -215,6 +215,11 @@ function TurnView({ turn, answer }: { turn: Turn; answer?: AnswerApproval }) {
             <ToolRow key={item.callId} item={item} />
           ) : item.kind === 'approval' ? (
             <ApprovalCard key={item.approvalId} item={item} answer={answer} />
+          ) : item.kind === 'screen' ? (
+            <figure key="screen" className="screen">
+              <img src={`data:${item.mimeType};base64,${item.data}`} alt={item.caption ?? 'What the tool showed'} />
+              {item.caption && <figcaption>Browser · {item.caption}</figcaption>}
+            </figure>
           ) : item.kind === 'step' ? (
             <div key={index} className="step-divider">
               Step {item.step}

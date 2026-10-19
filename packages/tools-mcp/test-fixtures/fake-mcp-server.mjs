@@ -39,12 +39,19 @@ rl.on('line', (line) => {
           description: 'always fails',
           inputSchema: { type: 'object', properties: {} },
         },
+        {
+          name: 'crash',
+          description: 'the server dies mid-call, without answering',
+          inputSchema: { type: 'object', properties: {} },
+        },
       ],
     })
   } else if (message.method === 'tools/call') {
     const { name, arguments: args } = message.params
     if (name === 'echo') {
       reply(message.id, { content: [{ type: 'text', text: args.text }] })
+    } else if (name === 'crash') {
+      process.exit(1)
     } else if (name === 'boom') {
       reply(message.id, { content: [{ type: 'text', text: 'something went wrong' }], isError: true })
     } else {

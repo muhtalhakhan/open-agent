@@ -749,4 +749,62 @@ describe('startWebServer', () => {
       expect(applied).toEqual([])
     })
   })
+
+  describe('live view', () => {
+    it('streams what tools show, only image types, and repeats the latest to a tab that connects late', async () => {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => (release = resolve))
+      const s = await start(async (_input, _signal, hooks) => {
+        hooks.onAttachment({ kind: 'image', mimeType: 'image/png', data: 'AAAA', caption: 'after browser_navigate' })
+        hooks.onAttachment({ kind: 'image', mimeType: 'text/html', data: 'PHNjcmlwdD4=' })
+        hooks.onAttachment({ kind: 'image', mimeType: 'image/png', data: 'BBBB', caption: 'after browser_click' })
+        await held
+        return { status: 'completed', answer: 'done' }
+      })
+      const live = collect(s, (event) => event.type === 'screen' && event.data === 'BBBB')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      await postTask(s, 'look at example.com')
+      const screens = (await live).filter((event) => event.type === 'screen')
+      const late = await collect(s, (event) => event.type === 'screen')
+      release()
+
+      expect(screens.map((event) => (event as { data: string }).data)).toEqual(['AAAA', 'BBBB'])
+      expect(late.filter((event) => event.type === 'screen')).toEqual([
+        {
+          type: 'screen',
+          taskId: expect.any(String),
+          mimeType: 'image/png',
+          data: 'BBBB',
+          caption: 'after browser_click',
+        },
+      ])
+    })
+  })
+
+  it('keeps the final picture of each of the last few tasks for a page opened later', async () => {
+    let n = 0
+    const s = await start(async (_input, _signal, hooks) => {
+      n++
+      hooks.onAttachment({ kind: 'image', mimeType: 'image/png', data: `first-${n}` })
+      hooks.onAttachment({ kind: 'image', mimeType: 'image/png', data: `last-${n}` })
+      return { status: 'completed', answer: 'done' }
+    })
+    const endsSeen = (count: number) => {
+      let ends = 0
+      return (event: ServerEvent) => event.type === 'task/end' && ++ends === count
+    }
+    for (let i = 1; i <= 7; i++) {
+      await postTask(s, `task ${i}`)
+      await collect(s, endsSeen(i))
+    }
+
+    const replayed = await collect(s, endsSeen(7))
+    const frames = replayed.filter((event) => event.type === 'screen').map((event) => (event as { data: string }).data)
+
+    expect(frames).toEqual(['last-3', 'last-4', 'last-5', 'last-6', 'last-7'])
+    // Each frame sits inside its own turn, just before that turn ends.
+    const index = replayed.findIndex((event) => event.type === 'screen')
+    expect(replayed[index + 1]).toMatchObject({ type: 'task/end' })
+  })
 })

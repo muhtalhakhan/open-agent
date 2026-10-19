@@ -17,13 +17,19 @@ describe('McpStdioClient (against a real spawned fake MCP server)', () => {
   it('completes the initialize handshake and lists tools', async () => {
     client = await spawnMcpServer({ command: process.execPath, args: [fixture] })
     const tools = await client.listTools()
-    expect(tools.map((t) => t.name)).toEqual(['echo', 'boom'])
+    expect(tools.map((t) => t.name)).toEqual(['echo', 'boom', 'crash'])
   })
 
   it('calls a tool and gets its text content back', async () => {
     client = await spawnMcpServer({ command: process.execPath, args: [fixture] })
     const result = await client.callTool('echo', { text: 'hello mcp' })
     expect(result).toEqual({ content: [{ type: 'text', text: 'hello mcp' }] })
+  })
+
+  it('fails a call whose server exits without answering, rather than waiting forever', async () => {
+    client = await spawnMcpServer({ command: process.execPath, args: [fixture] })
+
+    await expect(client.callTool('crash', {})).rejects.toThrow('MCP server exited')
   })
 
   it('surfaces an unknown tool as a JSON-RPC error', async () => {
