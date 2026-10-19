@@ -2,7 +2,13 @@ import { apiKeyVarsFor, resolveCredential, type CredentialLookup, type Credentia
 import { KeychainSecretStore, type KeychainOptions, type SecretStore } from '@open-agent/security'
 
 export interface CliConfig {
-  llm: { baseURL: string; apiKey: string; model: string }
+  llm: {
+    baseURL: string
+    apiKey: string
+    model: string
+    /** A cheaper model on the same endpoint, for turns the decision layer judges light. */
+    lightModel?: string
+  }
   browser: { enabled: boolean; profileDir?: string; keepProfile: boolean; allowEnv?: string[] }
   computer: { enabled: boolean; model?: string }
   http: {
@@ -29,6 +35,17 @@ export interface CliConfig {
   memory:
     | { provider: 'supermemory'; apiKey: string; baseURL?: string }
     | { provider: 'mem0'; apiKey: string }
+    | { provider: 'none' }
+  /** A classifier for small typed judgments (classify, check, rank, score), far cheaper than an LLM call. */
+  decision:
+    | {
+        provider: 'jev'
+        apiKey: string
+        baseURL?: string
+        model?: string
+        /** The runtime decision layer, `DECISION_LAYER`: both off unless named. */
+        layer: { pruneTools: boolean; routeModel: boolean }
+      }
     | { provider: 'none' }
   /**
    * Every secret value the config resolved, collected in one place so the
@@ -178,10 +195,44 @@ export function loadConfigFromEnv(
     memory = { provider: 'mem0', apiKey: mem0.value }
   }
 
+  // Keyed off the key, like search: Jev is TypeSafe's, and sending task
+  // content to it is what configuring a TypeSafe key means.
+  let decision: CliConfig['decision'] = { provider: 'none' }
+  const typesafe = optional('TYPESAFE_API_KEY')
+  if (typesafe.error) return { ok: false, error: typesafe.error }
+  // Opt-in on top of the key: the tools only send what the model chooses
+  // to, while the layer sends every task. Unknown entries are refused rather
+  // than ignored, so a typo cannot quietly leave it off.
+  const layerParts = commaList(env.DECISION_LAYER) ?? []
+  const unknown = layerParts.filter((part) => part !== 'tools' && part !== 'route')
+  if (unknown.length) {
+    return { ok: false, error: `DECISION_LAYER takes "tools" and/or "route", got "${unknown.join(', ')}".` }
+  }
+  if (layerParts.length && !typesafe.value) {
+    return { ok: false, error: 'DECISION_LAYER needs TYPESAFE_API_KEY: the decisions are made by Jev.' }
+  }
+  const lightModel = env.OPENAI_MODEL_LIGHT?.trim() || undefined
+  if (layerParts.includes('route') && !lightModel) {
+    return { ok: false, error: 'DECISION_LAYER=route needs OPENAI_MODEL_LIGHT, the cheaper model to route to.' }
+  }
+  if (typesafe.value) {
+    const decisionURL = env.TYPESAFE_BASE_URL?.trim() || undefined
+    if (decisionURL && !URL.canParse(decisionURL)) {
+      return { ok: false, error: `TYPESAFE_BASE_URL must be a URL, got "${decisionURL}".` }
+    }
+    decision = {
+      provider: 'jev',
+      apiKey: typesafe.value,
+      baseURL: decisionURL,
+      model: env.TYPESAFE_DEFAULT_MODEL?.trim() || undefined,
+      layer: { pruneTools: layerParts.includes('tools'), routeModel: layerParts.includes('route') },
+    }
+  }
+
   return {
     ok: true,
     config: {
-      llm: { baseURL, apiKey: apiKey.value, model },
+      llm: { baseURL, apiKey: apiKey.value, model, ...(lightModel ? { lightModel } : {}) },
       browser,
       computer,
       http: http.config,
@@ -190,6 +241,7 @@ export function loadConfigFromEnv(
       shell: shell.config,
       search,
       memory,
+      decision,
       secrets,
     },
   }

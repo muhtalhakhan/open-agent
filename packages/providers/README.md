@@ -44,6 +44,16 @@ const llm = new AnthropicProvider({
 })
 ```
 
+## Token usage
+
+Every adapter returns the provider's own token count with each response, as `LlmResponse.usage` (`inputTokens`, `outputTokens`, and `cachedInputTokens` where the provider breaks it out), for streamed and plain responses alike. The agent loop logs it with the reply, which is what `--history`, the REPL and the web UI total per task. It is left out, not zeroed, when a provider does not report it.
+
+Each API counts differently, and each adapter normalises to "everything the model read" for input:
+
+- **OpenAI-compatible:** `usage.prompt_tokens` / `completion_tokens`, with `prompt_tokens_details.cached_tokens` as the cached part. A stream only reports usage when asked, so streamed requests send `stream_options: { include_usage: true }`. A server that rejects that field (400/422 naming it) is retried once without it and not asked again by that adapter instance.
+- **Anthropic:** `input_tokens` covers only uncached input, so cache writes and reads are added to it, and reads are reported as cached. When streaming, input arrives with `message_start` and the final output count with `message_delta`.
+- **Gemini:** `usageMetadata.promptTokenCount`, with `thoughtsTokenCount` added to output since thinking is billed as output. When streaming, every chunk repeats the running totals, so the last one is used.
+
 ## Credential resolution
 
 `resolveCredential` reads an API key from `<NAME>` or, failing that, from a

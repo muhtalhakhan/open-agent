@@ -1,3 +1,4 @@
+import { approvalScopes } from '@open-agent/agent'
 import type { ApprovalDecision, ApprovalHandler, ToolCall, ToolDefinition } from '@open-agent/agent'
 import { colorizeDiff, sanitizeForDisplay } from './diff-view.js'
 
@@ -23,7 +24,7 @@ export function createTerminalApprovalHandler(ask: (question: string) => Promise
     const escalation = context?.escalation
     // A sequence rule's call is never remembered by the registry, so offering
     // to remember it would be offering something that does not happen.
-    const rememberable = tool.permissionLevel !== 'dangerous' && !escalation
+    const rememberable = approvalScopes(tool, context).includes('session')
     const options = rememberable ? '[y]es once / [t]ask / [a]lways / [N]o' : '[y]es once / [N]o'
     // The reason leads. An escalated call is often a `safe` one, and a prompt
     // about `read_file` with no explanation reads as a bug rather than a
@@ -150,7 +151,7 @@ export function createPlanApprovalHandler(
     const decision = answer.trim().toLowerCase()
 
     if (decision.startsWith('y')) return { approved: true, scope: 'once' }
-    if (!escalation && decision.startsWith('t')) return { approved: true, scope: 'task' }
+    if (approvalScopes(tool, ctx).includes('task') && decision.startsWith('t')) return { approved: true, scope: 'task' }
     return DENIED
   }
 }

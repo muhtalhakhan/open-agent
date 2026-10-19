@@ -190,6 +190,38 @@ describe('GeminiProvider', () => {
       })
     })
 
+    it('takes the usage from the last chunk, whose totals cover the whole reply, thoughts included', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            data: {
+              candidates: [{ content: { role: 'model', parts: [{ text: 'Hel' }] } }],
+              usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 1 },
+            },
+          },
+          {
+            data: {
+              candidates: [{ content: { role: 'model', parts: [{ text: 'lo' }] }, finishReason: 'STOP' }],
+              usageMetadata: {
+                promptTokenCount: 30,
+                candidatesTokenCount: 4,
+                thoughtsTokenCount: 50,
+                cachedContentTokenCount: 10,
+              },
+            },
+          },
+        ]),
+      )
+
+      const result = await new GeminiProvider({ apiKey: 'k', model: 'g', fetchFn }).generate(
+        { messages: [{ role: 'user', content: 'hi' }], tools: [] },
+        new AbortController().signal,
+        { onText: () => {} },
+      )
+
+      expect(result.usage).toEqual({ inputTokens: 30, outputTokens: 54, cachedInputTokens: 10 })
+    })
+
     it('rejects a stream that closes before any chunk carries a finish reason', async () => {
       const fetchFn = vi
         .fn()

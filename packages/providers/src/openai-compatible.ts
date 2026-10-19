@@ -7,6 +7,7 @@ import type {
   LlmResponse,
   Message,
   TextStreamEvent,
+  TokenUsage,
   ToolCall,
   ToolDefinition,
 } from '@open-agent/agent'
@@ -61,6 +62,22 @@ function fromOpenAiMessage(choiceMessage: {
   return { role: 'assistant', content: choiceMessage.content ?? '', toolCalls }
 }
 
+interface OpenAiUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number } | null
+}
+
+function fromOpenAiUsage(usage: OpenAiUsage | null | undefined): TokenUsage | undefined {
+  if (typeof usage?.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number') return undefined
+  const cached = usage.prompt_tokens_details?.cached_tokens
+  return {
+    inputTokens: usage.prompt_tokens,
+    outputTokens: usage.completion_tokens,
+    ...(typeof cached === 'number' ? { cachedInputTokens: cached } : {}),
+  }
+}
+
 interface OpenAiChunk {
   choices?: Array<{
     finish_reason?: string | null
@@ -71,6 +88,8 @@ interface OpenAiChunk {
   }>
   /** Some servers (OpenRouter, Ollama) report a failure mid-stream as a chunk rather than a status. */
   error?: { message?: string }
+  /** On the last chunk, with `choices` empty, when `stream_options.include_usage` was asked for. */
+  usage?: OpenAiUsage | null
 }
 
 /**
@@ -82,8 +101,9 @@ async function readChunks(
   body: ReadableStream<Uint8Array>,
   provider: string,
   onText: (event: TextStreamEvent) => void,
-): Promise<Message> {
+): Promise<LlmResponse> {
   let content = ''
+  let usage: TokenUsage | undefined
   const calls: Array<{ id: string; function: { name: string; arguments: string } }> = []
   // Either marks the end: `[DONE]` is the protocol's, but not every
   // compatible server sends it, while all of them set a finish reason.
@@ -97,6 +117,7 @@ async function readChunks(
     if (chunk.error)
       throw new Error(`${provider}: stream failed: ${chunk.error.message ?? JSON.stringify(chunk.error)}`)
     if (chunk.choices?.[0]?.finish_reason) finished = true
+    usage = fromOpenAiUsage(chunk.usage) ?? usage
     const delta = chunk.choices?.[0]?.delta
     if (!delta) continue
     if (delta.content) {
@@ -112,7 +133,8 @@ async function readChunks(
   }
   if (!finished) throw new IncompleteStreamError(provider)
   const toolCalls = calls.filter(Boolean)
-  return fromOpenAiMessage({ content, tool_calls: toolCalls.length ? toolCalls : undefined })
+  const message = fromOpenAiMessage({ content, tool_calls: toolCalls.length ? toolCalls : undefined })
+  return usage ? { message, usage } : { message }
 }
 
 /**
@@ -124,6 +146,13 @@ async function readChunks(
  */
 export class OpenAiCompatibleProvider implements LlmAdapter {
   readonly name = 'openai-compatible'
+  /**
+   * Whether to ask a stream for its token usage. Part of the OpenAI API, but
+   * a stricter compatible server can refuse a field it does not know with a
+   * 400; such a server is asked once, then streamed without usage for the
+   * rest of the session rather than failing every request.
+   */
+  private streamUsage = true
 
   constructor(private readonly options: OpenAiCompatibleOptions) {}
 
@@ -134,23 +163,43 @@ export class OpenAiCompatibleProvider implements LlmAdapter {
       messages: request.messages.map(toOpenAiMessage),
     }
     if (request.tools.length) body.tools = request.tools.map(toOpenAiTool)
-    if (options.onText) body.stream = true
+    if (options.onText) {
+      body.stream = true
+      if (this.streamUsage) body.stream_options = { include_usage: true }
+    }
 
-    const response = await fetchFn(`${this.options.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.options.apiKey}` },
-      body: JSON.stringify(body),
-      signal,
-    })
+    const send = () =>
+      fetchFn(`${this.options.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.options.apiKey}` },
+        body: JSON.stringify(body),
+        signal,
+      })
+    let response = await send()
 
     if (!response.ok) {
-      throw new ProviderHttpError(response.status, this.name, this.options.baseURL, await response.text())
+      const text = await response.text()
+      if (body.stream_options && (response.status === 400 || response.status === 422) && /stream_options/.test(text)) {
+        this.streamUsage = false
+        delete body.stream_options
+        response = await send()
+        if (!response.ok) {
+          throw new ProviderHttpError(response.status, this.name, this.options.baseURL, await response.text())
+        }
+      } else {
+        throw new ProviderHttpError(response.status, this.name, this.options.baseURL, text)
+      }
     }
 
     const events = options.onText ? sseBody(response) : null
-    if (events && options.onText) return { message: await readChunks(events, this.name, options.onText) }
+    if (events && options.onText) return readChunks(events, this.name, options.onText)
 
-    const data = (await response.json()) as { choices: Array<{ message: Parameters<typeof fromOpenAiMessage>[0] }> }
-    return { message: fromOpenAiMessage(data.choices[0].message) }
+    const data = (await response.json()) as {
+      choices: Array<{ message: Parameters<typeof fromOpenAiMessage>[0] }>
+      usage?: OpenAiUsage | null
+    }
+    const message = fromOpenAiMessage(data.choices[0].message)
+    const usage = fromOpenAiUsage(data.usage)
+    return usage ? { message, usage } : { message }
   }
 }

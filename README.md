@@ -34,7 +34,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | ⏰  | Run scheduled tasks                           | 🟡 Library — `@open-agent/automation`: one-time and recurring (cron/interval) tasks, a job queue with retries, and notifications; not yet a CLI command                        |
 | 🤖  | Operate autonomously with configurable limits | 🟡 Partly — permission levels, approvals, sandboxing and prompt-injection defenses are in (Milestone 9); remote/cloud agents are Milestone 10                                  |
 
-A CLI is available today (`npm run cli`); the web UI described below is still a design doc, not code.
+A CLI is available today (`npm run cli`), and a first browser chat UI (`npm run web`); the rest of the web UI described below is still a design doc.
 
 See the [milestones](../../milestones) for the full roadmap and what's currently in progress.
 
@@ -115,7 +115,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 8 — Automation       | 8 / 8   | ✅ Complete                                                                                                                      |
 | 9 — Security         | 10 / 10 | ✅ Complete                                                                                                                      |
 | 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                            |
-| 11 — User Interfaces | 4 / 15  | 🟡 In progress — `open-agent init` interactive setup wizard (#105), Agent profile selection in the CLI (#106), +9 more left      |
+| 11 — User Interfaces | 6 / 15  | 🟡 In progress — Agent profile selection in the CLI (#106), Web UI: task/session history view (#108), +7 more left               |
 | 12 — Backlog         | 6 / 26  | 🟡 In progress — Git-aware tooling (status/diff/commit/branc… (#121), Parallel sub-agents in git worktrees (#122), +18 more left |
 
 <!-- END GENERATED: milestone-status -->
@@ -138,6 +138,7 @@ cd open-agent
 npm install
 npm run cli -- init    # asks for the provider, key and tools, checks the model answers, writes .env
 npm run cli
+npm run web            # or chat in the browser: builds the page, then prints the address to open
 ```
 
 `init` keeps keys in the OS keychain when there is one, rather than in a plaintext `.env`. To configure by hand instead, `cp .env.example .env` and fill in `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` — any OpenAI-compatible endpoint works.
@@ -148,7 +149,7 @@ That starts an interactive terminal session against the real agent loop, tool re
 
 ```
 apps/
-  web/            Web UI (design only — no implementation yet)
+  web/            Web UI: a local chat server and its React client (`open-agent web`)
   cli/            Command-line interface (Ink-based TUI)
 packages/
   context/         Plugin/service kernel the rest of the runtime is built on
@@ -159,6 +160,7 @@ packages/
   tools-files/     Filesystem tools confined to a workspace root (read_file)
   tools-http/      Direct HTTP requests to arbitrary APIs (http_request)
   tools-search/    Web search (web_search), over Brave or Tavily
+  tools-decision/  Typed judgments (classify, check, rank, score) from a DecisionModel — Jev today
   tools-mcp/       Generic MCP stdio client used by the tool packages above
   tools/           Remaining built-in tools (shell — planned)
   memory/          Long-term/semantic memory (Supermemory, mem0, in-memory)

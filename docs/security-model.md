@@ -44,7 +44,9 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > whether a call was `granted` by a human or `remembered` from an earlier answer,
 > and `listApprovals()`/`revokeApprovals()` make what is remembered visible and
 > reversible. The CLI prompt offers once / task / always, with `always` confirmed
-> separately. Profile-scoped grants wait on profiles existing.
+> separately, and the web UI's approval card offers the same choices from the
+> same function (`approvalScopes`), with the server refusing any scope the call
+> was not offered. Profile-scoped grants wait on profiles existing.
 
 ## Sandboxing
 
@@ -90,6 +92,8 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > also still open — closing it means pinning the checked address.
 
 ## Secrets
+
+> The web UI's settings view (`open-agent web`) writes keys to the keychain when `SECRET_STORE=keychain` and otherwise to `.env` with mode 0600, and never sends a stored key back to the browser. It can only change an allowlist that excludes the shell, the sandbox, the file workspace and browser-profile sharing.
 
 - API keys and credentials are stored outside of model-visible context (env vars / secret store), injected only at the point a tool executes, and redacted from logs.
 - The model never sees raw API keys, even for tools that use them internally.
@@ -170,6 +174,16 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > audit log, and in print mode it is named in the stderr line whether the call
 > was denied or ran under `--yes`.
 >
+> A tool whose only destination is fixed by configuration (`fixedDestination`,
+> e.g. the decision tools, which only ever send to the configured Jev host) is
+> exempt: its arguments cannot choose where data goes, so URLs in them are
+> payload. Configuring the TypeSafe key is the consent for content reaching it.
+> The decision layer (`DECISION_LAYER`) goes further and sends every task's
+> text, with the tool names and descriptions, to TypeSafe before the first
+> request, so it is a separate opt-in from the key. It can only narrow what the
+> model is offered or pick the configured light model; it cannot add a tool or
+> change a permission, and a failed decision changes nothing.
+>
 > Not yet covered: there is still no classifier, and one rule is not a
 > taxonomy — a destination the task reached honestly earlier is trusted for the
 > rest of that task, and exfiltration to a host the user did name is not
@@ -223,3 +237,5 @@ Every tool invocation is logged with: timestamp, profile, tool name, arguments, 
 ## Privacy controls
 
 Users can view, export, and delete conversation history, task history, and long-term memory. Memory writes should be inspectable, not silent.
+
+> **Status:** the web UI's **Memory** view (`open-agent web`) lists, searches, edits and forgets the memories tasks recall from, scoped to the user's container. Export, and deleting saved sessions, are still to do.

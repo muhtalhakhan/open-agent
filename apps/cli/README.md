@@ -29,9 +29,17 @@ Because nothing can answer an approval prompt, `ask`-level tool calls are denied
 
 Both modes share one task path (`task.ts`): recall memories, run the loop, store the answer. `repl.ts` and `headless.ts` differ only in the IO wrapped around it.
 
+## Where the config lives
+
+Settings are read from `.env` at the repository root, after the shell's own environment (which `.env` never overrides). `OPEN_AGENT_ENV_FILE=/path/to/file` reads, and with `init` or the web settings view writes, another file instead.
+
+## Web UI
+
+`open-agent web` serves a chat UI on 127.0.0.1 (port 7373, or `--port`) and prints the address to open, token included. It builds the same agent as the terminal and runs each message through the same `task.ts`; the server and the page live in `apps/web` (see its README). Approvals are asked in the browser, with the same choices as the terminal prompt; `--yes` approves `ask`-level calls without asking, as elsewhere, and `--plan` shows file edits there as a diff to review. Ctrl+C waits for a running task, then saves the session.
+
 ## Task history
 
-`open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, and the session id to pass to `--resume`. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
+`open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, the session id to pass to `--resume`, and the tokens it used when the provider reported them. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.
 
 ## Background jobs
 
@@ -48,6 +56,7 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 - **Workspace**: the file and shell tools share one, so a command runs where the files are. `WORKSPACE_SESSION=1` provisions a throwaway directory per run (under `WORKSPACE_BASE`) and deletes it on exit, which is what keeps concurrent runs apart.
 - **Shell tools**: `run_command` plus background process management (`start_process`, `list_processes`, `read_process_output`, `stop_process`), mounted when `SHELL_TOOL=1`, running under `SHELL_ROOT` (falling back to `FILES_ROOT`, then the launch directory). `ask`-level, so every command prompts, and every command runs in a sandbox (`SHELL_SANDBOX`, default `auto`: bubblewrap or Docker, read-only filesystem, no network unless `SHELL_NETWORK=1`). If no sandbox is available the shell tools are not registered at all — `SHELL_SANDBOX=none` has to be set deliberately. Anything still running is killed when the CLI exits. See `packages/tools-terminal/README.md`.
 - **Browser tools**: mounted when `BROWSER_USE=1` (needs Python + `browser-use` installed — see `packages/tools-browser/README.md`).
+- **Decision tools**: `classify_items`, `check_claims`, `rank_candidates` and `score_items`, mounted when `TYPESAFE_API_KEY` is set (`TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL` are optional). Answered by Jev with calibrated probabilities, for judgments too small to spend an LLM call on. What the model passes them is sent to TypeSafe. See `packages/tools-decision/README.md`. `DECISION_LAYER=tools,route` also turns on the runtime decision layer: per task, Jev picks which tool schemas the model is sent and whether `OPENAI_MODEL_LIGHT` is enough. Failures fall back to all tools and the default model, and the token line marks tasks the light model answered.
 - **Memory**: `SupermemoryProvider` if `SUPERMEMORY_API_KEY` is set, else `Mem0Provider` if `MEM0_API_KEY` is set, else the dependency-free `InMemoryMemoryProvider`. Each turn recalls relevant memories and prepends them as context, then stores the answer as a new memory — a real use of the seam, not just mounted-and-unused.
 - **Approval**: `ask`/`dangerous`-level tool calls prompt you in the terminal before running, per `docs/security-model.md`. Four answers: once, for the rest of this task, always this session (confirmed a second time), or no. A remembered approval covers those exact arguments, not the whole tool, and `dangerous` calls are never remembered.
 - **Plan mode** (`--plan`): file edits are reviewed as a diff before they run. When the model proposes a `write_file`, the CLI renders the exact change (`--- a/…` / `+++ b/…`, colored when writing to a real terminal) and asks for once / for-the-task / no — the approval _is_ the diff review. Non-file tools prompt exactly as they do without `--plan`, so shell/HTTP approvals are unchanged. Interactive-only, since a CI job has no one to review the diff; there is no "always" scope, because a write that never prompts again is what plan mode exists to prevent. A for-the-task "yes" covers that exact change, so re-running it does not re-prompt, but a call whose diff has since changed does — an `append` reviewed once is reviewed again. A change held by a sequence rule is prompted about the way it is without `--plan`: the reason leads, and only once/no is offered, since the registry will not remember it. Background jobs cannot stop for a review, so a file edit in one is denied unless the session was started with `--yes`.
@@ -59,7 +68,9 @@ Built on `@open-agent/automation`'s `JobQueue` and `notifyOnFinish`. See `packag
 
 - `args.ts` — pure `argv -> CliArgs` parsing via `node:util`'s `parseArgs` (`args.test.ts`)
 - `config.ts` — pure `env -> CliConfig` parsing (`config.test.ts`)
-- `task.ts` — one task end to end, shared by both modes
+- `task.ts` — one task end to end, shared by the REPL, print mode and the web UI; its outcome carries the task's token usage, which the REPL prints after each answer and print mode writes to stderr
+- `usage.ts` — the one-line token count all of them print (`usage.test.ts`)
+- `runtime.ts` — the tools, memory and model the config turns on, wired into one `AgentLoop` for whichever of those is running
 - `markdown.ts` — Markdown to styled terminal text for answers (`markdown.test.ts`)
 - `history.ts` — `--history` and `:history` formatting, merging saved sessions with the live one (`history.test.ts`)
 - `background.ts` — `:bg` jobs: a job queue plus finish notifications (`background.test.ts`)
