@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { taskRecords } from '@open-agent/agent'
-import type { RunTextEvent, SessionEvent, TaskRecord, TokenUsage } from '@open-agent/agent'
+import type { RunTextEvent, SessionEvent, TaskRecord, TokenUsage, ToolAttachment } from '@open-agent/agent'
 import type {
   ApprovalScope,
   HistoryTask,
@@ -34,6 +34,8 @@ export interface TaskHooks {
   onText(event: RunTextEvent): void
   /** This task's session events, as they are appended. */
   onEvent(event: SessionEvent): void
+  /** What tools show while they run; see `RunOptions.onAttachment`. */
+  onAttachment(attachment: ToolAttachment): void
 }
 
 /**
@@ -136,6 +138,10 @@ const MAX_BODY_BYTES = 64 * 1024
 /** Enough for any command or edit a person would actually read before approving it. */
 const APPROVAL_ARGS_LENGTH = 4_000
 const PLAN_LENGTH = 20_000
+const SCREEN_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+/** About 3 MB of image: more than a full-page screenshot needs. */
+const MAX_SCREEN_CHARS = 4_000_000
+const MAX_REPLAYED_SCREENS = 5
 const MEMORY_LIST_LIMIT = 200
 const MEMORY_SEARCH_LIMIT = 50
 const MEMORY_CONTENT_LENGTH = 10_000
@@ -241,6 +247,10 @@ export async function startWebServer({
   // but are not replayed one by one: a finished reply is recorded once, whole,
   // and a tab that connects mid-reply is sent what has arrived so far.
   let streaming = ''
+  // The latest picture of the running task, for a tab that connects mid-task.
+  // Frames are not replayed one by one: they are many, large, and only the
+  // newest says what is on screen now.
+  let screen: Extract<ServerEvent, { type: 'screen' }> | undefined
 
   const broadcast = (event: ServerEvent) => {
     const frame = `data: ${JSON.stringify(event)}\n\n`
@@ -280,6 +290,20 @@ export async function startWebServer({
         }
       },
       onEvent: activityProjector(taskId, emit),
+      onAttachment(attachment) {
+        // Only images the page can show, and none so large it would stall
+        // every open tab: an image's type comes from a tool's server, which
+        // is reporting on a page someone else wrote.
+        if (!SCREEN_TYPES.has(attachment.mimeType) || attachment.data.length > MAX_SCREEN_CHARS) return
+        screen = {
+          type: 'screen',
+          taskId,
+          mimeType: attachment.mimeType,
+          data: attachment.data,
+          ...(attachment.caption ? { caption: clip(attachment.caption, 80) } : {}),
+        }
+        broadcast(screen)
+      },
     }
 
     // Current before the task starts, not after: anything it does
@@ -299,6 +323,16 @@ export async function startWebServer({
       .then((outcome) => {
         streaming = ''
         denyPending(taskId)
+        // The last thing the task showed stays with its turn for anyone who
+        // opens the page later. Only that one frame, and only for the most
+        // recent few tasks: the rest would be megabytes nobody scrolls back to.
+        if (screen?.taskId === taskId) {
+          const frames = replay.filter((event) => event.type === 'screen')
+          for (const old of frames.slice(0, Math.max(0, frames.length - (MAX_REPLAYED_SCREENS - 1)))) {
+            replay.splice(replay.indexOf(old), 1)
+          }
+          record(screen)
+        }
         emit({ type: 'task/end', taskId, ...outcome })
       })
       .finally(() => {
@@ -361,6 +395,7 @@ export async function startWebServer({
     const send = (event: ServerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`)
     send({ type: 'hello' })
     for (const event of replay) send(event)
+    if (current && screen?.taskId === current.taskId) send(screen)
     if (current && streaming) send({ type: 'text', taskId: current.taskId, event: { type: 'delta', text: streaming } })
     clients.add(res)
     const keepalive = setInterval(() => res.write(': keepalive\n\n'), KEEPALIVE_MS)

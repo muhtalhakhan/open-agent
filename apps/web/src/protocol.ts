@@ -30,6 +30,12 @@ export type ServerEvent =
   | { type: 'notice'; text: string }
   | { type: 'task/start'; taskId: string; input: string }
   | { type: 'text'; taskId: string; event: TextEvent }
+  /**
+   * What a tool showed while it ran: the browser's page after an action.
+   * Display only — never logged, never seen by the model — and sent live
+   * only, with the latest one repeated to a tab that connects mid-task.
+   */
+  | { type: 'screen'; taskId: string; mimeType: string; data: string; caption?: string }
   /** A new model request within the turn: step 1 is the first, each tool round adds one. */
   | { type: 'step'; taskId: string; step: number }
   /** The provider failed and the loop is trying again; any text streamed since the last step is taken back by a `text` reset. */

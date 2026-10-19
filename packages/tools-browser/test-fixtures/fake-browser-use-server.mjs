@@ -4,6 +4,7 @@
 import { createInterface } from 'node:readline'
 
 const rl = createInterface({ input: process.stdin })
+let screenshots = 0
 
 function reply(id, result) {
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n')
@@ -134,7 +135,6 @@ rl.on('line', (line) => {
       browser_click: () => `clicked element at index ${args.index}`,
       browser_type: () => `typed "${args.text}" into element at index ${args.index}`,
       browser_scroll: () => `scrolled ${args.direction}${args.amount ? ` by ${args.amount}` : ''}`,
-      browser_screenshot: () => `[screenshot captured]`,
       browser_get_state: () => `{"url":"https://example.com","title":"Example"}`,
       browser_extract_content: () => `extracted content${args.selector ? ` from ${args.selector}` : ''}`,
       browser_get_html: () => `<html>${args.selector ? `<div>${args.selector}</div>` : '<body></body>'}</html>`,
@@ -148,6 +148,17 @@ rl.on('line', (line) => {
       // actually started with, so a test can assert what the parent passed
       // through rather than trusting that it did.
       __env: () => JSON.stringify(process.env),
+    }
+    // A screenshot that never comes back, for testing that a stuck one does
+    // not hold up the action it follows.
+    if (name === 'browser_screenshot' && process.env.FAKE_STUCK_SCREENSHOT) return
+    if (name === 'browser_screenshot') {
+      // An image block, as a real screenshot arrives. Its data names the
+      // screenshot in sequence, so a test can tell one from the next.
+      screenshots++
+      const data = Buffer.from(`screenshot ${screenshots}`).toString('base64')
+      reply(message.id, { content: [{ type: 'image', mimeType: 'image/png', data }] })
+      return
     }
     const handler = handlers[name]
     const text = handler ? handler() : `called ${name}`
