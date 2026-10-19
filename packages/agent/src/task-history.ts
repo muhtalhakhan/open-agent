@@ -1,4 +1,5 @@
-import type { SessionEvent } from './types.js'
+import type { SessionEvent, TokenUsage } from './types.js'
+import { totalUsage } from './usage.js'
 import type { SessionStore } from './session-store.js'
 
 /** One past task, as the session log recorded it. */
@@ -20,6 +21,8 @@ export interface TaskRecord {
   answer?: string
   /** Tool calls the model made across all of the task's turns. */
   toolCalls: number
+  /** Tokens across all of the task's turns; absent when the provider reported none. */
+  usage?: TokenUsage
 }
 
 export interface TaskHistoryOptions {
@@ -72,6 +75,7 @@ export function taskRecords(events: SessionEvent[], sessionId?: string): TaskRec
     })
     // A turn that started after the last one ended never finished itself.
     const ended = lastEndIndex > lastStart ? lastEnd : undefined
+    const usage = totalUsage(taskEvents)
 
     records.push({
       taskId,
@@ -82,6 +86,7 @@ export function taskRecords(events: SessionEvent[], sessionId?: string): TaskRec
       ...(ended ? { endedAt: ended.at } : {}),
       ...(ended?.reason === 'completed' && answer !== undefined ? { answer } : {}),
       toolCalls,
+      ...(usage ? { usage } : {}),
     })
   }
   return records.sort((a, b) => a.startedAt - b.startedAt)

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, mkdir, rm, writeFile, symlink } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -165,6 +166,394 @@ describe('CLI end to end', () => {
 
     expect(code).toBe(0)
     expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
+  })
+
+  it('lets the model check a claim with Jev when a TypeSafe key is configured', async () => {
+    const jevRequests: { auth?: string; body: { questions: Record<string, { type: string }> } }[] = []
+    const jev = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        jevRequests.push({ auth: req.headers.authorization, body: JSON.parse(raw) })
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ model: 'jev-test', answers: { q0: { type: 'noul', noul: 0.93 } } }))
+      })
+    })
+    // A model that checks a claim first, then answers with what came back.
+    const modelRequests: { messages: { role: string; content: string | null }[] }[] = []
+    const model = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        const body = JSON.parse(raw)
+        modelRequests.push(body)
+        const result = body.messages.find((m: { role: string }) => m.role === 'tool')
+        const message = result
+          ? { role: 'assistant', content: `checked: ${result.content}` }
+          : {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'c1',
+                  type: 'function',
+                  function: {
+                    name: 'check_claims',
+                    arguments: JSON.stringify({ evidence: '12 passed, 0 failed', checks: { pass: 'Did all pass?' } }),
+                  },
+                },
+              ],
+            }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message }] }))
+      })
+    })
+    const listen = (server: Server) =>
+      new Promise<number>((resolve) =>
+        server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)),
+      )
+    const [jevPort, modelPort] = await Promise.all([listen(jev), listen(model)])
+
+    try {
+      const { stdout, stderr, code } = await runCli(
+        '',
+        {
+          OPENAI_BASE_URL: `http://127.0.0.1:${modelPort}`,
+          OPENAI_API_KEY: 'test-key',
+          OPENAI_MODEL: 'test-model',
+          TYPESAFE_API_KEY: 'ts_test',
+          TYPESAFE_BASE_URL: `http://127.0.0.1:${jevPort}`,
+        },
+        repo,
+        ['-p', 'did the tests pass?'],
+      )
+
+      expect(code).toBe(0)
+      expect(stderr).toContain('Decision tools loaded')
+      expect(jevRequests).toHaveLength(1)
+      expect(jevRequests[0].auth).toBe('Bearer ts_test')
+      expect(jevRequests[0].body.questions.q0.type).toBe('noul')
+      expect(stdout).toBe('checked: [{"id":"pass","probability":0.93,"verdict":"yes"}]\n')
+    } finally {
+      await new Promise((done) => jev.close(done))
+      await new Promise((done) => model.close(done))
+    }
+  })
+
+  it('with DECISION_LAYER, offers only the tools Jev keeps and answers with the light model', async () => {
+    const jev = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        const { state, questions } = JSON.parse(raw)
+        const answers: Record<string, unknown> = {}
+        for (const [key, text] of Object.entries(state.tools ?? {}) as [string, string][]) {
+          answers[key] = { type: 'noul', noul: text.startsWith('read_file') ? 0.95 : 0.02 }
+        }
+        if (questions.route) {
+          answers.route = {
+            type: 'choice',
+            choice: 'light',
+            probabilities: { light: 0.93, heavy: 0.07 },
+            confidence: 0.9,
+          }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ model: 'jev-test', answers, usage: { input_tokens: 500, output_tokens: 9 } }))
+      })
+    })
+    const modelRequests: { model: string; tools?: { function: { name: string } }[] }[] = []
+    const model = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        modelRequests.push(JSON.parse(raw))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'done' } }] }))
+      })
+    })
+    const listen = (server: Server) =>
+      new Promise<number>((resolve) =>
+        server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)),
+      )
+    const [jevPort, modelPort] = await Promise.all([listen(jev), listen(model)])
+
+    try {
+      const { stdout, stderr, code } = await runCli(
+        '',
+        {
+          OPENAI_BASE_URL: `http://127.0.0.1:${modelPort}`,
+          OPENAI_API_KEY: 'test-key',
+          OPENAI_MODEL: 'big-model',
+          OPENAI_MODEL_LIGHT: 'small-model',
+          FILES_TOOL: '1',
+          TYPESAFE_API_KEY: 'ts_test',
+          TYPESAFE_BASE_URL: `http://127.0.0.1:${jevPort}`,
+          DECISION_LAYER: 'tools,route',
+        },
+        repo,
+        ['-p', 'what does the README say?'],
+      )
+
+      expect(code).toBe(0)
+      expect(stdout).toBe('done\n')
+      expect(stderr).toContain('Decision layer on')
+      expect(modelRequests).toHaveLength(1)
+      expect(modelRequests[0].model).toBe('small-model')
+      expect(modelRequests[0].tools?.map((tool) => tool.function.name)).toEqual(['read_file'])
+    } finally {
+      await new Promise((done) => jev.close(done))
+      await new Promise((done) => model.close(done))
+    }
+  })
+
+  describe('web', () => {
+    /** A port nothing is listening on, found by asking the OS for one and giving it back. */
+    function freePort(): Promise<number> {
+      return new Promise((resolve) => {
+        const probe = createServer()
+        probe.listen(0, '127.0.0.1', () => {
+          const { port } = probe.address() as AddressInfo
+          probe.close(() => resolve(port))
+        })
+      })
+    }
+
+    /** Reads server-sent events until one carries `type`, returning them all. */
+    async function readUntil(body: ReadableStream<Uint8Array>, type: string): Promise<{ type: string }[]> {
+      const events: { type: string }[] = []
+      const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+      let buffer = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) return events
+        buffer += value
+        let end: number
+        while ((end = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, end)
+          buffer = buffer.slice(end + 2)
+          if (!frame.startsWith('data: ')) continue
+          events.push(JSON.parse(frame.slice(6)))
+          if (events.at(-1)?.type === type) {
+            await reader.cancel()
+            return events
+          }
+        }
+      }
+    }
+
+    it('runs a task sent from the browser and saves the session on Ctrl+C', async () => {
+      const port = await freePort()
+      const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, 'web', '--port', String(port)], {
+        cwd: repo,
+        env: { ...process.env, ...env(), TMPDIR: repo },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      const url = await new Promise<string>((resolve, reject) => {
+        child.stdout.on('data', (chunk) => {
+          stdout += chunk
+          const match = stdout.match(/OpenAgent web UI: (\S+)/)
+          if (match) resolve(match[1])
+        })
+        child.on('close', () => reject(new Error(`exited before serving:\n${stdout}`)))
+      })
+      const exited = new Promise<number | null>((resolve) => child.on('close', resolve))
+      const token = new URL(url).searchParams.get('token')!
+      expect(new URL(url).host).toBe(`127.0.0.1:${port}`)
+
+      const stream = await fetch(`http://127.0.0.1:${port}/api/events?token=${token}`)
+      const sent = await fetch(`http://127.0.0.1:${port}/api/tasks`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: 'what indentation?' }),
+      })
+      expect(sent.status).toBe(202)
+      const events = await readUntil(stream.body!, 'task/end')
+
+      expect(events.at(-1)).toMatchObject({ type: 'task/end', status: 'completed', answer: 'ack' })
+
+      // The task just run is in the history, from the live session, and its
+      // transcript replays it.
+      const history = (await fetch(`http://127.0.0.1:${port}/api/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.json())) as { tasks: { taskId: string; sessionId?: string }[] }
+      expect(history.tasks[0]).toMatchObject({ prompt: 'what indentation?', status: 'completed' })
+      expect(history.tasks[0].sessionId).toBeUndefined()
+      const transcript = (await fetch(`http://127.0.0.1:${port}/api/history/${history.tasks[0].taskId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.json())) as { events: { type: string }[] }
+      expect(transcript.events.at(-1)).toMatchObject({ type: 'task/end', status: 'completed', answer: 'ack' })
+
+      // The answer was remembered, and the memory view lists it.
+      const memory = (await fetch(`http://127.0.0.1:${port}/api/memory`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.json())) as { provider: string; items: { content: string }[] }
+      expect(memory.provider).toBe('in-memory')
+      expect(memory.items.map((item) => item.content)).toEqual(['ack'])
+      expect(provider.requests[0].messages.find((m) => m.role === 'user')?.content).toBe('what indentation?')
+
+      child.kill('SIGINT')
+      expect(await exited).toBe(0)
+      expect(stdout).toMatch(/Session ID: session_[0-9a-f]+/)
+    })
+
+    it('saves settings to the .env it was started with, refusing what the page may not change', async () => {
+      const envFile = path.join(repo, 'agent.env')
+      await writeFile(
+        envFile,
+        `# kept\nOPENAI_BASE_URL=${provider.url}\nOPENAI_MODEL=test-model\nOPENAI_API_KEY=test-key\n`,
+        { mode: 0o600 },
+      )
+      const port = await freePort()
+      // Only the file configures it: none of the provider variables are in the environment.
+      const { OPENAI_BASE_URL: _url, OPENAI_API_KEY: _key, OPENAI_MODEL: _model, ...inherited } = process.env
+      const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, 'web', '--port', String(port)], {
+        cwd: repo,
+        env: { ...inherited, OPEN_AGENT_ENV_FILE: envFile, TMPDIR: repo },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      try {
+        let stdout = ''
+        const url = await new Promise<string>((resolve, reject) => {
+          child.stdout.on('data', (chunk) => {
+            stdout += chunk
+            const match = stdout.match(/OpenAgent web UI: (\S+)/)
+            if (match) resolve(match[1])
+          })
+          child.on('close', () => reject(new Error(`exited before serving:\n${stdout}`)))
+        })
+        const token = new URL(url).searchParams.get('token')!
+        const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+        const save = (changes: Record<string, string | null>) =>
+          fetch(`http://127.0.0.1:${port}/api/settings`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ changes }),
+          })
+
+        const view = await fetch(`http://127.0.0.1:${port}/api/settings`, { headers }).then((res) => res.text())
+        expect(view).not.toContain('test-key')
+
+        expect((await save({ SHELL_SANDBOX: 'none' })).status).toBe(400)
+        expect((await save({ BROWSER_USE: '1', TAVILY_API_KEY: 'tvly-new' })).status).toBe(200)
+
+        expect(await readFile(envFile, 'utf8')).toBe(
+          `# kept\nOPENAI_BASE_URL=${provider.url}\nOPENAI_MODEL=test-model\nOPENAI_API_KEY=test-key\nBROWSER_USE=1\nTAVILY_API_KEY=tvly-new\n`,
+        )
+        expect((await stat(envFile)).mode & 0o777).toBe(0o600)
+      } finally {
+        child.kill('SIGINT')
+        await new Promise((done) => child.on('close', done))
+      }
+    })
+
+    it('with --plan, shows the diff in the browser and writes the file only once it is approved', async () => {
+      // A model that writes a file, then answers once the write has a result.
+      const model = createServer((req, res) => {
+        let raw = ''
+        req.on('data', (chunk) => (raw += chunk))
+        req.on('end', () => {
+          const body = JSON.parse(raw)
+          const result = body.messages.find((m: { role: string }) => m.role === 'tool')
+          const message = result
+            ? { role: 'assistant', content: `result: ${result.content}` }
+            : {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'w1',
+                    type: 'function',
+                    function: { name: 'write_file', arguments: JSON.stringify({ path: 'notes.md', content: 'hi\n' }) },
+                  },
+                ],
+              }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ choices: [{ message }] }))
+        })
+      })
+      const modelPort = await new Promise<number>((resolve) =>
+        model.listen(0, '127.0.0.1', () => resolve((model.address() as AddressInfo).port)),
+      )
+      const port = await freePort()
+      const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, 'web', '--plan', '--port', String(port)], {
+        cwd: repo,
+        env: {
+          ...process.env,
+          OPENAI_BASE_URL: `http://127.0.0.1:${modelPort}`,
+          OPENAI_API_KEY: 'test-key',
+          OPENAI_MODEL: 'test-model',
+          FILES_TOOL: '1',
+          FILES_ROOT: repo,
+          TMPDIR: repo,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      try {
+        let stdout = ''
+        const url = await new Promise<string>((resolve, reject) => {
+          child.stdout.on('data', (chunk) => {
+            stdout += chunk
+            const match = stdout.match(/OpenAgent web UI: (\S+)/)
+            if (match) resolve(match[1])
+          })
+          child.on('close', () => reject(new Error(`exited before serving:\n${stdout}`)))
+        })
+        const token = new URL(url).searchParams.get('token')!
+        const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+        const stream = await fetch(`http://127.0.0.1:${port}/api/events?token=${token}`)
+        const reader = stream.body!.pipeThrough(new TextDecoderStream()).getReader()
+        let buffer = ''
+        const next = async (type: string) => {
+          for (;;) {
+            let end: number
+            while ((end = buffer.indexOf('\n\n')) !== -1) {
+              const frame = buffer.slice(0, end)
+              buffer = buffer.slice(end + 2)
+              if (!frame.startsWith('data: ')) continue
+              const event = JSON.parse(frame.slice(6))
+              if (event.type === type) return event
+            }
+            const { value, done } = await reader.read()
+            if (done) throw new Error(`stream ended before ${type}`)
+            buffer += value
+          }
+        }
+
+        await fetch(`http://127.0.0.1:${port}/api/tasks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ input: 'write notes.md' }),
+        })
+        const request = await next('approval/request')
+
+        expect(request).toMatchObject({ tool: 'write_file', scopes: ['once', 'task'] })
+        expect(request.planPreview).toContain('+hi')
+        expect(existsSync(path.join(repo, 'notes.md'))).toBe(false)
+
+        const widened = await fetch(`http://127.0.0.1:${port}/api/approvals/${request.approvalId}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ approved: true, scope: 'session' }),
+        })
+        expect(widened.status).toBe(400)
+        await fetch(`http://127.0.0.1:${port}/api/approvals/${request.approvalId}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ approved: true, scope: 'once' }),
+        })
+        const end = await next('task/end')
+        await reader.cancel()
+
+        expect(end.status).toBe('completed')
+        expect(await readFile(path.join(repo, 'notes.md'), 'utf8')).toBe('hi\n')
+      } finally {
+        child.kill('SIGINT')
+        await new Promise((done) => child.on('close', done))
+        await new Promise((done) => model.close(done))
+      }
+    })
   })
 
   describe('print mode', () => {

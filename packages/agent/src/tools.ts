@@ -69,6 +69,28 @@ export type ApprovalHandler = (
   context: ApprovalContext,
 ) => boolean | ApprovalDecision | Promise<boolean | ApprovalDecision>
 
+/**
+ * The scopes worth offering for a decision about this call: anything wider
+ * is not remembered by the registry, so offering it would promise something
+ * that does not happen.
+ *
+ * - A `dangerous` call, or one a sequence rule held, is decided once: the
+ *   point of both is that this particular call gets looked at.
+ * - A plan-mode review stops at the task: a file write that never prompts
+ *   again for the rest of the session defeats reviewing its diff.
+ *
+ * Shared by every approval UI, so the terminal and the browser cannot offer
+ * different choices for the same call.
+ */
+export function approvalScopes(
+  tool: Pick<ToolDefinition, 'permissionLevel'>,
+  context: ApprovalContext,
+): ApprovalScope[] {
+  if (tool.permissionLevel === 'dangerous' || context.escalation) return ['once']
+  if (context.planPreview !== undefined) return ['once', 'task']
+  return ['once', 'task', 'session']
+}
+
 /** Why a call was allowed to run, as recorded in the audit log. */
 export type ApprovalSource = 'safe' | 'granted' | 'remembered' | 'denied'
 
@@ -258,7 +280,7 @@ export class ToolRegistry {
     // Before the permission level, because the whole point is a call whose own
     // level would have let it through unexamined.
     const taskId = context.taskId
-    const escalation = detectExfiltration(call, this.activityFor(taskId))
+    const escalation = tool.fixedDestination ? undefined : detectExfiltration(call, this.activityFor(taskId))
 
     // In plan mode a tool that provides a preview is a review, not a
     // checklist item — so even a `safe` file edit is put in front of a

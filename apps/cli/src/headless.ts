@@ -1,6 +1,7 @@
 import type { AgentLoop, SessionLog } from '@open-agent/agent'
 import { executeTask, type MemoryHook } from './task.js'
 import { createLineActivityView, trackToolActivity } from './tool-activity.js'
+import { formatUsage } from './usage.js'
 
 /** Conventional shell exit codes: 130 is "terminated by SIGINT". */
 export const EXIT_OK = 0
@@ -43,6 +44,9 @@ export async function runHeadless(
 
   const onEvent = trackToolActivity(createLineActivityView(io.err))
   const outcome = await executeTask(agentLoop, sessions, trimmed, signal, { memory, onEvent })
+  // On stderr with the other progress, where a CI log keeps a record of what
+  // each run cost without it reaching the captured answer.
+  if (outcome.usage) io.err(`${formatUsage(outcome.usage)}${outcome.light ? ' · light model' : ''}\n`)
 
   if (outcome.status === 'completed') {
     // Exactly one trailing newline, so the output composes with other tools.

@@ -37,6 +37,15 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
    * the next call might be the content's idea rather than the user's.
    */
   untrustedOutput?: boolean
+  /**
+   * The one host this tool sends anything to, when configuration fixes it and
+   * no argument can change it: a classifier API, a search API. The
+   * exfiltration rule exists to catch data leaving for a place the content
+   * chose; here the arguments cannot choose, so a URL in them is payload, not
+   * a destination, and the rule does not apply. Leave it unset for any tool
+   * whose arguments can name where it connects.
+   */
+  fixedDestination?: string
   execute(args: Args, context: ToolExecutionContext): Promise<ToolResult>
   /**
    * Optional: a human-readable preview of what executing these args would
@@ -61,8 +70,25 @@ export interface LlmRequest {
   tools: Pick<ToolDefinition, 'name' | 'description' | 'schema'>[]
 }
 
+/**
+ * Tokens one model request consumed, as the provider reported them — what it
+ * bills by. Counted by the provider rather than estimated here: tokenizers
+ * differ per model, and an estimate that disagrees with the invoice is worse
+ * than none.
+ */
+export interface TokenUsage {
+  /** Everything the model read: system prompt, history, tool schemas. Includes `cachedInputTokens`. */
+  inputTokens: number
+  /** What it wrote, reasoning included where the provider counts it as output. */
+  outputTokens: number
+  /** The part of `inputTokens` served from the provider's prompt cache, usually billed at a fraction. */
+  cachedInputTokens?: number
+}
+
 export interface LlmResponse {
   message: Message
+  /** Absent when the provider did not report it. */
+  usage?: TokenUsage
 }
 
 /**
@@ -87,6 +113,51 @@ export interface LlmAdapter {
   generate(request: LlmRequest, signal: AbortSignal, options?: GenerateOptions): Promise<LlmResponse>
 }
 
+/**
+ * One typed judgment for a `DecisionModel`: a yes/no, a pick from fixed
+ * options, or a position on an ordered scale. The answer is always one of
+ * the shapes the question allows — never prose, so nothing has to be parsed.
+ */
+export type DecisionQuestion =
+  | { type: 'yesno'; instructions: string; yes?: string; no?: string }
+  /** `options` maps each label to what it means; the description is what the model judges by. */
+  | { type: 'choice'; instructions: string; options: Record<string, string | null> }
+  /** `levels` are ordered lowest first. */
+  | { type: 'score'; instructions: string; levels: string[] }
+
+export type DecisionAnswer =
+  /** Probability that the answer is yes, 0 to 1. */
+  | { type: 'yesno'; probability: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  /** `score` is a probability-weighted index into `levels`, and may fall between two of them. */
+  | { type: 'score'; score: number; confidence: number }
+
+export interface DecisionRequest {
+  /**
+   * What the questions are about, as text or as named parts. Questions refer
+   * to a part by its path in backticks (`items.a1`), so keep the names plain.
+   */
+  evidence: string | Record<string, unknown>
+  questions: Record<string, DecisionQuestion>
+}
+
+export interface DecisionResponse {
+  /** Keyed like the questions. A question the model returned no valid answer for is absent. */
+  answers: Record<string, DecisionAnswer>
+  usage?: TokenUsage
+}
+
+/**
+ * A model for small, typed judgments — classify, check, score, rank — that
+ * is far cheaper and faster than asking the LLM in prose. The same seam as
+ * `LlmAdapter`: `name` plus one method, so the agent core never knows which
+ * vendor answers.
+ */
+export interface DecisionModel {
+  name: string
+  decide(request: DecisionRequest, signal: AbortSignal): Promise<DecisionResponse>
+}
+
 /** A durable, append-only fact about a task. Session state is always a projection of this log. */
 export type SessionEvent =
   | { type: 'turn/start'; taskId: string; at: number }
@@ -95,10 +166,25 @@ export type SessionEvent =
   | { type: 'step/end'; taskId: string; at: number }
   | { type: 'system/message'; taskId: string; at: number; message: Message }
   | { type: 'user/message'; taskId: string; at: number; message: Message }
-  | { type: 'assistant/message'; taskId: string; at: number; message: Message }
+  | { type: 'assistant/message'; taskId: string; at: number; message: Message; usage?: TokenUsage }
   | { type: 'tool/call'; taskId: string; at: number; call: ToolCall }
   | { type: 'tool/result'; taskId: string; at: number; callId: string; result: ToolResult }
   | { type: 'retry'; taskId: string; at: number; attempt: number; reason: string }
+  /**
+   * What the decision layer chose for a turn, before its first request: the
+   * tools the model was offered (absent: all) and which model answered. Logged
+   * because both change what the model saw.
+   */
+  | {
+      type: 'turn/decision'
+      taskId: string
+      at: number
+      tools?: string[]
+      llm: 'default' | 'light'
+      /** What deciding cost, in the decision model's own tokens. */
+      usage?: TokenUsage
+      error?: string
+    }
   | {
       type: 'lease/requested'
       taskId: string

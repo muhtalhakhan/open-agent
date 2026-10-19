@@ -51,6 +51,31 @@ describe('runRepl', () => {
     expect(io.output.join('')).toMatch(/you said: hello there/)
   })
 
+  it('says what each task cost after its answer, when the provider reports it', async () => {
+    const sessions = new SessionLog()
+    const replies = [{ inputTokens: 900, outputTokens: 12, cachedInputTokens: 800 }, undefined]
+    const loop = new AgentLoop({
+      sessions,
+      tools: new ToolRegistry(),
+      llm: {
+        name: 'billed',
+        async generate() {
+          const usage = replies.shift()
+          return usage
+            ? { message: { role: 'assistant', content: 'ok' }, usage }
+            : { message: { role: 'assistant', content: 'ok' } }
+        },
+      },
+    })
+    const io = fakeIo(['first', 'second'])
+
+    await runRepl(loop, sessions, io, { current: null })
+
+    const printed = io.output.join('')
+    expect(printed).toContain('ok\n\n[900 tokens in (800 cached) · 12 out]\n\n')
+    expect(printed.match(/tokens in/g)).toHaveLength(1)
+  })
+
   it('ignores blank lines and stops on :exit without running a task', async () => {
     const sessions = new SessionLog()
     let calls = 0
