@@ -43,6 +43,7 @@ Options
   -y, --yes            approve "ask"-level tool calls without prompting
   --plan               review file edits as a diff before they run (interactive sessions)
   --resume [id]        resume the most recent or named session
+  --profile <name>     load an agent profile before starting
   --history            list recent past tasks and exit
   --port <n>           the local port for \`open-agent web\` (default ${DEFAULT_WEB_PORT})
   -h, --help           show this help
@@ -96,6 +97,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     history: boolean
     port?: string | undefined
     help: boolean
+    profile?: string | undefined
   }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
@@ -107,6 +109,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       history: boolean
       port?: string | undefined
       help: boolean
+      profile?: string | undefined
     }
     positionals = parsed.positionals
   } catch (err) {
@@ -115,13 +118,29 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   if (values.help) {
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: false, help: true },
+      args: {
+        mode: 'repl',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: false,
+        help: true,
+        profile: undefined,
+      },
     }
   }
   if (values.history) {
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: true, help: false },
+      args: {
+        mode: 'repl',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: true,
+        help: false,
+        profile: undefined,
+      },
     }
   }
 
@@ -161,7 +180,15 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     if (positionals.length === 1 && positionals[0] === 'init') {
       return {
         ok: true,
-        args: { mode: 'init', approveAsk: false, plan: false, resume: undefined, history: false, help: false },
+        args: {
+          mode: 'init',
+          approveAsk: false,
+          plan: false,
+          resume: undefined,
+          history: false,
+          help: false,
+          profile: undefined,
+        },
       }
     }
     if (positionals.length > 0) {
@@ -176,6 +203,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         resume: resumeValue,
         history: false,
         help: false,
+        profile: values.profile,
       },
     }
   }
@@ -194,6 +222,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume: resumeValue,
       history: false,
       help: false,
+      profile: values.profile,
     },
   }
 }

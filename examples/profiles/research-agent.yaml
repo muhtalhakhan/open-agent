@@ -1,0 +1,13 @@
+name: Research Agent
+model: gemini/gemini-2.5-pro
+tools:
+  browser: true
+  files: true
+  shell: false
+  computer: false
+  http: false
+  docker: false
+memory: true
+permissions:
+  browser.navigation: safe
+  files.read: safe

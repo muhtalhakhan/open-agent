@@ -24,14 +24,15 @@ export interface AppProps {
 let nextEntryId = 0
 
 /**
- * Only the end of a long reply is painted live. Ink repaints its dynamic area
- * by erasing it, and one taller than the terminal cannot be erased — it would
- * leave a smear of copies in the scrollback. The whole reply still lands in
- * the transcript once it is finished.
+ * Keep the live reply above the input line from crowding the screen: truncate
+ * each line to terminal columns, then show only the last `rows` lines. Ink
+ * repaints its dynamic area by erasing it, and one taller than the terminal
+ * cannot be erased — it would leave a smear of copies in the scrollback. The
+ * whole reply still lands in the transcript once it is finished.
  */
-function tail(text: string, rows: number): string {
-  const lines = text.split('\n')
-  return lines.length <= rows ? text : ['…', ...lines.slice(-(rows - 1))].join('\n')
+function tail(text: string, rows: number, cols: number): string {
+  const lines = text.split('\n').map((line) => (line.length > cols ? line.slice(0, cols - 1) + '…' : line))
+  return lines.length <= rows ? lines.join('\n') : ['…', ...lines.slice(-(rows - 1))].join('\n')
 }
 
 /**
@@ -104,17 +105,26 @@ export function App({ onReady, onInterrupt }: AppProps) {
     <Box flexDirection="column">
       <Static items={entries}>
         {(entry) => (
-          <Box key={entry.id}>
-            <Text dimColor={entry.kind !== 'output'} wrap={entry.kind === 'activity' ? 'truncate-end' : 'wrap'}>
-              {entry.text}
-            </Text>
+          <Box key={entry.id} marginBottom={1}>
+            <Box flexDirection="row">
+              <Box width={2}>
+                {entry.kind === 'output' && <Text dimColor>●</Text>}
+                {entry.kind === 'activity' && <Text color="yellow">▸</Text>}
+                {entry.kind === 'input' && <Text color="green">❯</Text>}
+              </Box>
+              <Box flexGrow={1}>
+                <Text dimColor={entry.kind !== 'output'} wrap={entry.kind === 'activity' ? 'truncate-end' : 'wrap'}>
+                  {entry.text}
+                </Text>
+              </Box>
+            </Box>
           </Box>
         )}
       </Static>
       {live && (
         <Box marginTop={1}>
           {/* Room left for the status line and input box below it. */}
-          <Text wrap="wrap">{tail(live, Math.max(3, (stdout.rows || 24) - 6))}</Text>
+          <Text wrap="wrap">{tail(live, Math.max(3, (stdout.rows || 24) - 6), stdout.columns || 80)}</Text>
         </Box>
       )}
       {activity && (

@@ -1,0 +1,12 @@
+name: Personal Assistant
+model: openai/gpt-4o-mini
+tools:
+  browser: true
+  computer: false
+  http: true
+  files: true
+  shell: false
+  docker: false
+memory: true
+permissions:
+  terminal.execute: ask
