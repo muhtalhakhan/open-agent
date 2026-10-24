@@ -17,8 +17,11 @@ export interface CliArgs {
   /** Print recent past tasks and exit. */
   history: boolean
   help: boolean
-  /** The local port `web` listens on. */
-  port?: number
+  /** Load an agent profile (name under ~/.openagent/profiles/ or examples/profiles/, or a path) and apply its settings. */
+  duplicateProfile?: string
+  exportProfile?: string
+  importProfile?: string
+  profile?: string
 }
 
 /** Fixed rather than random so the Vite dev server's proxy knows where to find it; `--port` moves it. */
@@ -43,6 +46,7 @@ Options
   -y, --yes            approve "ask"-level tool calls without prompting
   --plan               review file edits as a diff before they run (interactive sessions)
   --resume [id]        resume the most recent or named session
+  --profile <name>     load an agent profile before starting
   --history            list recent past tasks and exit
   --port <n>           the local port for \`open-agent web\` (default ${DEFAULT_WEB_PORT})
   -h, --help           show this help
@@ -93,9 +97,13 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     yes: boolean
     plan: boolean
     resume?: string | undefined
+    duplicateProfile?: string | undefined
+    exportProfile?: string | undefined
+    importProfile?: string | undefined
     history: boolean
     port?: string | undefined
     help: boolean
+    profile?: string | undefined
   }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
@@ -104,30 +112,54 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       yes: boolean
       plan: boolean
       resume?: string | undefined
+      duplicateProfile?: string | undefined
+      exportProfile?: string | undefined
+      importProfile?: string | undefined
       history: boolean
       port?: string | undefined
       help: boolean
+      profile?: string | undefined
     }
     positionals = parsed.positionals
-  } catch (err) {
-    return { ok: false, error: `${err instanceof Error ? err.message : String(err)}\n\n${USAGE}` }
+  } catch (e: any) {
+    return { ok: false, error: `Usage: ${e.message || String(e)}` }
   }
+
   if (values.help) {
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: false, help: true },
+      args: {
+        mode: 'repl',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: false,
+        help: true,
+        profile: undefined,
+        duplicateProfile: undefined,
+        exportProfile: undefined,
+        importProfile: undefined,
+      },
     }
   }
   if (values.history) {
     return {
       ok: true,
-      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: true, help: false },
+      args: {
+        mode: 'repl',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: true,
+        help: false,
+        profile: undefined,
+        duplicateProfile: undefined,
+        exportProfile: undefined,
+        importProfile: undefined,
+      },
     }
   }
 
-  // parseArgs always returns a string for `resume`. Treat `--resume` (no value)
-  // as `true` (resume most recent) by leaving the value undefined; treat a
-  // bare token after `--resume` as that session id.
   const resumeValue: string | true | undefined =
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
 
@@ -156,12 +188,21 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   }
 
   if (!values.print) {
-    // A word rather than a flag: it is a different program from the session,
-    // and `-p init` still means "run the task called init".
     if (positionals.length === 1 && positionals[0] === 'init') {
       return {
         ok: true,
-        args: { mode: 'init', approveAsk: false, plan: false, resume: undefined, history: false, help: false },
+        args: {
+          mode: 'init',
+          approveAsk: false,
+          plan: false,
+          resume: undefined,
+          history: false,
+          help: false,
+          profile: undefined,
+          duplicateProfile: undefined,
+          exportProfile: undefined,
+          importProfile: undefined,
+        },
       }
     }
     if (positionals.length > 0) {
@@ -176,6 +217,10 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         resume: resumeValue,
         history: false,
         help: false,
+        profile: values.profile,
+        duplicateProfile: values.duplicateProfile,
+        exportProfile: values.exportProfile,
+        importProfile: values.importProfile,
       },
     }
   }
@@ -194,6 +239,10 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume: resumeValue,
       history: false,
       help: false,
+      profile: values.profile,
+      duplicateProfile: values.duplicateProfile,
+      exportProfile: values.exportProfile,
+      importProfile: values.importProfile,
     },
   }
 }
