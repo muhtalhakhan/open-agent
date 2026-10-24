@@ -137,3 +137,61 @@ export function applyProfile(config: CliConfig, profile: AgentProfile): CliConfi
     shell: { ...config.shell, enabled: tools.shell ?? config.shell.enabled },
   }
 }
+
+export type ProfileWriteResult = { ok: true; file: string; profile: AgentProfile } | { ok: false; error: string }
+
+/**
+ * Writes a profile into the user's folder as `<fileName>.yaml`. The file name
+ * is held to `PROFILE_NAME`, so nothing — least of all the `name` inside a
+ * file someone else sent — can place it outside the folder. An existing file
+ * is never replaced: importing a shared `coding-agent.yaml` must not quietly
+ * overwrite your own.
+ */
+function writeNewProfile(dirs: ProfileDirs, fileName: string, profile: AgentProfile): ProfileWriteResult {
+  if (!PROFILE_NAME.test(fileName)) {
+    return { ok: false, error: `"${fileName}" is not a valid profile name: use letters, digits, ".", "_" and "-".` }
+  }
+  const file = path.join(dirs.user, `${fileName}.yaml`)
+  try {
+    fs.mkdirSync(dirs.user, { recursive: true })
+    fs.writeFileSync(file, yaml.stringify(profile), { flag: 'wx' })
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      return { ok: false, error: `${file} already exists. Remove it first, or choose another name.` }
+    }
+    return { ok: false, error: `Can't write ${file}: ${err instanceof Error ? err.message : String(err)}` }
+  }
+  return { ok: true, file, profile }
+}
+
+/** Copies a profile to a new name in the user's folder, as a starting point to edit. */
+export function duplicateProfile(source: string, newName: string, dirs: ProfileDirs): ProfileWriteResult {
+  const loaded = loadProfile(source, dirs)
+  if (!loaded.ok) return loaded
+  return writeNewProfile(dirs, newName, { ...loaded.profile, name: newName })
+}
+
+/**
+ * The profile as YAML, for sharing. Re-serialised from the parsed profile
+ * rather than copied as text, so what goes out has passed validation.
+ */
+export function exportProfile(
+  source: string,
+  dirs: ProfileDirs,
+): { ok: true; yaml: string } | { ok: false; error: string } {
+  const loaded = loadProfile(source, dirs)
+  if (!loaded.ok) return loaded
+  return { ok: true, yaml: yaml.stringify(loaded.profile) }
+}
+
+/**
+ * Adds a profile someone shared to the user's folder, under its file name
+ * (`coding-agent.yaml` becomes `--profile coding-agent`). The `name` inside is
+ * a display name and plays no part in where the file goes.
+ */
+export function importProfile(file: string, dirs: ProfileDirs): ProfileWriteResult {
+  if (!/\.ya?ml$/.test(file)) return { ok: false, error: `${file} is not a .yaml file.` }
+  const loaded = loadProfile(file, dirs)
+  if (!loaded.ok) return loaded
+  return writeNewProfile(dirs, path.basename(file).replace(/\.ya?ml$/, ''), loaded.profile)
+}

@@ -3,7 +3,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfigFromEnv, type CliConfig } from './config.js'
-import { applyProfile, loadProfile, parseProfile, type ProfileDirs } from './profiles.js'
+import {
+  applyProfile,
+  duplicateProfile,
+  exportProfile,
+  importProfile,
+  loadProfile,
+  parseProfile,
+  type ProfileDirs,
+} from './profiles.js'
 
 function baseConfig(env: Record<string, string> = {}): CliConfig {
   const result = loadConfigFromEnv({
@@ -127,5 +135,88 @@ describe('the example profiles', () => {
 
   it.each(fs.readdirSync(examples))('%s parses', (file) => {
     expect(parseProfile(fs.readFileSync(path.join(examples, file), 'utf8'), file).ok).toBe(true)
+  })
+})
+
+describe('duplicate, export and import', () => {
+  let tmp: string
+  let dirs: ProfileDirs
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'openagent-profiles-'))
+    // The user folder doesn't exist yet: writing the first profile creates it.
+    dirs = { user: path.join(tmp, 'home', 'profiles'), examples: path.join(tmp, 'examples') }
+    fs.mkdirSync(dirs.examples)
+    fs.writeFileSync(path.join(dirs.examples, 'coder.yaml'), 'name: Coder\nmodel: m\ntools:\n  shell: true\n')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  const write = (name: string, content: string) => {
+    const file = path.join(tmp, name)
+    fs.writeFileSync(file, content)
+    return file
+  }
+
+  it('round-trips: export, import elsewhere, load the same profile back', () => {
+    const exported = exportProfile('coder', dirs)
+    if (!exported.ok) throw new Error(exported.error)
+    const imported = importProfile(write('shared.yaml', exported.yaml), dirs)
+    expect(imported).toMatchObject({ ok: true, file: path.join(dirs.user, 'shared.yaml') })
+    expect(loadProfile('shared', dirs)).toEqual({
+      ok: true,
+      profile: { name: 'Coder', model: 'm', tools: { shell: true } },
+    })
+  })
+
+  it('duplicates under the new name, renaming the copy', () => {
+    expect(duplicateProfile('coder', 'my-coder', dirs)).toMatchObject({ ok: true, profile: { name: 'my-coder' } })
+    expect(loadProfile('my-coder', dirs)).toMatchObject({ ok: true, profile: { model: 'm', tools: { shell: true } } })
+  })
+
+  it.each([
+    ['name', 'model: m\n', /needs a "name"/],
+    ['model', 'name: N\n', /needs a "model"/],
+  ])('refuses to import a profile missing its %s', (_, content, error) => {
+    const result = importProfile(write('partial.yaml', content), dirs)
+    expect(result).toMatchObject({ ok: false, error: expect.stringMatching(error) })
+    expect(fs.existsSync(dirs.user)).toBe(false)
+  })
+
+  it('places an import by its file name, never by the name inside it', () => {
+    const result = importProfile(write('innocent.yaml', 'name: ../../escaped\nmodel: m\n'), dirs)
+    expect(result).toMatchObject({ ok: true, file: path.join(dirs.user, 'innocent.yaml') })
+    expect(fs.existsSync(path.join(tmp, 'escaped.yaml'))).toBe(false)
+  })
+
+  it.each(['../escaped', '..', '.hidden', 'a/b', ''])('refuses %j as a duplicate name', (name) => {
+    expect(duplicateProfile('coder', name, dirs)).toMatchObject({ ok: false })
+    expect(fs.existsSync(path.join(tmp, 'escaped.yaml'))).toBe(false)
+    expect(fs.existsSync(path.join(tmp, 'home', 'escaped.yaml'))).toBe(false)
+  })
+
+  it('refuses to import a file whose name is not a valid profile name', () => {
+    expect(importProfile(write('.hidden.yaml', 'name: N\nmodel: m\n'), dirs)).toMatchObject({ ok: false })
+  })
+
+  it('never overwrites an existing profile', () => {
+    expect(duplicateProfile('coder', 'mine', dirs).ok).toBe(true)
+    fs.writeFileSync(path.join(dirs.user, 'mine.yaml'), 'name: Edited\nmodel: m\n')
+
+    expect(duplicateProfile('coder', 'mine', dirs)).toMatchObject({ ok: false, error: expect.stringMatching(/exists/) })
+    expect(importProfile(write('mine.yaml', 'name: Theirs\nmodel: m\n'), dirs)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/exists/),
+    })
+    expect(loadProfile('mine', dirs)).toMatchObject({ ok: true, profile: { name: 'Edited' } })
+  })
+
+  it('reports a missing import file without throwing', () => {
+    expect(importProfile(path.join(tmp, 'gone.yaml'), dirs)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/not found/),
+    })
   })
 })

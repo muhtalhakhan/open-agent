@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_WEB_PORT, parseCliArgs } from './args.js'
+import { DEFAULT_WEB_PORT, parseCliArgs, USAGE } from './args.js'
 
 /** Unwraps a parse expected to succeed, so the assertions stay readable. */
 function ok(argv: string[]) {
@@ -36,6 +36,35 @@ describe('parseCliArgs', () => {
     expect(ok(['-p', 'task', '--profile', './p.yaml']).profile).toBe('./p.yaml')
     expect(ok(['web', '--profile', 'research-agent']).profile).toBe('research-agent')
     expect(ok([])).not.toHaveProperty('profile')
+  })
+
+  it('parses the profile commands', () => {
+    expect(ok(['--profile', 'coder', '--duplicate-profile', 'mine'])).toMatchObject({
+      mode: 'profile',
+      profileOp: { kind: 'duplicate', source: 'coder', name: 'mine' },
+    })
+    expect(ok(['--export-profile', 'coder'])).toMatchObject({
+      mode: 'profile',
+      profileOp: { kind: 'export', source: 'coder' },
+    })
+    expect(ok(['--import-profile', 'shared.yaml'])).toMatchObject({
+      mode: 'profile',
+      profileOp: { kind: 'import', file: 'shared.yaml' },
+    })
+  })
+
+  it.each([
+    [['--duplicate-profile', 'mine'], /needs --profile/],
+    [['--export-profile', 'a', '--import-profile', 'b.yaml'], /one of/],
+    [['--profile', 'a', '--export-profile', 'b'], /drop --profile/],
+    [['--export-profile', 'a', '-p', 'task'], /on its own/],
+    [['--import-profile', ''], /needs a value/],
+  ])('rejects %j', (argv, error) => {
+    expect(parseCliArgs(argv)).toMatchObject({ ok: false, error: expect.stringMatching(error) })
+  })
+
+  it('lists the profile commands in --help', () => {
+    for (const flag of ['--duplicate-profile', '--export-profile', '--import-profile']) expect(USAGE).toContain(flag)
   })
 
   it('rejects an empty --profile', () => {

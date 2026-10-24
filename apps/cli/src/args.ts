@@ -3,9 +3,10 @@ import { parseArgs } from 'node:util'
 export interface CliArgs {
   /**
    * `print` runs one task and exits; `repl` is the interactive session; `init`
-   * writes `.env`; `web` serves the chat UI in a browser.
+   * writes `.env`; `web` serves the chat UI in a browser; `profile` copies,
+   * exports or imports a profile file and exits.
    */
-  mode: 'repl' | 'print' | 'init' | 'web'
+  mode: 'repl' | 'print' | 'init' | 'web' | 'profile'
   /** The task, in print mode. Undefined means "read it from stdin". */
   prompt?: string
   /** Approve `ask`-level tool calls automatically, since no human is present. */
@@ -21,7 +22,14 @@ export interface CliArgs {
   port?: number
   /** An agent profile to apply over the `.env` config: a name looked up in the profile folders, or a path. */
   profile?: string
+  /** In `profile` mode, what to do. */
+  profileOp?: ProfileOp
 }
+
+export type ProfileOp =
+  | { kind: 'duplicate'; source: string; name: string }
+  | { kind: 'export'; source: string }
+  | { kind: 'import'; file: string }
 
 /** Fixed rather than random so the Vite dev server's proxy knows where to find it; `--port` moves it. */
 export const DEFAULT_WEB_PORT = 7373
@@ -39,6 +47,12 @@ Usage
   open-agent --resume            reopen the most recent session
   open-agent --resume <id>       reopen a specific session by id
   open-agent --history           list recent tasks from past sessions
+  open-agent --profile <name> --duplicate-profile <new-name>
+                                 copy a profile to ~/.openagent/profiles/<new-name>.yaml
+  open-agent --export-profile <name>
+                                 print a profile as YAML, to share
+  open-agent --import-profile <file.yaml>
+                                 add a shared profile to ~/.openagent/profiles/
 
 Options
   -p, --print [task]   non-interactive: run a single task and exit
@@ -89,6 +103,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     history: { type: 'boolean', default: false },
     port: { type: 'string' },
     profile: { type: 'string' },
+    'duplicate-profile': { type: 'string' },
+    'export-profile': { type: 'string' },
+    'import-profile': { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
@@ -101,6 +118,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     history: boolean
     port?: string | undefined
     profile?: string | undefined
+    'duplicate-profile'?: string | undefined
+    'export-profile'?: string | undefined
+    'import-profile'?: string | undefined
     help: boolean
   }
   try {
@@ -113,6 +133,9 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       history: boolean
       port?: string | undefined
       profile?: string | undefined
+      'duplicate-profile'?: string | undefined
+      'export-profile'?: string | undefined
+      'import-profile'?: string | undefined
       help: boolean
     }
     positionals = parsed.positionals
@@ -144,6 +167,26 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     return { ok: false, error: '--profile needs a profile name or path.' }
   }
   const profile = values.profile === undefined ? {} : { profile: values.profile }
+
+  const profileOp = parseProfileOp(values)
+  if (profileOp) {
+    if (!profileOp.ok) return profileOp
+    if (positionals.length > 0 || values.print) {
+      return { ok: false, error: 'A profile command runs on its own: drop the task, -p and `init`/`web`.' }
+    }
+    return {
+      ok: true,
+      args: {
+        mode: 'profile',
+        approveAsk: false,
+        plan: false,
+        resume: undefined,
+        history: false,
+        help: false,
+        profileOp: profileOp.op,
+      },
+    }
+  }
 
   const isWeb = !values.print && positionals.length === 1 && positionals[0] === 'web'
   if (values.port !== undefined && !isWeb) {
@@ -213,4 +256,35 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       ...profile,
     },
   }
+}
+
+/**
+ * The three profile commands, at most one at a time. Duplicate names its
+ * source with `--profile`, the flag that already means "this profile"; the
+ * other two take theirs as the flag's value.
+ */
+function parseProfileOp(values: {
+  profile?: string
+  'duplicate-profile'?: string
+  'export-profile'?: string
+  'import-profile'?: string
+}): { ok: true; op: ProfileOp } | { ok: false; error: string } | undefined {
+  const given = (['duplicate-profile', 'export-profile', 'import-profile'] as const).filter(
+    (flag) => values[flag] !== undefined,
+  )
+  if (given.length === 0) return undefined
+  if (given.length > 1) return { ok: false, error: `Use one of ${given.map((f) => `--${f}`).join(', ')} at a time.` }
+  const flag = given[0]
+  const value = values[flag]!.trim()
+  if (value === '') return { ok: false, error: `--${flag} needs a value.` }
+  if (flag === 'duplicate-profile') {
+    if (values.profile === undefined) {
+      return { ok: false, error: '--duplicate-profile <new-name> needs --profile <source> to copy from.' }
+    }
+    return { ok: true, op: { kind: 'duplicate', source: values.profile, name: value } }
+  }
+  if (values.profile !== undefined) return { ok: false, error: `--${flag} takes the profile itself; drop --profile.` }
+  return flag === 'export-profile'
+    ? { ok: true, op: { kind: 'export', source: value } }
+    : { ok: true, op: { kind: 'import', file: value } }
 }
