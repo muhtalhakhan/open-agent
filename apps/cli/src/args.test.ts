@@ -31,6 +31,17 @@ describe('parseCliArgs', () => {
     expect(ok(['-p', 'task']).approveAsk).toBe(false)
   })
 
+  it('carries --profile through to the session, print mode and web', () => {
+    expect(ok(['--profile', 'coding-agent']).profile).toBe('coding-agent')
+    expect(ok(['-p', 'task', '--profile', './p.yaml']).profile).toBe('./p.yaml')
+    expect(ok(['web', '--profile', 'research-agent']).profile).toBe('research-agent')
+    expect(ok([])).not.toHaveProperty('profile')
+  })
+
+  it('rejects an empty --profile', () => {
+    expect(parseCliArgs(['--profile', ''])).toMatchObject({ ok: false, error: expect.stringMatching(/--profile/) })
+  })
+
   it('runs the setup wizard for "init", and treats -p init as a task', () => {
     expect(ok(['init'])).toMatchObject({ mode: 'init' })
     expect(ok(['-p', 'init'])).toMatchObject({ mode: 'print', prompt: 'init' })

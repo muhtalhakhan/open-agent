@@ -17,10 +17,9 @@ export interface CliArgs {
   /** Print recent past tasks and exit. */
   history: boolean
   help: boolean
-  /** Load an agent profile (name under ~/.openagent/profiles/ or examples/profiles/, or a path) and apply its settings. */
-  duplicateProfile?: string
-  exportProfile?: string
-  importProfile?: string
+  /** The local port `web` listens on. */
+  port?: number
+  /** An agent profile to apply over the `.env` config: a name looked up in the profile folders, or a path. */
   profile?: string
 }
 
@@ -46,9 +45,10 @@ Options
   -y, --yes            approve "ask"-level tool calls without prompting
   --plan               review file edits as a diff before they run (interactive sessions)
   --resume [id]        resume the most recent or named session
-  --profile <name>     load an agent profile before starting
   --history            list recent past tasks and exit
   --port <n>           the local port for \`open-agent web\` (default ${DEFAULT_WEB_PORT})
+  --profile <name>     apply an agent profile: a name from ~/.openagent/profiles/
+                       or examples/profiles/, or a path to a .yaml file
   -h, --help           show this help
 
 In the interactive session
@@ -88,6 +88,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     resume: { type: 'string' },
     history: { type: 'boolean', default: false },
     port: { type: 'string' },
+    profile: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
@@ -97,13 +98,10 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     yes: boolean
     plan: boolean
     resume?: string | undefined
-    duplicateProfile?: string | undefined
-    exportProfile?: string | undefined
-    importProfile?: string | undefined
     history: boolean
     port?: string | undefined
-    help: boolean
     profile?: string | undefined
+    help: boolean
   }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
@@ -112,56 +110,40 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       yes: boolean
       plan: boolean
       resume?: string | undefined
-      duplicateProfile?: string | undefined
-      exportProfile?: string | undefined
-      importProfile?: string | undefined
       history: boolean
       port?: string | undefined
-      help: boolean
       profile?: string | undefined
+      help: boolean
     }
     positionals = parsed.positionals
-  } catch (e: any) {
-    return { ok: false, error: `Usage: ${e.message || String(e)}` }
+  } catch (err) {
+    return { ok: false, error: `${err instanceof Error ? err.message : String(err)}\n\n${USAGE}` }
   }
-
   if (values.help) {
     return {
       ok: true,
-      args: {
-        mode: 'repl',
-        approveAsk: false,
-        plan: false,
-        resume: undefined,
-        history: false,
-        help: true,
-        profile: undefined,
-        duplicateProfile: undefined,
-        exportProfile: undefined,
-        importProfile: undefined,
-      },
+      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: false, help: true },
     }
   }
   if (values.history) {
     return {
       ok: true,
-      args: {
-        mode: 'repl',
-        approveAsk: false,
-        plan: false,
-        resume: undefined,
-        history: true,
-        help: false,
-        profile: undefined,
-        duplicateProfile: undefined,
-        exportProfile: undefined,
-        importProfile: undefined,
-      },
+      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: true, help: false },
     }
   }
 
+  // parseArgs always returns a string for `resume`. Treat `--resume` (no value)
+  // as `true` (resume most recent) by leaving the value undefined; treat a
+  // bare token after `--resume` as that session id.
   const resumeValue: string | true | undefined =
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
+
+  // An empty value would otherwise slip through as "no profile" and start a
+  // session without the settings that were asked for.
+  if (values.profile !== undefined && values.profile.trim() === '') {
+    return { ok: false, error: '--profile needs a profile name or path.' }
+  }
+  const profile = values.profile === undefined ? {} : { profile: values.profile }
 
   const isWeb = !values.print && positionals.length === 1 && positionals[0] === 'web'
   if (values.port !== undefined && !isWeb) {
@@ -183,26 +165,18 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         history: false,
         help: false,
         port,
+        ...profile,
       },
     }
   }
 
   if (!values.print) {
+    // A word rather than a flag: it is a different program from the session,
+    // and `-p init` still means "run the task called init".
     if (positionals.length === 1 && positionals[0] === 'init') {
       return {
         ok: true,
-        args: {
-          mode: 'init',
-          approveAsk: false,
-          plan: false,
-          resume: undefined,
-          history: false,
-          help: false,
-          profile: undefined,
-          duplicateProfile: undefined,
-          exportProfile: undefined,
-          importProfile: undefined,
-        },
+        args: { mode: 'init', approveAsk: false, plan: false, resume: undefined, history: false, help: false },
       }
     }
     if (positionals.length > 0) {
@@ -217,10 +191,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         resume: resumeValue,
         history: false,
         help: false,
-        profile: values.profile,
-        duplicateProfile: values.duplicateProfile,
-        exportProfile: values.exportProfile,
-        importProfile: values.importProfile,
+        ...profile,
       },
     }
   }
@@ -239,10 +210,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume: resumeValue,
       history: false,
       help: false,
-      profile: values.profile,
-      duplicateProfile: values.duplicateProfile,
-      exportProfile: values.exportProfile,
-      importProfile: values.importProfile,
+      ...profile,
     },
   }
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env -S npx tsx
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
@@ -40,6 +41,7 @@ import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
 import { applySettings, readSettings, type SettingsDeps } from './settings.js'
 import { executeTask } from './task.js'
+import { applyProfile, loadProfile, type AgentProfile } from './profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
@@ -168,109 +170,27 @@ async function main() {
   const web = args.mode === 'web'
   const useTui = ttyBothEnds && !headless && !web
 
-  let profileName: string | undefined
-  let profileModel: string | undefined
-  // Load profile first (if given) so it supplements / overrides .env.
-  if (args.profile !== undefined) {
-    const profileResult = loadProfile(args.profile)
-    if (!profileResult.ok) {
-      console.error(profileResult.error)
-      process.exitCode = 1
-      return
-    }
-    const profile = profileResult.profile
-    profileName = profile.name
-    profileModel = profile.model
-    // Profile takes precedence over env where both present; supplies missing values.
-    if (profile.model) process.env.OPENAI_MODEL = profile.model
-    if (profile.memory !== undefined) {
-      if (profile.memory) process.env.MEMORY_ENABLED = '1'
-      else delete process.env.MEMORY_ENABLED
-    }
-    if (profile.tools) {
-      if (profile.tools.browser) process.env.BROWSER_USE = '1'
-      else if (process.env.BROWSER_USE === undefined) process.env.BROWSER_USE = '0'
-      if (profile.tools.computer) process.env.COMPUTER_USE = '1'
-      else if (process.env.COMPUTER_USE === undefined) process.env.COMPUTER_USE = '0'
-      if (profile.tools.files) process.env.FILES_TOOL = '1'
-      else if (process.env.FILES_TOOL === undefined) process.env.FILES_TOOL = '0'
-      if (profile.tools.shell) process.env.SHELL_TOOL = '1'
-      else if (process.env.SHELL_TOOL === undefined) process.env.SHELL_TOOL = '0'
-      if (profile.tools.http) process.env.HTTP_TOOL = '1'
-      else if (process.env.HTTP_TOOL === undefined) process.env.HTTP_TOOL = '0'
-      if (profile.tools.docker) process.env.DOCKER_TOOL = '1'
-      else if (process.env.DOCKER_TOOL === undefined) process.env.DOCKER_TOOL = '0'
-      if (profile.tools.email) process.env.EMAIL_TOOL = '1'
-      else if (process.env.EMAIL_TOOL === undefined) process.env.EMAIL_TOOL = '0'
-      if (profile.tools.calendar) process.env.CALENDAR_TOOL = '1'
-      else if (process.env.CALENDAR_TOOL === undefined) process.env.CALENDAR_TOOL = '0'
-    }
-    // Profile permissions applied to env so config loader can pick them up.
-    if (profile.permissions) {
-      for (const [key, value] of Object.entries(profile.permissions)) {
-        process.env[`PERMISSION_${key}`] = value
-      }
-    }
-    // Report profile load once io is available (after setup below).
-    // (profileName and profileModel captured for the message below)
-  }
-
-  // Handle profile operations (duplicate/export/import) — pure actions, no loop needed.
-  if (args.duplicateProfile !== undefined) {
-    // Direct flags: --profile <source> --duplicate <new-name>
-    if (!args.profile) {
-      console.error('Usage: --duplicate requires --profile <source>')
-      process.exitCode = 1
-      return
-    }
-    const result = duplicateProfile(args.profile, args.duplicateProfile)
-    if (!result.ok) {
-      console.error(result.error)
-      process.exitCode = 1
-      return
-    }
-    console.log(`Profile duplicated: ${result.profilePath}`)
-    return
-  }
-  if (args.exportProfile !== undefined) {
-    const profileName = args.profile ?? args.exportProfile
-    const result = exportProfile(profileName)
-    if (!result.ok) {
-      console.error(result.error)
-      process.exitCode = 1
-      return
-    }
-    console.log(result.yaml)
-    return
-  }
-  if (args.importProfile !== undefined) {
-    const content = readFileSync(args.importProfile, 'utf8')
-    const result = importProfile(content, args.profile)
-    if (!result.ok) {
-      console.error(result.error)
-      process.exitCode = 1
-      return
-    }
-    console.log(`Profile imported: ${result.profilePath}`)
-    return
-  }
-
   const result = loadConfigFromEnv(process.env)
-  const profileConfigApplied = args.profile !== undefined
-
-  if (!result.ok && !profileConfigApplied) {
+  if (!result.ok) {
     console.error(result.error)
     process.exitCode = 1
     return
   }
-  // Re-resolve config after profile overrides (profile already applied above)
-  const configResult = loadConfigFromEnv(process.env)
-  if (!configResult.ok) {
-    console.error(configResult.error)
-    process.exitCode = 1
-    return
+  let { config } = result
+  let profile: AgentProfile | undefined
+  if (args.profile !== undefined) {
+    const loaded = loadProfile(args.profile, {
+      user: path.join(os.homedir(), '.openagent', 'profiles'),
+      examples: path.resolve(__dirname, '../../../examples/profiles'),
+    })
+    if (!loaded.ok) {
+      console.error(loaded.error)
+      process.exitCode = 1
+      return
+    }
+    profile = loaded.profile
+    config = applyProfile(config, profile)
   }
-  const { config } = configResult
 
   const instructions = await loadProjectInstructions()
 
@@ -404,10 +324,6 @@ async function main() {
     teardown = () => rl.close()
   }
 
-  if (profileName && profileModel) {
-    io.write(`Loaded profile: ${profileName} (model: ${profileModel})\n`)
-  }
-
   // Surfaced on startup: a file that silently steers every turn is worth
   // naming. Reported relative to the repo root, not the cwd, so it reads as
   // `AGENTS.md` however deep the CLI was launched from.
@@ -417,6 +333,8 @@ async function main() {
         `${instructions.truncated ? ' (truncated)' : ''}\n`,
     )
   }
+
+  if (profile) io.write(`Loaded profile: ${profile.name} (model: ${profile.model})\n`)
 
   // Plan mode needs a human to review the diff, so it is interactive-only.
   // Failing loudly beats silently treating --plan as a no-op in a CI job.
