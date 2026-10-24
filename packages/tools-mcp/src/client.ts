@@ -28,7 +28,17 @@ export class McpStdioClient {
     private readonly proc: McpProcessLike,
     private readonly clientName = 'open-agent',
   ) {
-    createInterface({ input: this.proc.stdout }).on('line', (line) => this.handleLine(line))
+    const lines = createInterface({ input: this.proc.stdout })
+    lines.on('line', (line) => this.handleLine(line))
+    // A server that exits — crashed, killed, out of memory — never answers
+    // what it was asked. Without this, every call waiting on it would wait
+    // forever, and the task with it.
+    lines.on('close', () => this.failPending(new Error('MCP server exited')))
+  }
+
+  private failPending(error: Error): void {
+    for (const { reject } of this.pending.values()) reject(error)
+    this.pending.clear()
   }
 
   private handleLine(line: string): void {
@@ -87,8 +97,7 @@ export class McpStdioClient {
   }
 
   close(): void {
-    for (const { reject } of this.pending.values()) reject(new Error('MCP client closed'))
-    this.pending.clear()
+    this.failPending(new Error('MCP client closed'))
     this.proc.kill()
   }
 }

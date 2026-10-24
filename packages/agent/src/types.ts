@@ -60,9 +60,29 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
   plan?(args: Args, context: ToolExecutionContext): Promise<ToolResult>
 }
 
+/**
+ * Something a tool produced for a person to look at — a screenshot of the
+ * page it just acted on — rather than for the model to read.
+ */
+export interface ToolAttachment {
+  kind: 'image'
+  mimeType: string
+  /** Base64. */
+  data: string
+  /** What it shows, in a few words: the tool that produced it, say. */
+  caption?: string
+}
+
 export interface ToolExecutionContext {
   taskId: string
   signal: AbortSignal
+  /**
+   * Shows an attachment to whoever is watching the task, when someone is.
+   * Display only, like streamed text: it is not logged and never reaches the
+   * model, so an image the page put on screen cannot steer the agent. A tool
+   * with nothing to show, or nobody watching, simply has it absent.
+   */
+  onAttachment?: (attachment: ToolAttachment) => void
 }
 
 export interface LlmRequest {

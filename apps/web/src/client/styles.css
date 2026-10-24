@@ -573,6 +573,30 @@ code {
   overflow-wrap: anywhere;
 }
 
+.screen {
+  margin: 8px 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.screen img {
+  display: block;
+  width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+  object-position: top;
+  background: var(--bg);
+}
+
+.screen figcaption {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .step-divider {
   display: flex;
   align-items: center;
