@@ -133,7 +133,7 @@ docker/        Container definitions for sandboxed execution
 
 ## Language choice
 
-TypeScript-first across `apps/` and `packages/` for a unified type system between the runtime, tool interfaces, and web UI. Individual tools (e.g. computer-use/vision helpers) may shell out to Python where the ecosystem is stronger, but the agent core and tool contracts are TypeScript.
+TypeScript-first across `apps/` and `packages/` for a unified type system between the runtime, tool interfaces, and web UI. Individual tools (e.g. computer-use/vision helpers) may shell out to Python where the ecosystem is stronger, but the agent core and tool contracts are TypeScript. A desktop shell, if there is one, is another host around the same core; see [desktop-shell.md](desktop-shell.md) for why that would be Tauri wrapping the web UI, and why not yet.
 
 ## Kernel: plugins, services, events
 

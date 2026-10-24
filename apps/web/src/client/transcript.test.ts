@@ -181,4 +181,20 @@ describe('reduce', () => {
       expect(onlyTurn(state).items[0]).toMatchObject({ status: 'ok', output: '# README' })
     })
   })
+
+  it('keeps one live picture per turn, replaced by each new one', () => {
+    const screen = (data: string): ServerEvent => ({
+      type: 'screen',
+      taskId: 't1',
+      mimeType: 'image/png',
+      data,
+      caption: `after ${data}`,
+    })
+    const state = fold([start, screen('a'), toolStart, screen('b')])
+
+    expect(onlyTurn(state).items).toEqual([
+      { kind: 'screen', mimeType: 'image/png', data: 'b', caption: 'after b' },
+      expect.objectContaining({ kind: 'tool' }),
+    ])
+  })
 })
