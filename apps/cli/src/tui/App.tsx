@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
+import { tail } from './tail.js'
 import type { TranscriptEntry, TuiHandlers } from './types.js'
 
 export interface AppProps {
@@ -22,18 +23,6 @@ export interface AppProps {
 }
 
 let nextEntryId = 0
-
-/**
- * Keep the live reply above the input line from crowding the screen: truncate
- * each line to terminal columns, then show only the last `rows` lines. Ink
- * repaints its dynamic area by erasing it, and one taller than the terminal
- * cannot be erased — it would leave a smear of copies in the scrollback. The
- * whole reply still lands in the transcript once it is finished.
- */
-function tail(text: string, rows: number, cols: number): string {
-  const lines = text.split('\n').map((line) => (line.length > cols ? line.slice(0, cols - 1) + '…' : line))
-  return lines.length <= rows ? lines.join('\n') : ['…', ...lines.slice(-(rows - 1))].join('\n')
-}
 
 /**
  * The whole TUI: a `<Static>` scrollback transcript (each entry is rendered
@@ -105,19 +94,13 @@ export function App({ onReady, onInterrupt }: AppProps) {
     <Box flexDirection="column">
       <Static items={entries}>
         {(entry) => (
-          <Box key={entry.id} marginBottom={1}>
-            <Box flexDirection="row">
-              <Box width={2}>
-                {entry.kind === 'output' && <Text dimColor>●</Text>}
-                {entry.kind === 'activity' && <Text color="yellow">▸</Text>}
-                {entry.kind === 'input' && <Text color="green">❯</Text>}
-              </Box>
-              <Box flexGrow={1}>
-                <Text dimColor={entry.kind !== 'output'} wrap={entry.kind === 'activity' ? 'truncate-end' : 'wrap'}>
-                  {entry.text}
-                </Text>
-              </Box>
-            </Box>
+          // A blank line before each thing the user typed separates the turns.
+          // Not after every entry: each write and each tool call is its own
+          // entry, and spacing them all out doubles the transcript's height.
+          <Box key={entry.id} marginTop={entry.kind === 'input' ? 1 : 0}>
+            <Text dimColor={entry.kind !== 'output'} wrap={entry.kind === 'activity' ? 'truncate-end' : 'wrap'}>
+              {entry.text}
+            </Text>
           </Box>
         )}
       </Static>
