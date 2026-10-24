@@ -19,6 +19,8 @@ export interface CliArgs {
   help: boolean
   /** The local port `web` listens on. */
   port?: number
+  /** An agent profile to apply over the `.env` config: a name looked up in the profile folders, or a path. */
+  profile?: string
 }
 
 /** Fixed rather than random so the Vite dev server's proxy knows where to find it; `--port` moves it. */
@@ -45,6 +47,8 @@ Options
   --resume [id]        resume the most recent or named session
   --history            list recent past tasks and exit
   --port <n>           the local port for \`open-agent web\` (default ${DEFAULT_WEB_PORT})
+  --profile <name>     apply an agent profile: a name from ~/.openagent/profiles/
+                       or examples/profiles/, or a path to a .yaml file
   -h, --help           show this help
 
 In the interactive session
@@ -84,6 +88,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     resume: { type: 'string' },
     history: { type: 'boolean', default: false },
     port: { type: 'string' },
+    profile: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
@@ -95,6 +100,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     resume?: string | undefined
     history: boolean
     port?: string | undefined
+    profile?: string | undefined
     help: boolean
   }
   try {
@@ -106,6 +112,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume?: string | undefined
       history: boolean
       port?: string | undefined
+      profile?: string | undefined
       help: boolean
     }
     positionals = parsed.positionals
@@ -131,6 +138,13 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   const resumeValue: string | true | undefined =
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
 
+  // An empty value would otherwise slip through as "no profile" and start a
+  // session without the settings that were asked for.
+  if (values.profile !== undefined && values.profile.trim() === '') {
+    return { ok: false, error: '--profile needs a profile name or path.' }
+  }
+  const profile = values.profile === undefined ? {} : { profile: values.profile }
+
   const isWeb = !values.print && positionals.length === 1 && positionals[0] === 'web'
   if (values.port !== undefined && !isWeb) {
     return { ok: false, error: '--port only applies to `open-agent web`.' }
@@ -151,6 +165,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         history: false,
         help: false,
         port,
+        ...profile,
       },
     }
   }
@@ -176,6 +191,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         resume: resumeValue,
         history: false,
         help: false,
+        ...profile,
       },
     }
   }
@@ -194,6 +210,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume: resumeValue,
       history: false,
       help: false,
+      ...profile,
     },
   }
 }

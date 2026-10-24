@@ -1,0 +1,9 @@
+# See coding-agent.yaml for how a profile combines with .env.
+name: Research Agent
+model: google/gemini-2.5-pro
+tools:
+  browser: true
+  files: true
+  http: false
+  shell: false
+  computer: false

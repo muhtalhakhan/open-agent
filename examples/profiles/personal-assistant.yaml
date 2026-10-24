@@ -1,0 +1,9 @@
+# See coding-agent.yaml for how a profile combines with .env.
+name: Personal Assistant
+model: openai/gpt-4o-mini
+tools:
+  browser: true
+  http: true
+  files: true
+  shell: false
+  computer: false

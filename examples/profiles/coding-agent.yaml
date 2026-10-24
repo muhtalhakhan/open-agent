@@ -1,0 +1,12 @@
+# Profiles are applied over .env: `model` and each tool listed here win over
+# the matching .env setting, and everything else (keys, sandbox, roots) comes
+# from .env. `model` goes to the endpoint in OPENAI_BASE_URL, so these ids are
+# OpenRouter's; use your own provider's ids if you point it elsewhere.
+name: Coding Agent
+model: anthropic/claude-sonnet-4.5
+tools:
+  files: true
+  shell: true
+  http: true
+  browser: false
+  computer: false

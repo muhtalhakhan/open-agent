@@ -1,5 +1,6 @@
 #!/usr/bin/env -S npx tsx
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
@@ -40,6 +41,7 @@ import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
 import { applySettings, readSettings, type SettingsDeps } from './settings.js'
 import { executeTask } from './task.js'
+import { applyProfile, loadProfile, type AgentProfile } from './profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
@@ -174,7 +176,21 @@ async function main() {
     process.exitCode = 1
     return
   }
-  const { config } = result
+  let { config } = result
+  let profile: AgentProfile | undefined
+  if (args.profile !== undefined) {
+    const loaded = loadProfile(args.profile, {
+      user: path.join(os.homedir(), '.openagent', 'profiles'),
+      examples: path.resolve(__dirname, '../../../examples/profiles'),
+    })
+    if (!loaded.ok) {
+      console.error(loaded.error)
+      process.exitCode = 1
+      return
+    }
+    profile = loaded.profile
+    config = applyProfile(config, profile)
+  }
 
   const instructions = await loadProjectInstructions()
 
@@ -317,6 +333,8 @@ async function main() {
         `${instructions.truncated ? ' (truncated)' : ''}\n`,
     )
   }
+
+  if (profile) io.write(`Loaded profile: ${profile.name} (model: ${profile.model})\n`)
 
   // Plan mode needs a human to review the diff, so it is interactive-only.
   // Failing loudly beats silently treating --plan as a no-op in a CI job.
