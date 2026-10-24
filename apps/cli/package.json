@@ -31,7 +31,8 @@
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "react": "^19.2.8",
-    "string-width": "^8.3.0"
+    "string-width": "^8.3.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

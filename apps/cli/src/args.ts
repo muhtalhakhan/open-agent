@@ -19,6 +19,8 @@ export interface CliArgs {
   help: boolean
   /** The local port `web` listens on. */
   port?: number
+  /** An agent profile to apply over the `.env` config: a name looked up in the profile folders, or a path. */
+  profile?: string
 }
 
 /** Fixed rather than random so the Vite dev server's proxy knows where to find it; `--port` moves it. */
@@ -43,9 +45,10 @@ Options
   -y, --yes            approve "ask"-level tool calls without prompting
   --plan               review file edits as a diff before they run (interactive sessions)
   --resume [id]        resume the most recent or named session
-  --profile <name>     load an agent profile before starting
   --history            list recent past tasks and exit
   --port <n>           the local port for \`open-agent web\` (default ${DEFAULT_WEB_PORT})
+  --profile <name>     apply an agent profile: a name from ~/.openagent/profiles/
+                       or examples/profiles/, or a path to a .yaml file
   -h, --help           show this help
 
 In the interactive session
@@ -85,6 +88,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     resume: { type: 'string' },
     history: { type: 'boolean', default: false },
     port: { type: 'string' },
+    profile: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
@@ -96,8 +100,8 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     resume?: string | undefined
     history: boolean
     port?: string | undefined
-    help: boolean
     profile?: string | undefined
+    help: boolean
   }
   try {
     const parsed = parseArgs({ args: argv, options, allowPositionals: true })
@@ -108,8 +112,8 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume?: string | undefined
       history: boolean
       port?: string | undefined
-      help: boolean
       profile?: string | undefined
+      help: boolean
     }
     positionals = parsed.positionals
   } catch (err) {
@@ -118,29 +122,13 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   if (values.help) {
     return {
       ok: true,
-      args: {
-        mode: 'repl',
-        approveAsk: false,
-        plan: false,
-        resume: undefined,
-        history: false,
-        help: true,
-        profile: undefined,
-      },
+      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: false, help: true },
     }
   }
   if (values.history) {
     return {
       ok: true,
-      args: {
-        mode: 'repl',
-        approveAsk: false,
-        plan: false,
-        resume: undefined,
-        history: true,
-        help: false,
-        profile: undefined,
-      },
+      args: { mode: 'repl', approveAsk: false, plan: false, resume: undefined, history: true, help: false },
     }
   }
 
@@ -149,6 +137,13 @@ export function parseCliArgs(argv: string[]): ArgsResult {
   // bare token after `--resume` as that session id.
   const resumeValue: string | true | undefined =
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
+
+  // An empty value would otherwise slip through as "no profile" and start a
+  // session without the settings that were asked for.
+  if (values.profile !== undefined && values.profile.trim() === '') {
+    return { ok: false, error: '--profile needs a profile name or path.' }
+  }
+  const profile = values.profile === undefined ? {} : { profile: values.profile }
 
   const isWeb = !values.print && positionals.length === 1 && positionals[0] === 'web'
   if (values.port !== undefined && !isWeb) {
@@ -170,6 +165,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         history: false,
         help: false,
         port,
+        ...profile,
       },
     }
   }
@@ -180,15 +176,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     if (positionals.length === 1 && positionals[0] === 'init') {
       return {
         ok: true,
-        args: {
-          mode: 'init',
-          approveAsk: false,
-          plan: false,
-          resume: undefined,
-          history: false,
-          help: false,
-          profile: undefined,
-        },
+        args: { mode: 'init', approveAsk: false, plan: false, resume: undefined, history: false, help: false },
       }
     }
     if (positionals.length > 0) {
@@ -203,7 +191,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
         resume: resumeValue,
         history: false,
         help: false,
-        profile: values.profile,
+        ...profile,
       },
     }
   }
@@ -222,7 +210,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       resume: resumeValue,
       history: false,
       help: false,
-      profile: values.profile,
+      ...profile,
     },
   }
 }
