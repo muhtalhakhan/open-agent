@@ -71,6 +71,21 @@ vision()
 > response, which is all the session log ever records. `tool_call()` and
 > `vision()` are design targets, not code.
 
+Beside it sits a second, much smaller seam: `DecisionModel` (`name` + `decide()`), for typed judgments (yes/no, choice, score) that come back as probabilities rather than prose. `JevDecisionModel` in `packages/providers` implements it against TypeSafe's Jev. It is used two ways:
+
+- **As agent tools** (`tools-decision`): the model calls `classify_items`, `check_claims`, `rank_candidates` or `score_items` when it would otherwise label, verify or sift a list in its own tokens.
+- **As a runtime decision layer** (`decision-layer.ts`, opt-in): once per turn, before the first LLM request, one decision call chooses which tool schemas to send (every schema is otherwise re-sent on every step) and whether a cheaper `lightLlm` will do. The choice is appended to the session log as `turn/decision` before it is acted on, and any failure, timeout or unsure answer falls back to all tools and the default model.
+
+```
+User task ──▶ AgentLoop ──▶ decideTurn ──▶ DecisionModel (Jev)        ~100s of ms, one call
+                 │              │
+                 │              └─ turn/decision {tools, llm} ──▶ SessionLog
+                 ▼
+             LlmAdapter (default or light) ◀── only the kept tool schemas
+```
+
+Whether it saves money is measured, not assumed: every reply logs the provider's token usage (`assistant/message.usage`), and every decision logs its own (`turn/decision.usage`).
+
 It never knows whether the backend is OpenAI, Gemini, Claude, Grok, DeepSeek, OpenRouter, Ollama, LM Studio, or a custom endpoint. Switching providers is a config change:
 
 ```yaml
@@ -103,6 +118,7 @@ packages/
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
   tools-terminal/ ✅ run_command + background process management (start/list/read/stop), workspace-rooted, timed out and killed by process group, sandboxed via bubblewrap or Docker with a read-only filesystem and no network by default
   tools-http/  ✅ http_request: direct calls to APIs with no MCP server, behind a host allowlist and secret placeholders
+  tools-decision/ ✅ classify_items/check_claims/rank_candidates/score_items: typed judgments with calibrated probabilities from a DecisionModel (Jev today), for the small calls not worth an LLM round-trip
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
   tools/       🚧 Remaining built-in tools: shell (Milestone 5)
@@ -117,7 +133,7 @@ docker/        Container definitions for sandboxed execution
 
 ## Language choice
 
-TypeScript-first across `apps/` and `packages/` for a unified type system between the runtime, tool interfaces, and web UI. Individual tools (e.g. computer-use/vision helpers) may shell out to Python where the ecosystem is stronger, but the agent core and tool contracts are TypeScript.
+TypeScript-first across `apps/` and `packages/` for a unified type system between the runtime, tool interfaces, and web UI. Individual tools (e.g. computer-use/vision helpers) may shell out to Python where the ecosystem is stronger, but the agent core and tool contracts are TypeScript. A desktop shell, if there is one, is another host around the same core; see [desktop-shell.md](desktop-shell.md) for why that would be Tauri wrapping the web UI, and why not yet.
 
 ## Kernel: plugins, services, events
 

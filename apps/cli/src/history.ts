@@ -1,5 +1,6 @@
 import { readTaskHistory, taskRecords } from '@open-agent/agent'
 import type { SessionLog, SessionStore, TaskRecord } from '@open-agent/agent'
+import { formatUsage } from './usage.js'
 
 /** How much of a prompt or answer one history line shows. */
 const PREVIEW_LENGTH = 100
@@ -30,7 +31,8 @@ export function formatHistory(records: TaskRecord[], options: FormatHistoryOptio
     if (record.answer) lines.push(`    ${preview(record.answer)}`)
     const where = record.sessionId ?? 'this session'
     const tools = record.toolCalls === 1 ? '1 tool call' : `${record.toolCalls} tool calls`
-    lines.push(`    ${where} · ${tools}`)
+    const cost = record.usage ? ` · ${formatUsage(record.usage)}` : ''
+    lines.push(`    ${where} · ${tools}${cost}`)
     return lines.join('\n')
   })
   const resumable = records.some((record) => record.sessionId)

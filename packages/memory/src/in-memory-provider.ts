@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   ForgetRequest,
   MemoryEntry,
+  MemoryItem,
   MemoryProfile,
   MemoryProvider,
   MemorySearchResult,
@@ -55,6 +56,14 @@ export class InMemoryMemoryProvider implements MemoryProvider {
       static: live.slice(0, half).map((e) => e.content),
       dynamic: live.slice(half).map((e) => e.content),
     }
+  }
+
+  async list(containerTag: string, { limit }: { limit?: number } = {}): Promise<MemoryItem[]> {
+    return this.entries
+      .filter((e) => e.containerTag === containerTag && !e.forgotten)
+      .reverse()
+      .slice(0, limit)
+      .map((e) => ({ id: e.id, content: e.content, metadata: e.metadata }))
   }
 
   async update(request: MemoryUpdate): Promise<{ updated: boolean }> {

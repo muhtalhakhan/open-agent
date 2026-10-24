@@ -1,6 +1,7 @@
 import type {
   ForgetRequest,
   MemoryEntry,
+  MemoryItem,
   MemoryProfile,
   MemoryProvider,
   MemorySearchResult,
@@ -23,7 +24,9 @@ export interface Mem0ClientLike {
     query: string,
     options: { filters: Record<string, unknown>; topK?: number },
   ): Promise<{ results: Array<{ id: string; memory?: string; score?: number; metadata?: unknown }> }>
-  getAll(options: { filters: Record<string, unknown> }): Promise<{ results: Array<{ id: string; memory?: string }> }>
+  getAll(options: {
+    filters: Record<string, unknown>
+  }): Promise<{ results: Array<{ id: string; memory?: string; metadata?: unknown }> }>
   delete(memoryId: string): Promise<{ message: string }>
 }
 
@@ -73,6 +76,15 @@ export class Mem0Provider implements MemoryProvider {
   async profile(containerTag: string): Promise<MemoryProfile> {
     const { results } = await this.client.getAll({ filters: { user_id: containerTag } })
     return { static: results.map((r) => r.memory ?? ''), dynamic: [] }
+  }
+
+  async list(containerTag: string, { limit }: { limit?: number } = {}): Promise<MemoryItem[]> {
+    const { results } = await this.client.getAll({ filters: { user_id: containerTag } })
+    return results.slice(0, limit).map((r) => ({
+      id: r.id,
+      content: r.memory ?? '',
+      metadata: (r.metadata as Record<string, unknown> | null | undefined) ?? undefined,
+    }))
   }
 
   async update(_request: MemoryUpdate): Promise<{ updated: boolean }> {

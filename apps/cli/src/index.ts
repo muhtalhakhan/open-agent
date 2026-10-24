@@ -1,38 +1,23 @@
 #!/usr/bin/env -S npx tsx
-import { chmodSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import dotenv from 'dotenv'
 import {
-  AgentLoop,
   LeaseManager,
+  approvalScopes,
   SessionLog,
   SessionStore,
   ToolRegistry,
   buildSystemPrompt,
-  consoleLogger,
   loadProjectInstructions,
   readTaskHistory,
-  silentLogger,
 } from '@open-agent/agent'
-import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin } from '@open-agent/memory'
-import type { MemoryProvider } from '@open-agent/memory'
-import { OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
-import { mountBrowserUseTools } from '@open-agent/tools-browser'
-import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
-import { httpRequestTool } from '@open-agent/tools-http'
-import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
-import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
-import { Context } from '@open-agent/context'
-import {
-  computerUseTaskTool,
-  computerScreenshotTool,
-  mountTakeoverTools,
-  createNutJsScreenshotOperator,
-  createUiTarsGuiAgentFactory,
-} from '@open-agent/tools-computer'
+import { OpenAiCompatibleProvider } from '@open-agent/providers'
+import { mountTakeoverTools } from '@open-agent/tools-computer'
 import { KeychainSecretStore } from '@open-agent/security'
+import { startWebServer, type SettingsSource, type WebServer } from '@open-agent/web'
 import { loadConfigFromEnv } from './config.js'
 import { runInit, type KeychainWriter } from './init.js'
 import { createTerminalInitIO } from './init-io.js'
@@ -43,7 +28,7 @@ import {
   createTerminalApprovalHandler,
 } from './approval.js'
 import { createBackgroundJobs, type BackgroundJobs } from './background.js'
-import { parseCliArgs, USAGE } from './args.js'
+import { DEFAULT_WEB_PORT, parseCliArgs, USAGE } from './args.js'
 import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { createTerminalAnswerStream, type AnswerStream } from './answer-stream.js'
@@ -52,11 +37,21 @@ import { createLineActivityView, type ToolActivityView } from './tool-activity.j
 import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
-import { loadProfile, duplicateProfile, exportProfile, importProfile } from './profiles.js'
+import { createRuntime } from './runtime.js'
+import { applySettings, readSettings, type SettingsDeps } from './settings.js'
+import { executeTask } from './task.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
-const ENV_PATH = path.resolve(__dirname, '../../../.env')
+// OPEN_AGENT_ENV_FILE moves it, for a deployment that keeps config outside
+// the checkout, and for anything that must not touch the real one.
+const ENV_PATH = process.env.OPEN_AGENT_ENV_FILE
+  ? path.resolve(process.env.OPEN_AGENT_ENV_FILE)
+  : path.resolve(__dirname, '../../../.env')
+// Before .env is loaded: what the shell itself set, which .env cannot
+// override. The web settings view must not offer to change those, since an
+// edit to .env would be saved and then silently ignored.
+const SHELL_ENV: Readonly<Record<string, string | undefined>> = { ...process.env }
 dotenv.config({ path: ENV_PATH })
 
 /** How long `init` waits for the model to answer its one test request. */
@@ -79,6 +74,39 @@ function readStdin(): Promise<string> {
     process.stdin.on('end', () => resolve(data))
     process.stdin.on('error', reject)
   })
+}
+
+/** Writes `.env` readable by its owner alone, as `init` does: it may hold keys. */
+function writeEnvFile(file: string, content: string): void {
+  writeFileSync(file, content, { mode: 0o600 })
+  // `mode` applies only to a file being created; one being replaced keeps
+  // whatever permissions it had.
+  chmodSync(file, 0o600)
+}
+
+/** The settings view's access to `.env` and, when configured, the keychain. */
+function webSettings(): SettingsSource {
+  let keychain: KeychainSecretStore | undefined
+  if (process.env.SECRET_STORE === 'keychain') {
+    keychain = new KeychainSecretStore({ service: process.env.SECRET_STORE_SERVICE?.trim() || undefined })
+  }
+  const deps: SettingsDeps = {
+    envPath: ENV_PATH,
+    readEnv: () => (existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null),
+    writeEnv: (content) => writeEnvFile(ENV_PATH, content),
+    shellEnv: SHELL_ENV,
+    keychain,
+    validate: (env) => {
+      const result = loadConfigFromEnv(env)
+      return result.ok ? undefined : result.error
+    },
+  }
+  return {
+    envPath: ENV_PATH,
+    secretStore: keychain ? keychain.name : '.env',
+    read: () => readSettings(deps),
+    apply: (changes) => applySettings(deps, changes),
+  }
 }
 
 async function main() {
@@ -106,12 +134,7 @@ async function main() {
       process.exitCode = await runInit(io, {
         envPath: ENV_PATH,
         exists: existsSync,
-        writeEnv(file, content) {
-          writeFileSync(file, content, { mode: 0o600 })
-          // `mode` applies only to a file being created; one being replaced
-          // keeps whatever permissions it had.
-          chmodSync(file, 0o600)
-        },
+        writeEnv: writeEnvFile,
         async check(llm) {
           try {
             await new OpenAiCompatibleProvider(llm).generate(
@@ -141,7 +164,9 @@ async function main() {
     return
   }
   const headless = args.mode === 'print'
-  const useTui = ttyBothEnds && !headless
+  // The person is in a browser, not at this terminal: nothing here prompts.
+  const web = args.mode === 'web'
+  const useTui = ttyBothEnds && !headless && !web
 
   let profileName: string | undefined
   let profileModel: string | undefined
@@ -292,11 +317,12 @@ async function main() {
     sessions.loadFrom(stored)
   }
 
-  const ctx = new Context()
   const tools = new ToolRegistry()
   const activeAbort: AbortRef = { current: null }
 
   let io: ReplIO
+  let webServer: WebServer | undefined
+  const pendingNotices: string[] = []
   let ask: (question: string) => Promise<string>
   let teardown: () => void
   // Print mode has no stream: stdout is the answer alone, and a script that
@@ -313,6 +339,22 @@ async function main() {
         return null
       },
       write: (text) => void process.stderr.write(text),
+    }
+    ask = async () => 'n'
+    teardown = () => {}
+  } else if (web) {
+    // Printed for whoever started the server and passed on to the browser:
+    // "the shell is unsandboxed" matters most to the person about to give the
+    // agent a task. Held until the server is up to receive it.
+    io = {
+      async prompt() {
+        return null
+      },
+      write: (text) => {
+        process.stdout.write(text)
+        if (webServer) webServer.notice(text)
+        else pendingNotices.push(text)
+      },
     }
     ask = async () => 'n'
     teardown = () => {}
@@ -385,33 +427,56 @@ async function main() {
     process.exitCode = 1
     return
   }
-
   // Background jobs exist only in the interactive session, and only once the
   // agent loop does; the router asks whichever set is live at call time.
   let background: BackgroundJobs | undefined
   tools.setUnattended((taskId) => background?.owns(taskId) ?? false)
-  tools.onApproval(
-    headless
-      ? createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg))
-      : createRoutingApprovalHandler(
-          (taskId) => background?.owns(taskId) ?? false,
-          args.plan
-            ? createPlanApprovalHandler(ask, (text) => io.write(text), { color: !useTui })
-            : createTerminalApprovalHandler(ask),
-          createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(`[background] ${msg}`)),
-        ),
-  )
+  if (headless) {
+    tools.onApproval(createNonInteractiveApprovalHandler(args.approveAsk, (msg) => void process.stderr.write(msg)))
+  } else if (web) {
+    // The person is in the browser, so the question goes there, with the
+    // choices the terminal would offer for the same call. `--yes` still means
+    // what it does everywhere else: nobody is asked about `ask`-level calls.
+    tools.onApproval(
+      args.approveAsk
+        ? createNonInteractiveApprovalHandler(true, (msg) => io.write(msg))
+        : async (call, tool, context) =>
+            webServer
+              ? webServer.requestApproval({
+                  tool: tool.name,
+                  level: tool.permissionLevel,
+                  args: call.args,
+                  scopes: approvalScopes(tool, context),
+                  ...(context.escalation
+                    ? { escalation: { rule: context.escalation.rule, reason: context.escalation.reason } }
+                    : {}),
+                  ...(context.planPreview !== undefined ? { planPreview: context.planPreview } : {}),
+                })
+              : false,
+    )
+  } else {
+    tools.onApproval(
+      createRoutingApprovalHandler(
+        (taskId) => background?.owns(taskId) ?? false,
+        args.plan
+          ? createPlanApprovalHandler(ask, (text) => io.write(text), { color: !useTui })
+          : createTerminalApprovalHandler(ask),
+        createNonInteractiveApprovalHandler(args.approveAsk, (msg) => io.write(`[background] ${msg}`)),
+      ),
+    )
+  }
   if (args.plan) {
     tools.enablePlans()
     io.write(`Plan mode: file edits are shown as a diff and reviewed before they run.\n`)
   }
 
-  // Handing the wheel to a person needs a person, so these exist in an
-  // interactive session and not in print mode. Not gated on COMPUTER_USE: a
-  // login wall is met by the browser tools far more often than by the
-  // computer ones, and the answer to it is the same handoff either way.
+  // Handing the wheel to a person needs a person at this machine's screen, so
+  // these exist in an interactive terminal session and not in print mode or
+  // the web UI, which has no way to offer the handoff yet. Not gated on
+  // COMPUTER_USE: a login wall is met by the browser tools far more often than
+  // by the computer ones, and the answer to it is the same handoff either way.
   let disposeTakeoverTools: (() => void) | undefined
-  if (!headless) {
+  if (!headless && !web) {
     const leases = new LeaseManager({
       sessions,
       handler: createTerminalTakeoverHandler(ask),
@@ -422,140 +487,22 @@ async function main() {
     disposeTakeoverTools = mountTakeoverTools(tools, leases)
   }
 
-  let disposeBrowserTools: (() => void) | undefined
-
-  // --- Computer-use tools (UI-TARS: screenshot + full mouse/keyboard loop) ---
-  if (config.computer.enabled) {
-    const factory = createUiTarsGuiAgentFactory({
-      model: {
-        // Same endpoint and key as the main LLM; COMPUTER_USE_MODEL only
-        // swaps the model, since UI-TARS wants a vision-capable one.
-        baseURL: config.llm.baseURL,
-        apiKey: config.llm.apiKey,
-        model: config.computer.model ?? config.llm.model,
-      },
-    })
-    tools.register(computerUseTaskTool(factory))
-    tools.register(computerScreenshotTool(createNutJsScreenshotOperator()))
-    io.write('Computer-use tools loaded (COMPUTER_USE=1).\n')
-  }
-  if (config.browser.enabled) {
-    // Via io.write, not console.log: in print mode that routes to stderr so
-    // it cannot land in the captured answer.
-    io.write('Starting browser-use (python -m browser_use.mcp)...\n')
-    // A shared profile is a browser already logged into everything the user
-    // is, reachable by any page the agent visits. Worth saying out loud when
-    // someone has asked for it.
-    io.write(
-      config.browser.profileDir
-        ? `Browser profile: ${config.browser.profileDir} (SHARED — the agent gets any session logged in there)\n`
-        : 'Browser profile: a throwaway one, discarded when this run ends\n',
-    )
-    disposeBrowserTools = await mountBrowserUseTools(tools, {
-      profileDir: config.browser.profileDir,
-      keepProfile: config.browser.keepProfile,
-      allowEnv: config.browser.allowEnv,
-    })
-  }
-
-  // One workspace for the file and shell tools alike: the capability the user
-  // granted is "this directory", not "this directory for reads and some other
-  // one for commands". `WORKSPACE_SESSION=1` provisions a throwaway directory
-  // per run instead, which is what keeps two concurrent agents out of each
-  // other's files.
-  let workspace: Workspace | undefined
-  let disposeFileTools: (() => void) | undefined
-  let disposeTerminalTools: (() => void) | undefined
-
-  if (config.files.enabled || config.shell.enabled) {
-    const policy = { deny: config.files.deny, allow: config.files.allow, readOnly: config.files.readOnly }
-    workspace = config.workspace.session
-      ? await createSessionWorkspace({ base: config.workspace.base, policy })
-      : await openWorkspace({ root: config.files.root ?? config.shell.root ?? process.cwd(), policy })
-
-    if (config.workspace.session) {
-      io.write(`Working in a session workspace at ${workspace.root}\n`)
-    }
-    if (config.files.enabled) disposeFileTools = mountFileTools(tools, workspace)
-
-    if (config.shell.enabled) {
-      const sandbox = await selectSandbox(config.shell.sandbox, {
-        docker: { image: config.shell.sandboxImage },
-      })
-
-      // Not registering the tools is the whole point of the check. Falling
-      // back to an unsandboxed shell because bwrap happened to be missing is
-      // exactly the failure the sandbox exists to prevent, so the shell stays
-      // off until someone says which of the two they want.
-      if (!sandbox) {
-        io.write(
-          `Shell tools are off: no sandbox is available (asked for "${config.shell.sandbox}").\n` +
-            `Install bubblewrap or Docker, or set SHELL_SANDBOX=none to run commands with your own privileges.\n`,
-        )
-      } else {
-        if (sandbox.name === 'none') {
-          io.write('Shell tools are UNSANDBOXED: commands run with your full privileges.\n')
-        } else {
-          io.write(`Shell sandbox: ${sandbox.describe()}\n`)
-        }
-        disposeTerminalTools = mountTerminalTools(tools, workspace, {
-          allowedCommands: config.shell.allowedCommands,
-          allowEnv: config.shell.allowEnv,
-          timeoutMs: config.shell.timeoutMs,
-          sandbox,
-          network: config.shell.network,
-        })
-      }
-    }
-  }
-
-  if (config.http.enabled) {
-    tools.register(
-      httpRequestTool({
-        allowedHosts: config.http.allowedHosts,
-        network: { deniedHosts: config.http.deniedHosts, allowLocal: config.http.allowLocal },
-        secrets: config.http.secrets,
-      }),
-    )
-  }
-
-  if (config.search.provider !== 'none') {
-    const searchProvider =
-      config.search.provider === 'brave'
-        ? new BraveSearchProvider({ apiKey: config.search.apiKey })
-        : new TavilySearchProvider({ apiKey: config.search.apiKey })
-    tools.register(webSearchTool(searchProvider))
-  }
-
-  if (config.memory.provider === 'supermemory') {
-    const { default: Supermemory } = await import('supermemory')
-    ctx.plugin(
-      memoryPlugin(
-        new SupermemoryProvider(new Supermemory({ apiKey: config.memory.apiKey, baseURL: config.memory.baseURL })),
-      ),
-    )
-  } else if (config.memory.provider === 'mem0') {
-    const { default: MemoryClient } = await import('mem0ai')
-    ctx.plugin(memoryPlugin(new Mem0Provider(new MemoryClient({ apiKey: config.memory.apiKey }))))
-  } else {
-    ctx.plugin(memoryPlugin(new InMemoryMemoryProvider()))
-  }
-
-  const llm = new OpenAiCompatibleProvider(config.llm)
-  const loop = new AgentLoop({
+  const runtime = await createRuntime({
+    config,
     sessions,
     tools,
-    llm,
+    // Via io.write, not console.log: in print mode that routes to stderr so
+    // a startup notice cannot land in the captured answer.
+    write: (text) => io.write(text),
+    cwd: process.cwd(),
     systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
-    // Wrapped so a resolved API key cannot reach the log through an
-    // error body, a tool argument, or anything else that happens to carry it.
-    logger: createRedactingLogger(process.env.DEBUG ? consoleLogger : silentLogger, config.secrets),
+    debug: Boolean(process.env.DEBUG),
   })
+  const loop = runtime.loop
 
   try {
-    const memory = ctx.get<MemoryProvider>('memory')!
     const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
-    const memoryHook = { provider: memory, containerTag }
+    const memoryHook = { provider: runtime.memory, containerTag }
 
     if (headless) {
       if (args.prompt === undefined && process.stdin.isTTY) {
@@ -576,6 +523,59 @@ async function main() {
         signal: controller.signal,
         memory: memoryHook,
       })
+    } else if (web) {
+      const port = args.port ?? DEFAULT_WEB_PORT
+      try {
+        webServer = await startWebServer({
+          port,
+          runTask: (input, signal, { onText, onEvent, onAttachment }) =>
+            executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent, onAttachment }),
+          settings: webSettings(),
+          // Scoped to the container tasks recall from and remember into, so the
+          // page shows exactly what the agent can draw on, and nothing else.
+          memory: {
+            provider: runtime.memory.name,
+            containerTag,
+            ...(runtime.memory.list ? { list: (limit) => runtime.memory.list!(containerTag, { limit }) } : {}),
+            search: async (q, limit) =>
+              (await runtime.memory.recall({ q, containerTag, limit })).map(({ id, content, score, metadata }) => ({
+                id,
+                content,
+                score,
+                metadata,
+              })),
+            forget: async (id) =>
+              (await runtime.memory.forget({ containerTag, id, reason: 'forgotten from the web UI' })).forgotten,
+            update: async (id, content) => (await runtime.memory.update({ id, containerTag, content })).updated,
+          },
+          // The same sources as `:history`: saved sessions, plus this one,
+          // whose tasks are only on disk once the server stops.
+          history: {
+            list: () =>
+              sessionHistory(sessionStore, sessions, {
+                limit: 50,
+                onUnreadable: (id, err) => void process.stderr.write(describeUnreadable(id, err)),
+              }),
+            events: async (taskId, sessionId) =>
+              sessionId === undefined ? sessions.all(taskId) : (await sessionStore.load(sessionId))?.events,
+          },
+        })
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err
+        console.error(`Port ${port} is already in use. Pick another with --port.`)
+        process.exitCode = 1
+        return
+      }
+      for (const text of pendingNotices.splice(0)) webServer.notice(text)
+      console.log(`\nOpenAgent web UI: ${webServer.url}\nOpen it in your browser. Ctrl+C stops the server.\n`)
+      // Once, so a second Ctrl+C falls through to the default and kills a
+      // shutdown that is stuck waiting on a task.
+      await new Promise<void>((resolve) => {
+        process.once('SIGINT', resolve)
+        process.once('SIGTERM', resolve)
+      })
+      // Waits out a running task, so what it did is in the session saved below.
+      await webServer.close()
     } else {
       background = createBackgroundJobs(loop, sessions, (text) => io.write(text))
       await runRepl(loop, sessions, io, activeAbort, {
@@ -607,13 +607,7 @@ async function main() {
     await background?.close()
     teardown()
     disposeTakeoverTools?.()
-    disposeBrowserTools?.()
-    // Before the workspace goes: a background process outlives the task that
-    // started it, and a session workspace is about to be deleted out from
-    // under anything still running in it.
-    disposeTerminalTools?.()
-    disposeFileTools?.()
-    await workspace?.dispose()
+    await runtime.dispose()
   }
 }
 

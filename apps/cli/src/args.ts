@@ -1,8 +1,11 @@
 import { parseArgs } from 'node:util'
 
 export interface CliArgs {
-  /** `print` runs one task and exits; `repl` is the interactive session; `init` writes `.env`. */
-  mode: 'repl' | 'print' | 'init'
+  /**
+   * `print` runs one task and exits; `repl` is the interactive session; `init`
+   * writes `.env`; `web` serves the chat UI in a browser.
+   */
+  mode: 'repl' | 'print' | 'init' | 'web'
   /** The task, in print mode. Undefined means "read it from stdin". */
   prompt?: string
   /** Approve `ask`-level tool calls automatically, since no human is present. */
@@ -21,6 +24,9 @@ export interface CliArgs {
   profile?: string
 }
 
+/** Fixed rather than random so the Vite dev server's proxy knows where to find it; `--port` moves it. */
+export const DEFAULT_WEB_PORT = 7373
+
 export type ArgsResult = { ok: true; args: CliArgs } | { ok: false; error: string }
 
 export const USAGE = `open-agent — an agent you can run from your terminal
@@ -28,6 +34,7 @@ export const USAGE = `open-agent — an agent you can run from your terminal
 Usage
   open-agent                     start the interactive session
   open-agent init                set up the provider, key and tools, and write .env
+  open-agent web                 chat with the agent in your browser
   open-agent -p "<task>"         run one task, print the result, exit
   echo "<task>" | open-agent -p  same, reading the task from stdin
   open-agent --resume            reopen the most recent session
@@ -41,6 +48,7 @@ Options
   --resume [id]        resume the most recent or named session
   --profile <name>     load an agent profile before starting
   --history            list recent past tasks and exit
+  --port <n>           the local port for \`open-agent web\` (default ${DEFAULT_WEB_PORT})
   -h, --help           show this help
 
 In the interactive session
@@ -52,6 +60,7 @@ In the interactive session
 
 Background jobs cannot stop to ask for approval, so "ask"-level tool
 calls in them are denied unless the session was started with --yes.
+The web UI asks in the browser, with the same choices as the terminal.
 
 Exit codes (print mode)
   0  the task completed
@@ -78,10 +87,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     plan: { type: 'boolean', default: false },
     resume: { type: 'string' },
     history: { type: 'boolean', default: false },
-    profile: { type: 'string' },
-    duplicateProfile: { type: 'string' },
-    exportProfile: { type: 'string' },
-    importProfile: { type: 'string' },
+    port: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   } as const
 
@@ -95,6 +101,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
     exportProfile?: string | undefined
     importProfile?: string | undefined
     history: boolean
+    port?: string | undefined
     help: boolean
     profile?: string | undefined
   }
@@ -109,6 +116,7 @@ export function parseCliArgs(argv: string[]): ArgsResult {
       exportProfile?: string | undefined
       importProfile?: string | undefined
       history: boolean
+      port?: string | undefined
       help: boolean
       profile?: string | undefined
     }
@@ -154,6 +162,30 @@ export function parseCliArgs(argv: string[]): ArgsResult {
 
   const resumeValue: string | true | undefined =
     values.resume === undefined ? undefined : values.resume === '' ? true : values.resume
+
+  const isWeb = !values.print && positionals.length === 1 && positionals[0] === 'web'
+  if (values.port !== undefined && !isWeb) {
+    return { ok: false, error: '--port only applies to `open-agent web`.' }
+  }
+
+  if (isWeb) {
+    const port = values.port === undefined ? DEFAULT_WEB_PORT : Number(values.port)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return { ok: false, error: `--port must be a number from 1 to 65535, not "${values.port}".` }
+    }
+    return {
+      ok: true,
+      args: {
+        mode: 'web',
+        approveAsk: values.yes,
+        plan: values.plan,
+        resume: resumeValue,
+        history: false,
+        help: false,
+        port,
+      },
+    }
+  }
 
   if (!values.print) {
     if (positionals.length === 1 && positionals[0] === 'init') {

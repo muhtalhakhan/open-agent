@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ToolRegistry } from '@open-agent/agent'
+import type { ToolAttachment } from '@open-agent/agent'
 import { BrowserUseTools, mountBrowserUseTools } from './browser-use.js'
 
 const fixture = fileURLToPath(new URL('../test-fixtures/fake-browser-use-server.mjs', import.meta.url))
@@ -71,7 +72,8 @@ describe('BrowserUseTools', () => {
     // test screenshot
     const screenshot = tools.find((t) => t.name === 'browser_screenshot')!
     const res4 = await screenshot.execute({}, { taskId: 't1', signal: new AbortController().signal })
-    expect(res4).toEqual({ ok: true, content: '[screenshot captured]' })
+    // The model is told an image was there, never given it.
+    expect(res4).toEqual({ ok: true, content: '[image content omitted: image/png]' })
   })
 })
 
@@ -217,5 +219,75 @@ describe('browser isolation', () => {
     browserUse = new BrowserUseTools({ ...options, env: { BROWSER_USE_USER_DATA_DIR: '/somewhere/chosen' } })
     await browserUse.connect()
     expect((await subprocessEnv(browserUse)).BROWSER_USE_USER_DATA_DIR).toBe('/somewhere/chosen')
+  })
+
+  describe('live view', () => {
+    const shown = (data: string) => Buffer.from(data, 'base64').toString()
+    async function connected(extra: { liveView?: boolean } = {}) {
+      browserUse = new BrowserUseTools({ ...options, ...extra })
+      await browserUse.connect()
+      const tools = await browserUse.tools()
+      return (name: string) => tools.find((tool) => tool.name === name)!
+    }
+    const watching = () => {
+      const attachments: ToolAttachment[] = []
+      return {
+        attachments,
+        context: {
+          taskId: 't1',
+          signal: new AbortController().signal,
+          onAttachment: (a: ToolAttachment) => void attachments.push(a),
+        },
+      }
+    }
+
+    it('shows the page after an action that changes it, without touching what the model gets', async () => {
+      const tool = await connected()
+      const { attachments, context } = watching()
+
+      const result = await tool('browser_navigate').execute({ url: 'https://example.com' }, context)
+
+      expect(result).toEqual({ ok: true, content: 'navigated to https://example.com' })
+      expect(attachments).toEqual([
+        { kind: 'image', mimeType: 'image/png', data: expect.any(String), caption: 'after browser_navigate' },
+      ])
+      expect(shown(attachments[0].data)).toBe('screenshot 1')
+    })
+
+    it('takes no screenshot when nobody is watching, or for a tool that only reads', async () => {
+      const tool = await connected()
+      const { attachments, context } = watching()
+
+      await tool('browser_navigate').execute(
+        { url: 'https://example.com' },
+        { taskId: 't1', signal: new AbortController().signal },
+      )
+      await tool('browser_get_state').execute({}, context)
+      await tool('browser_screenshot').execute({}, context)
+
+      // The only screenshot taken was the one the model asked for.
+      expect(attachments.map((a) => [a.caption, shown(a.data)])).toEqual([['browser_screenshot', 'screenshot 1']])
+    })
+
+    it('gives up on a stuck screenshot instead of holding up the action', async () => {
+      browserUse = new BrowserUseTools({ ...options, env: { FAKE_STUCK_SCREENSHOT: '1' }, screenshotTimeoutMs: 100 })
+      await browserUse.connect()
+      const navigate = (await browserUse.tools()).find((tool) => tool.name === 'browser_navigate')!
+      const { attachments, context } = watching()
+
+      const result = await navigate.execute({ url: 'https://example.com' }, context)
+
+      expect(result).toEqual({ ok: true, content: 'navigated to https://example.com' })
+      expect(attachments).toEqual([])
+    })
+
+    it('can be turned off', async () => {
+      const tool = await connected({ liveView: false })
+      const { attachments, context } = watching()
+
+      await tool('browser_click').execute({ index: 1 }, context)
+
+      expect(attachments).toEqual([])
+    })
   })
 })

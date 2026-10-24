@@ -29,6 +29,7 @@ describe('formatHistory', () => {
         endedAt: at('2026-09-19T14:03:00Z'),
         answer: 'It is a CLI agent.',
         toolCalls: 1,
+        usage: { inputTokens: 5400, outputTokens: 210 },
       },
       {
         taskId: 't1',
@@ -43,7 +44,7 @@ describe('formatHistory', () => {
       [
         '2026-09-19 14:02  completed    summarize the readme',
         '    It is a CLI agent.',
-        '    session_abc · 1 tool call',
+        '    session_abc · 1 tool call · 5,400 tokens in · 210 out',
         '',
         '2026-09-18 09:00  error        deploy',
         '    this session · 3 tool calls',

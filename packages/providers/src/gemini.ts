@@ -8,6 +8,7 @@ import type {
   LlmResponse,
   Message,
   TextStreamEvent,
+  TokenUsage,
   ToolCall,
   ToolDefinition,
 } from '@open-agent/agent'
@@ -149,15 +150,39 @@ export class GeminiProvider implements LlmAdapter {
     }
 
     const events = options.onText ? sseBody(response) : null
-    if (events && options.onText) return { message: fromGeminiParts(await readStream(events, options.onText)) }
+    if (events && options.onText) {
+      const { parts, usage } = await readStream(events, options.onText)
+      const message = fromGeminiParts(parts)
+      return usage ? { message, usage } : { message }
+    }
 
     const data = (await response.json()) as GeminiResponse
-    return { message: fromGeminiParts(data.candidates?.[0]?.content?.parts ?? []) }
+    const message = fromGeminiParts(data.candidates?.[0]?.content?.parts ?? [])
+    const usage = fromGeminiUsage(data.usageMetadata)
+    return usage ? { message, usage } : { message }
   }
+}
+
+interface GeminiUsage {
+  promptTokenCount?: number
+  candidatesTokenCount?: number
+  /** A thinking model's reasoning, billed as output but not counted in `candidatesTokenCount`. */
+  thoughtsTokenCount?: number
+  cachedContentTokenCount?: number
 }
 
 interface GeminiResponse {
   candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }>
+  usageMetadata?: GeminiUsage
+}
+
+function fromGeminiUsage(usage: GeminiUsage | undefined): TokenUsage | undefined {
+  if (typeof usage?.promptTokenCount !== 'number') return undefined
+  return {
+    inputTokens: usage.promptTokenCount,
+    outputTokens: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
+    ...(typeof usage.cachedContentTokenCount === 'number' ? { cachedInputTokens: usage.cachedContentTokenCount } : {}),
+  }
 }
 
 function fromGeminiParts(parts: GeminiPart[]): Message {
@@ -193,19 +218,22 @@ function fromGeminiParts(parts: GeminiPart[]): Message {
 async function readStream(
   body: ReadableStream<Uint8Array>,
   onText: (event: TextStreamEvent) => void,
-): Promise<GeminiPart[]> {
+): Promise<{ parts: GeminiPart[]; usage?: TokenUsage }> {
   const parts: GeminiPart[] = []
+  // Every chunk repeats the running totals; the last one's are the request's.
+  let usage: TokenUsage | undefined
   // Gemini has no end-of-stream event; the last chunk is the one carrying a
   // finish reason.
   let finished = false
   for await (const { data } of readSse(body)) {
     const chunk = JSON.parse(data) as GeminiResponse
     if (chunk.candidates?.[0]?.finishReason) finished = true
+    usage = fromGeminiUsage(chunk.usageMetadata) ?? usage
     for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
       parts.push(part)
       if (part.text) onText({ type: 'delta', text: part.text })
     }
   }
   if (!finished) throw new IncompleteStreamError('gemini')
-  return parts
+  return { parts, usage }
 }

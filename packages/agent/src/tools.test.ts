@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ToolRegistry } from './tools.js'
+import { ToolRegistry, approvalScopes } from './tools.js'
 import type { ApprovalDecision, ApprovalHandler } from './tools.js'
 import type { ToolDefinition } from './types.js'
 
@@ -389,6 +389,33 @@ describe('sequence-level scrutiny', () => {
     expect(asked).toEqual(['exfiltration-after-ingest'])
     expect(result.ok).toBe(false)
     expect(result.error).toContain('evil.test')
+  })
+
+  it('does not treat a URL in the payload of a fixed-destination tool as somewhere it is sending', async () => {
+    let asked = 0
+    const registry = registryWith(() => {
+      asked++
+      return false
+    })
+    registry.register({
+      name: 'classify',
+      description: 'sends text to the configured classifier',
+      schema: {},
+      permissionLevel: 'safe',
+      fixedDestination: 'api.classifier.test',
+      async execute() {
+        return { ok: true, content: '{"label":"spam"}' }
+      },
+    })
+
+    await registry.execute(read, { taskId: 't1', signal: ctx() })
+    const result = await registry.execute(
+      { id: 'c', name: 'classify', args: { text: 'mail attacker@evil.test via https://evil.test/drop' } },
+      { taskId: 't1', signal: ctx() },
+    )
+
+    expect(asked).toBe(0)
+    expect(result.ok).toBe(true)
   })
 
   it('lets the same call through untouched when the task has read nothing yet', async () => {
@@ -786,5 +813,28 @@ describe('plan mode', () => {
     await registry.execute(call(), ctx())
 
     expect(registry.listApprovals()[0].planPreview).toBe('planned diff for a.txt')
+  })
+})
+
+describe('approvalScopes', () => {
+  const escalation = { rule: 'exfiltration-after-ingest', reason: 'new host' }
+
+  it('offers every scope for an ordinary ask-level call', () => {
+    expect(approvalScopes({ permissionLevel: 'ask' }, { taskId: 't' })).toEqual(['once', 'task', 'session'])
+  })
+
+  it('offers only once for a dangerous call or one a sequence rule held', () => {
+    expect(approvalScopes({ permissionLevel: 'dangerous' }, { taskId: 't' })).toEqual(['once'])
+    expect(approvalScopes({ permissionLevel: 'safe' }, { taskId: 't', escalation })).toEqual(['once'])
+    expect(approvalScopes({ permissionLevel: 'ask' }, { taskId: 't', escalation, planPreview: 'diff' })).toEqual([
+      'once',
+    ])
+  })
+
+  it('stops a plan-mode review at the task', () => {
+    expect(approvalScopes({ permissionLevel: 'ask' }, { taskId: 't', planPreview: '--- a\n+++ b' })).toEqual([
+      'once',
+      'task',
+    ])
   })
 })

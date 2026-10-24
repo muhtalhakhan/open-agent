@@ -1,6 +1,17 @@
-import type { PermissionLevel, ToolDefinition, ToolResult } from '@open-agent/agent'
+import type { PermissionLevel, ToolAttachment, ToolDefinition, ToolResult } from '@open-agent/agent'
 import type { McpStdioClient } from './client.js'
 import type { McpCallToolResult, McpToolDescriptor } from './types.js'
+
+/**
+ * Image blocks, as attachments for a person watching. They stay out of the
+ * text the model is given, which only notes that one was there: an image is
+ * page content like any other, and fencing does not reach inside one.
+ */
+export function imageAttachments(result: McpCallToolResult, caption: string): ToolAttachment[] {
+  return result.content
+    .filter((block) => block.type === 'image' && typeof block.data === 'string' && block.mimeType)
+    .map((block) => ({ kind: 'image' as const, mimeType: block.mimeType!, data: block.data!, caption }))
+}
 
 function renderContent(result: McpCallToolResult): string {
   const parts: string[] = []
@@ -40,9 +51,12 @@ export function mcpToolDefinition(
     schema: descriptor.inputSchema,
     permissionLevel,
     untrustedOutput: options.untrustedOutput ?? true,
-    async execute(args): Promise<ToolResult> {
+    async execute(args, context): Promise<ToolResult> {
       try {
         const result = await client.callTool(descriptor.name, args)
+        if (context.onAttachment) {
+          for (const attachment of imageAttachments(result, descriptor.name)) context.onAttachment(attachment)
+        }
         const content = renderContent(result)
         return result.isError ? { ok: false, content: '', error: content } : { ok: true, content }
       } catch (err) {

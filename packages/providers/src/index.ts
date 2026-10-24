@@ -18,3 +18,8 @@ export type { AnthropicOptions } from './anthropic.js'
 // concurrent calls cannot race.
 export { ProviderFallbackAdapter } from './fallback-provider.js'
 export type { FallbackAdapterOptions } from './fallback-provider.js'
+// Jev, TypeSafe's classifier, as a `DecisionModel`: typed yes/no, choice and
+// score answers with calibrated probabilities, for judgments too small to
+// spend an LLM call on.
+export { JevDecisionModel } from './jev.js'
+export type { JevOptions } from './jev.js'
