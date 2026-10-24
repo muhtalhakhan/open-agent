@@ -41,7 +41,15 @@ import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
 import { applySettings, readSettings, type SettingsDeps } from './settings.js'
 import { executeTask } from './task.js'
-import { applyProfile, loadProfile, type AgentProfile } from './profiles.js'
+import {
+  applyProfile,
+  duplicateProfile,
+  exportProfile,
+  importProfile,
+  loadProfile,
+  type AgentProfile,
+  type ProfileDirs,
+} from './profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // apps/cli/src -> apps/cli -> apps -> repo root
@@ -55,6 +63,12 @@ const ENV_PATH = process.env.OPEN_AGENT_ENV_FILE
 // edit to .env would be saved and then silently ignored.
 const SHELL_ENV: Readonly<Record<string, string | undefined>> = { ...process.env }
 dotenv.config({ path: ENV_PATH })
+
+/** The user's own profiles, then the examples in this checkout — found from here, not the cwd. */
+const PROFILE_DIRS: ProfileDirs = {
+  user: path.join(os.homedir(), '.openagent', 'profiles'),
+  examples: path.resolve(__dirname, '../../../examples/profiles'),
+}
 
 /** How long `init` waits for the model to answer its one test request. */
 const INIT_CHECK_TIMEOUT_MS = 30_000
@@ -165,6 +179,32 @@ async function main() {
     process.stdout.write(formatHistory(records))
     return
   }
+  // Also before the config: these only move profile files around, and need
+  // neither a provider nor a key.
+  if (args.mode === 'profile' && args.profileOp) {
+    const op = args.profileOp
+    if (op.kind === 'export') {
+      const result = exportProfile(op.source, PROFILE_DIRS)
+      if (result.ok) process.stdout.write(result.yaml)
+      else {
+        console.error(result.error)
+        process.exitCode = 1
+      }
+      return
+    }
+    const result =
+      op.kind === 'duplicate'
+        ? duplicateProfile(op.source, op.name, PROFILE_DIRS)
+        : importProfile(op.file, PROFILE_DIRS)
+    if (!result.ok) {
+      console.error(result.error)
+      process.exitCode = 1
+      return
+    }
+    const name = path.basename(result.file, '.yaml')
+    console.log(`Wrote "${result.profile.name}" to ${result.file}. Use it with --profile ${name}.`)
+    return
+  }
   const headless = args.mode === 'print'
   // The person is in a browser, not at this terminal: nothing here prompts.
   const web = args.mode === 'web'
@@ -179,10 +219,7 @@ async function main() {
   let { config } = result
   let profile: AgentProfile | undefined
   if (args.profile !== undefined) {
-    const loaded = loadProfile(args.profile, {
-      user: path.join(os.homedir(), '.openagent', 'profiles'),
-      examples: path.resolve(__dirname, '../../../examples/profiles'),
-    })
+    const loaded = loadProfile(args.profile, PROFILE_DIRS)
     if (!loaded.ok) {
       console.error(loaded.error)
       process.exitCode = 1
