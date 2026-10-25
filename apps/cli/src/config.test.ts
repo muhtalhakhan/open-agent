@@ -22,6 +22,7 @@ describe('loadConfigFromEnv', () => {
         computer: { enabled: false, model: undefined },
         http: { enabled: false, allowedHosts: undefined, deniedHosts: undefined, allowLocal: false, secrets: {} },
         files: { enabled: false, root: undefined, deny: undefined, allow: undefined, readOnly: false },
+        vision: { enabled: false, model: 'gpt-4o-mini' },
         todo: { enabled: true },
         fetch: { enabled: false },
         git: { enabled: false },
