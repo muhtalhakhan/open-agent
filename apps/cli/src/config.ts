@@ -19,6 +19,8 @@ export interface CliConfig {
     secrets: Record<string, string>
   }
   files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
+  /** The git tools, on the same workspace and file policy as the file tools. */
+  git: { enabled: boolean }
   /** Where the file and shell tools work, and whether it is provisioned per run. */
   workspace: { session: boolean; base?: string }
   shell: {
@@ -163,6 +165,10 @@ export function loadConfigFromEnv(
     readOnly: env.FILES_READONLY === '1' || env.FILES_READONLY === 'true',
   }
 
+  // Off unless asked for: a commit puts the agent's work into history under
+  // the person's name.
+  const git = { enabled: env.GIT_TOOL === '1' || env.GIT_TOOL === 'true' }
+
   const workspace = {
     session: env.WORKSPACE_SESSION === '1' || env.WORKSPACE_SESSION === 'true',
     base: env.WORKSPACE_BASE || undefined,
@@ -237,6 +243,7 @@ export function loadConfigFromEnv(
       computer,
       http: http.config,
       files,
+      git,
       workspace,
       shell: shell.config,
       search,
