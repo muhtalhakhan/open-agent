@@ -118,7 +118,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 9 — Security         | 10 / 10 | ✅ Complete                                                                                                                      |
 | 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                            |
 | 11 — User Interfaces | 15 / 15 | ✅ Complete                                                                                                                      |
-| 12 — Backlog         | 6 / 26  | 🟡 In progress — Git-aware tooling (status/diff/commit/branc… (#121), Parallel sub-agents in git worktrees (#122), +18 more left |
+| 12 — Backlog         | 8 / 26  | 🟡 In progress — Parallel sub-agents in git worktrees (#122), Hooks system (pre/post tool-use, session li… (#123), +16 more left |
 
 <!-- END GENERATED: milestone-status -->
 
