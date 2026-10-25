@@ -98,7 +98,7 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated, and both the CLI and the web UI support agent profiles; the web UI also covers chat, history, approvals and settings. Remote/cloud agents are still ahead.
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, git tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated, and both the CLI and the web UI support agent profiles; the web UI also covers chat, history, approvals and settings. Remote/cloud agents are still ahead.
 
 Progress by milestone (issues closed / total), regenerated from the tracker by [`docs-status.yml`](.github/workflows/docs-status.yml) — edit the issues, not the table:
 
@@ -122,7 +122,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 
 <!-- END GENERATED: milestone-status -->
 
-Recently landed: all of Milestone 11. In the CLI: a live tool-call view (#104), the `open-agent init` setup wizard (#105) and agent profile selection (#106). In the web UI: chat (#107), task history (#108), approvals (#109), live step streaming (#110), memory management (#111), agent profile management (#112), settings (#113) and a live browser view (#114).
+Recently landed: git tools (#121) — status, diff, log, commit and branch, with hooks and repository-chosen drivers kept from running on the host — and all of Milestone 11. In the CLI: a live tool-call view (#104), the `open-agent init` setup wizard (#105) and agent profile selection (#106). In the web UI: chat (#107), task history (#108), approvals (#109), live step streaming (#110), memory management (#111), agent profile management (#112), settings (#113) and a live browser view (#114).
 
 Nearest up next: Milestone 10, starting with remote agents (#93) and persistent VMs/containers (#94).
 
