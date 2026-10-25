@@ -57,7 +57,7 @@ function fail(error: string): ToolResult {
  * The temp file is a sibling rather than in the system temp directory so the
  * rename stays within one filesystem, where it is atomic.
  */
-async function writeAtomic(file: string, content: string): Promise<void> {
+export async function writeAtomic(file: string, content: string): Promise<void> {
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(6).toString('hex')}.tmp`)
   try {
     await fs.writeFile(temporary, content, 'utf8')
