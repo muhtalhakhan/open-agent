@@ -1,4 +1,5 @@
 import type { ToolRegistry } from '@open-agent/agent'
+import { editFileTool } from './edit-file.js'
 import { listDirectoryTool } from './list-directory.js'
 import { readFileTool } from './read-file.js'
 import { searchFilesTool } from './search-files.js'
@@ -12,7 +13,7 @@ import type { Workspace } from './session-workspace.js'
  * made it possible to give `read_file` one root and `write_file` another, or
  * to deny a path for reads and forget to deny it for search — which would
  * have let a search print the contents of a file the policy said could not be
- * read. One workspace in, four tools out, no opportunity to skew.
+ * read. One workspace in, five tools out, no opportunity to skew.
  */
 export function mountFileTools(registry: ToolRegistry, workspace: Workspace): () => void {
   const options = { root: workspace.root, policy: workspace.policy }
@@ -21,6 +22,7 @@ export function mountFileTools(registry: ToolRegistry, workspace: Workspace): ()
     registry.register(listDirectoryTool(options)),
     registry.register(searchFilesTool(options)),
     registry.register(writeFileTool(options)),
+    registry.register(editFileTool(options)),
   ]
   return () => disposers.forEach((dispose) => dispose())
 }

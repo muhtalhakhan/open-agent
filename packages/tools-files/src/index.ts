@@ -1,6 +1,8 @@
 export { readFileTool } from './read-file.js'
 export type { ReadFileToolOptions } from './read-file.js'
 export { writeFileTool } from './write-file.js'
+export { editFileTool } from './edit-file.js'
+export type { EditFileToolOptions } from './edit-file.js'
 export type { WriteFileToolOptions } from './write-file.js'
 export { listDirectoryTool } from './list-directory.js'
 export type { ListDirectoryToolOptions } from './list-directory.js'

@@ -119,7 +119,7 @@ describe('createSessionWorkspace', () => {
 })
 
 describe('mountFileTools', () => {
-  it('registers all four tools against one workspace', async () => {
+  it('registers all five tools against one workspace', async () => {
     const registry = new ToolRegistry()
     const workspace = await openWorkspace({ root: base })
 
@@ -130,7 +130,7 @@ describe('mountFileTools', () => {
         .list()
         .map((tool) => tool.name)
         .sort(),
-    ).toEqual(['list_directory', 'read_file', 'search_files', 'write_file'])
+    ).toEqual(['edit_file', 'list_directory', 'read_file', 'search_files', 'write_file'])
   })
 
   it('gives every tool the same policy, so none can disagree with another', async () => {

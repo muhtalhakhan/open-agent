@@ -121,7 +121,7 @@ packages/
   tools-http/  ✅ http_request: direct calls to APIs with no MCP server, behind a host allowlist and secret placeholders
   tools-decision/ ✅ classify_items/check_claims/rank_candidates/score_items: typed judgments with calibrated probabilities from a DecisionModel (Jev today), for the small calls not worth an LLM round-trip
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
-  tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
+  tools-files/ ✅ read_file/write_file/edit_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
   tools-git/ ✅ git_status/git_diff/git_log (safe) and git_commit/git_branch (ask, plan previews) over the file tools' workspace and policy; hooks, fsmonitor and diff drivers off, refuses repository-set filter drivers and signing programs
   tools/       🚧 Placeholder (README only); the built tools are the tools-* packages
   automation/  ✅ Task scheduler: durable schedule, pluggable trigger kinds, fires tasks into a runner seam (Milestone 8)

@@ -79,6 +79,12 @@ src/agent-loop.ts:42: const result = await this.tools.execute(call, context)
 
 Replaces the whole file unless `append` is set, creates parent directories as needed, and refuses to overwrite when `create_only` is set. A replace is atomic: the content goes to a sibling temp file which is then renamed over the target, so a crash or a cancelled task leaves the original intact rather than a half-written file.
 
+## `edit_file`
+
+`{ path, old_text, new_text, replace_all? }` → `edited app.ts: replaced 1 occurrence`.
+
+Replaces an exact piece of text, so changing one line does not cost the model the whole file in output, or risk it dropping a part it was not looking at. `old_text` has to occur exactly once — replacing the first of several would be a guess about which one was meant — unless `replace_all` is set. `new_text` is taken literally. The write is atomic, as for `write_file`, and in plan mode the approval shows the edit as a diff.
+
 ## File policy
 
 The root answers "which directory", which is the wrong granularity for what people actually worry about: a `.env` sitting in the middle of the project you want the agent to work on. `docs/security-model.md` promises the model never sees raw API keys, and a root-only check cannot deliver that when the keys are in a file inside the root.
@@ -98,17 +104,17 @@ A denied path is refused for reads and writes, **and** left out of listings and 
 
 Patterns match the root-relative path _and_ the basename, so `.env` covers `packages/api/.env` without a leading `**`. Matching is case-insensitive, since macOS and Windows will serve `.ENV` for a file the policy knows as `.env`.
 
-**It binds these four tools, not the machine.** `run_command` can `cat .env`, because a shell command is opaque to a path check. That is what the approval prompt on every command is for, and ultimately #86's sandbox.
+**It binds these five tools, not the machine.** `run_command` can `cat .env`, because a shell command is opaque to a path check. That is what the approval prompt on every command is for, and ultimately #86's sandbox.
 
 ## Permission levels
 
 `read_file`, `list_directory` and `search_files` are `safe`. The capability is granted once, at configuration time, by handing the tool a root; after that a read inside that root changes nothing, and prompting on every one would only train the user to approve without looking. Which files inside the root are still off-limits is the file policy above, applied before anything is opened.
 
-`write_file` is `ask`. It destroys whatever was there before, and the blast radius is a file the user cares about. The root bounds _where_ that can happen; the approval prompt is what makes each one a decision.
+`write_file` and `edit_file` are `ask`. A write destroys whatever was there before, and the blast radius is a file the user cares about. The root bounds _where_ that can happen; the approval prompt is what makes each one a decision.
 
 ## Guard rails
 
-Shared by all four tools:
+Shared by all five tools:
 
 - **Workspace root** — every `path` resolves against the root and must land inside it. A `..` traversal is rejected lexically, and an existing target is then resolved through `realpath` and re-checked, so a symlink inside the root cannot be used to read outside it. The root's own symlinks are resolved first, so a root under a symlinked `/tmp` still works.
 - **Byte ceiling** (`maxBytes`, default 64000) and **line ceiling** (`maxLines`, default 2000) — a long file comes back a page at a time, with a note giving the `offset` to continue from, so one read can't evict the conversation.
