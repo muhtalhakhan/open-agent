@@ -95,11 +95,11 @@ model: some-model
 
 ### 3. Agent profiles
 
-A profile is a named bundle of {model, enabled tools, permission policy}. This is how OpenAgent supports very different use cases (a read-only research agent vs. a coding agent with shell+Docker vs. a personal assistant with email/calendar) without needing separate codebases. See `docs/agent-design.md`.
+A profile is a named bundle of {model, enabled tools}, applied over `.env`. This is how OpenAgent supports very different use cases (a read-only research agent vs. a coding agent with a shell vs. a personal assistant) without needing separate codebases. Profiles deliberately carry no permission policy: they are meant to be shared, and approval goes through `ToolRegistry.decide` alone. They load with `--profile` in the CLI and are managed in the web UI's Profiles view. See `docs/agent-design.md`.
 
 ### 4. Security is not a layer on top
 
-Tool execution passes through the permission/approval system before running, not after — today that's the `permissionLevel` on each `ToolDefinition`, enforced in the agent loop; a dedicated `packages/security` (approval UI hooks, sandboxing, audit logs) is planned but not yet built, see `docs/security-model.md`.
+Tool execution passes through the permission/approval system before running, not after. Every `ToolDefinition` declares a `permissionLevel`, and `ToolRegistry.decide` (`packages/agent/src/tools.ts`) gates every call, asks the person through an approval handler (the terminal prompt or the web UI), and keeps an audit log of each decision. Sandboxing lives with the tools that need it: the shell tools run under bubblewrap or Docker, the file and git tools are confined to one workspace and file policy, and the browser gets a throwaway profile. `packages/security` holds the OS-keychain secret store. See `docs/security-model.md`.
 
 ## Repository structure
 
@@ -107,13 +107,14 @@ Status markers: ✅ implemented, 🚧 design/stub only (a README with no source 
 
 ```
 apps/
-  web/         🚧 Web UI (chat + task view + approval prompts)
+  web/         ✅ Web UI (`open-agent web`): chat, history, approvals, live steps, memory, profiles, settings, live browser view
   cli/         ✅ Command-line interface (Ink-based TUI)
 packages/
   context/     ✅ Plugin/service kernel (contexts, plugins, events) the rest of the runtime is built on
   agent/       ✅ Agent loop, conversation/task state, cancellation, retries, logging
   providers/   ✅ Provider abstraction + implementations (generic OpenAI-compatible, Anthropic, Gemini, multi-provider fallback)
   tools-mcp/   ✅ Generic MCP stdio client + ToolDefinition adapter (used by any MCP-backed tool package)
+  registry/    ✅ Static index of known MCP tools
   tools-browser/ ✅ Browser tools, backed by browser-use's MCP server via tools-mcp
   tools-computer/ ✅ Computer-use tools, backed by @ui-tars/sdk + @ui-tars/operator-nut-js (see docs/agent-design.md)
   tools-terminal/ ✅ run_command + background process management (start/list/read/stop), workspace-rooted, timed out and killed by process group, sandboxed via bubblewrap or Docker with a read-only filesystem and no network by default
@@ -122,14 +123,14 @@ packages/
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
   tools-git/ ✅ git_status/git_diff/git_log (safe) and git_commit/git_branch (ask, plan previews) over the file tools' workspace and policy; hooks, fsmonitor and diff drivers off, refuses repository-set filter drivers and signing programs
-  tools/       🚧 Remaining built-in tools: shell (Milestone 5)
+  tools/       🚧 Placeholder (README only); the built tools are the tools-* packages
   automation/  ✅ Task scheduler: durable schedule, pluggable trigger kinds, fires tasks into a runner seam (Milestone 8)
   memory/      ✅ Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider, in-memory)
-  security/    🚧 Permission system, approval UI hooks, sandboxing, audit logs (Milestone 9)
+  security/    ✅ Secret stores (OS keychain); the permission system lives in agent/
 docs/          Architecture, agent design, security model
-tests/         Cross-package integration tests
+tests/         🚧 Placeholder; integration tests live with their packages as *.integration.test.ts
 examples/      Example agent profiles and scripts
-docker/        Container definitions for sandboxed execution
+docker/        🚧 Placeholder; the shell sandbox's Docker backend needs no files here
 ```
 
 ## Language choice
