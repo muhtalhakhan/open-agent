@@ -26,6 +26,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🔐  | Ask for permission before sensitive actions   | ✅ Built — every tool declares a `safe` / `ask` / `dangerous` permission level, enforced by the agent loop                                                                     |
 | 🧠  | Use any model                                 | ✅ Built — Anthropic and Gemini adapters, any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...), and `ProviderFallbackAdapter` for multi-provider failover |
 | 📋  | Follow project-specific conventions           | ✅ Built — an `AGENTS.md` at the repo root is loaded into the system prompt automatically                                                                                      |
+| 🎭  | Switch between agent profiles                 | ✅ Built — named model + tool sets: `--profile <name>` in the CLI, or create, edit and pick one in the web UI's Profiles view                                                  |
 | 💻  | Run code and terminal commands                | ✅ Built — `tools-terminal`: `run_command` plus background processes, sandboxed with bubblewrap or Docker (read-only filesystem, no network by default)                        |
 | 🤖  | Run non-interactively in CI                   | ✅ Built — `open-agent -p "<task>"` prints the answer to stdout and exits with a status code                                                                                   |
 | 🧵  | Work in the background                        | ✅ Built — `:bg <task>` in the CLI runs a task while you keep working; `:jobs` and `:cancel` manage it                                                                         |
@@ -34,7 +35,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | ⏰  | Run scheduled tasks                           | 🟡 Library — `@open-agent/automation`: one-time and recurring (cron/interval) tasks, a job queue with retries, and notifications; not yet a CLI command                        |
 | 🤖  | Operate autonomously with configurable limits | 🟡 Partly — permission levels, approvals, sandboxing and prompt-injection defenses are in (Milestone 9); remote/cloud agents are Milestone 10                                  |
 
-A CLI is available today (`npm run cli`), and a browser UI (`npm run web`) with chat, task history, approvals, live tool output, memory and settings management, and a live browser view; agent profile management in the web UI is the last piece still to come.
+A CLI is available today (`npm run cli`), and a browser UI (`npm run web`) with chat, task history, approvals, live tool output, memory, settings and agent profile management, and a live browser view.
 
 See the [milestones](../../milestones) for the full roadmap and what's currently in progress.
 
@@ -96,7 +97,7 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated, the CLI supports agent profiles, and a web UI covers chat, history, approvals and settings. Profile management in the web UI and remote/cloud agents are still ahead.
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated, and both the CLI and the web UI support agent profiles; the web UI also covers chat, history, approvals and settings. Remote/cloud agents are still ahead.
 
 Progress by milestone (issues closed / total), regenerated from the tracker by [`docs-status.yml`](.github/workflows/docs-status.yml) — edit the issues, not the table:
 
@@ -120,9 +121,9 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 
 <!-- END GENERATED: milestone-status -->
 
-Recently landed: the CLI side of Milestone 11 — a live tool-call view (#104), the `open-agent init` setup wizard (#105) and agent profile selection (#106) — and most of the web UI: chat (#107), task history (#108), approvals (#109), live step streaming (#110), memory management (#111), settings (#113) and a live browser view (#114).
+Recently landed: all of Milestone 11. In the CLI: a live tool-call view (#104), the `open-agent init` setup wizard (#105) and agent profile selection (#106). In the web UI: chat (#107), task history (#108), approvals (#109), live step streaming (#110), memory management (#111), agent profile management (#112), settings (#113) and a live browser view (#114).
 
-Nearest up next: agent profile management in the web UI (#112), which closes Milestone 11, then Milestone 10 — remote agents (#93) and persistent VMs/containers (#94).
+Nearest up next: Milestone 10, starting with remote agents (#93) and persistent VMs/containers (#94).
 
 Security caveat: permission levels, approvals, audit logs, the shell sandbox (#86), throwaway browser profiles (#87), network restrictions (#89), keychain secrets (#88) and prompt-injection fencing (#91) are in place, but they are defenses, not a guarantee. Setting `SHELL_SANDBOX=none` or approving `ask` calls with `--yes` hands the agent your own privileges, and a model can still be misled by content it reads. Review approvals like you would a colleague's command.
 
