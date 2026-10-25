@@ -40,6 +40,7 @@ import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
 import { applySettings, readSettings, type SettingsDeps } from './settings.js'
+import { DEFAULT_PROFILE_VAR, profilesSource } from './web-profiles.js'
 import { executeTask } from './task.js'
 import {
   applyProfile,
@@ -217,9 +218,14 @@ async function main() {
     return
   }
   let { config } = result
+  // What .env gives on its own, before any profile: the web profiles view
+  // shows it as what a profile's unset tools fall back to.
+  const baseConfig = config
   let profile: AgentProfile | undefined
-  if (args.profile !== undefined) {
-    const loaded = loadProfile(args.profile, PROFILE_DIRS)
+  // --profile wins; otherwise the default the web UI (or the person) saved.
+  const profileName = args.profile ?? (process.env[DEFAULT_PROFILE_VAR]?.trim() || undefined)
+  if (profileName !== undefined) {
+    const loaded = loadProfile(profileName, PROFILE_DIRS)
     if (!loaded.ok) {
       console.error(loaded.error)
       process.exitCode = 1
@@ -486,6 +492,23 @@ async function main() {
           runTask: (input, signal, { onText, onEvent, onAttachment }) =>
             executeTask(loop, sessions, input, signal, { memory: memoryHook, onText, onEvent, onAttachment }),
           settings: webSettings(),
+          profiles: profilesSource({
+            dirs: PROFILE_DIRS,
+            base: {
+              model: baseConfig.llm.model,
+              tools: {
+                browser: baseConfig.browser.enabled,
+                computer: baseConfig.computer.enabled,
+                http: baseConfig.http.enabled,
+                files: baseConfig.files.enabled,
+                shell: baseConfig.shell.enabled,
+              },
+            },
+            running: profileName,
+            readEnv: () => (existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : null),
+            writeEnv: (content) => writeEnvFile(ENV_PATH, content),
+            shellEnv: SHELL_ENV,
+          }),
           // Scoped to the container tasks recall from and remember into, so the
           // page shows exactly what the agent can draw on, and nothing else.
           memory: {

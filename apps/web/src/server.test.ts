@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { ServerEvent } from './protocol.js'
+import type { ProfileAction, ProfileTool, ServerEvent } from './protocol.js'
 import type { SessionEvent } from '@open-agent/agent'
 import {
   startWebServer,
@@ -743,6 +743,100 @@ describe('startWebServer', () => {
       const noToken = await send(s, 'POST', '/api/settings', {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ changes: { OPENAI_MODEL: 'x' } }),
+      })
+
+      expect([crossSite.status, noToken.status]).toEqual([403, 401])
+      expect(applied).toEqual([])
+    })
+  })
+
+  describe('profiles', () => {
+    const view = {
+      dir: '/home/me/.openagent/profiles',
+      base: { model: 'm', tools: { browser: false, computer: false, http: false, files: true, shell: false } },
+      restricted: ['shell', 'computer'] as ProfileTool[],
+      profiles: [],
+    }
+    function profilesSource(restartNeeded = true) {
+      const applied: ProfileAction[] = []
+      const source: NonNullable<WebServerOptions['profiles']> = {
+        read: () => view,
+        apply(action) {
+          if (action.action === 'delete' && action.id === 'coder') return { ok: false, error: 'Examples stay.' }
+          applied.push(action)
+          return { ok: true, restartNeeded }
+        },
+      }
+      return { source, applied }
+    }
+    const startWith = async (profiles: WebServerOptions['profiles']) => {
+      server = await startWebServer({ runTask: scriptedTask(() => {}), port: 0, token: TOKEN, clientDir, profiles })
+      return server
+    }
+    const change = (s: WebServer, body: unknown, headers: Record<string, string> = {}) =>
+      send(s, 'POST', '/api/profiles', { headers: { ...auth, ...headers }, body: JSON.stringify(body) })
+    const read = async (s: WebServer) =>
+      JSON.parse((await send(s, 'GET', '/api/profiles', { headers: { Authorization: `Bearer ${TOKEN}` } })).body)
+
+    it('answers 404 when profiles are not configured', async () => {
+      const s = await start()
+
+      expect((await send(s, 'GET', '/api/profiles', { headers: { Authorization: `Bearer ${TOKEN}` } })).status).toBe(
+        404,
+      )
+    })
+
+    it('passes each action to the host, and asks for a restart only when the host says so', async () => {
+      const quiet = profilesSource(false)
+      const s = await startWith(quiet.source)
+      const save = { action: 'save', id: 'mine', create: true, profile: { name: 'Mine', model: 'm', tools: {} } }
+
+      expect(await read(s)).toEqual({ ...view, restartNeeded: false })
+      expect((await change(s, save)).status).toBe(200)
+      expect((await change(s, { action: 'duplicate', id: 'mine', newId: 'copy' })).status).toBe(200)
+      expect(await read(s)).toMatchObject({ restartNeeded: false })
+
+      expect(quiet.applied).toEqual([save, { action: 'duplicate', id: 'mine', newId: 'copy' }])
+      await s.close()
+
+      const loud = await startWith(profilesSource(true).source)
+      expect((await change(loud, { action: 'default', id: null })).status).toBe(200)
+      expect(await read(loud)).toMatchObject({ restartNeeded: true })
+    })
+
+    it('passes on the host refusing an action, and refuses a body with the wrong shape', async () => {
+      const { source, applied } = profilesSource()
+      const s = await startWith(source)
+
+      const refused = await change(s, { action: 'delete', id: 'coder' })
+      const malformed = await Promise.all([
+        change(s, { action: 'rename', id: 'a' }),
+        change(s, { action: 'delete' }),
+        change(s, { action: 'default', id: 3 }),
+        change(s, { action: 'duplicate', id: 'a' }),
+        change(s, {
+          action: 'save',
+          id: 'a',
+          create: true,
+          profile: { name: 'A', model: 'm', tools: { shell: 'yes' } },
+        }),
+        change(s, { action: 'save', id: 'a', profile: { name: 'A', model: 'm', tools: {} } }),
+      ])
+
+      expect(refused.status).toBe(400)
+      expect(JSON.parse(refused.body).error).toBe('Examples stay.')
+      expect(malformed.map((reply) => reply.status)).toEqual([400, 400, 400, 400, 400, 400])
+      expect(applied).toEqual([])
+    })
+
+    it('guards changes like every other POST', async () => {
+      const { source, applied } = profilesSource()
+      const s = await startWith(source)
+
+      const crossSite = await change(s, { action: 'default', id: null }, { Origin: 'https://evil.example' })
+      const noToken = await send(s, 'POST', '/api/profiles', {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'default', id: null }),
       })
 
       expect([crossSite.status, noToken.status]).toEqual([403, 401])

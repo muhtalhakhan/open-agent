@@ -448,6 +448,60 @@ describe('CLI end to end', () => {
       }
     })
 
+    it('manages profiles in the home folder and saves the one to start with to .env', async () => {
+      const envFile = path.join(repo, 'profiles.env')
+      await writeFile(envFile, `OPENAI_BASE_URL=${provider.url}\nOPENAI_MODEL=test-model\nOPENAI_API_KEY=test-key\n`, {
+        mode: 0o600,
+      })
+      const home = path.join(repo, 'home')
+      const port = await freePort()
+      const { OPENAI_BASE_URL: _url, OPENAI_API_KEY: _key, OPENAI_MODEL: _model, ...inherited } = process.env
+      const child = spawn(process.execPath, ['--import', 'tsx', cliEntry, 'web', '--port', String(port)], {
+        cwd: repo,
+        // HOME moves ~/.openagent/profiles, so the real one is never touched.
+        env: { ...inherited, HOME: home, OPEN_AGENT_ENV_FILE: envFile, TMPDIR: repo },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      try {
+        let stdout = ''
+        const url = await new Promise<string>((resolve, reject) => {
+          child.stdout.on('data', (chunk) => {
+            stdout += chunk
+            const match = stdout.match(/OpenAgent web UI: (\S+)/)
+            if (match) resolve(match[1])
+          })
+          child.on('close', () => reject(new Error(`exited before serving:\n${stdout}`)))
+        })
+        const token = new URL(url).searchParams.get('token')!
+        const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+        const act = (action: Record<string, unknown>) =>
+          fetch(`http://127.0.0.1:${port}/api/profiles`, { method: 'POST', headers, body: JSON.stringify(action) })
+        const profile = (tools: Record<string, boolean>) => ({ name: 'Mine', model: 'other-model', tools })
+
+        const view = (await fetch(`http://127.0.0.1:${port}/api/profiles`, { headers }).then((res) => res.json())) as {
+          profiles: Array<{ id: string }>
+        }
+        expect(view.profiles.map((p) => p.id)).toContain('coding-agent')
+
+        expect(
+          (await act({ action: 'save', id: 'mine', create: true, profile: profile({ shell: true }) })).status,
+        ).toBe(400)
+        expect((await act({ action: 'save', id: 'mine', create: true, profile: profile({ http: true }) })).status).toBe(
+          200,
+        )
+        expect((await act({ action: 'default', id: 'coding-agent' })).status).toBe(400)
+        expect((await act({ action: 'default', id: 'mine' })).status).toBe(200)
+
+        expect(await readFile(path.join(home, '.openagent', 'profiles', 'mine.yaml'), 'utf8')).toContain(
+          'model: other-model',
+        )
+        expect(await readFile(envFile, 'utf8')).toMatch(/\nOPEN_AGENT_PROFILE=mine\n$/)
+      } finally {
+        child.kill('SIGINT')
+        await new Promise((done) => child.on('close', done))
+      }
+    })
+
     it('with --plan, shows the diff in the browser and writes the file only once it is approved', async () => {
       // A model that writes a file, then answers once the write has a result.
       const model = createServer((req, res) => {

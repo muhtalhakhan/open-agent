@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, 
 import { answerApproval, cancelTask, sendTask, subscribe, type ConnectionState } from './api.js'
 import { HistoryList, TaskTranscript } from './history.js'
 import { MemoryView } from './memory.js'
+import { ProfilesPage } from './profiles.js'
 import { SettingsPage } from './settings.js'
 import { reduce, type Entry, type Turn } from './transcript.js'
 import { Entries, type AnswerApproval } from './turn.js'
@@ -11,12 +12,14 @@ type Route =
   | { view: 'history' }
   | { view: 'transcript'; taskId: string; sessionId?: string }
   | { view: 'memory' }
+  | { view: 'profiles' }
   | { view: 'settings' }
 
-/** `#/history`, `#/history/<session or live>/<task>`, `#/memory` and `#/settings`; anything else is the chat. */
+/** `#/history`, `#/history/<session or live>/<task>`, `#/memory`, `#/profiles` and `#/settings`; anything else is the chat. */
 function parseRoute(hash: string): Route {
   const [page, session, task] = hash.replace(/^#\/?/, '').split('/')
   if (page === 'memory') return { view: 'memory' }
+  if (page === 'profiles') return { view: 'profiles' }
   if (page === 'settings') return { view: 'settings' }
   if (page !== 'history') return { view: 'chat' }
   if (session && task) {
@@ -209,6 +212,9 @@ export function App({ token }: { token: string | null }) {
           <a href="#/memory" aria-current={route.view === 'memory' ? 'page' : undefined}>
             Memory
           </a>
+          <a href="#/profiles" aria-current={route.view === 'profiles' ? 'page' : undefined}>
+            Profiles
+          </a>
           <a href="#/settings" aria-current={route.view === 'settings' ? 'page' : undefined}>
             Settings
           </a>
@@ -219,6 +225,7 @@ export function App({ token }: { token: string | null }) {
       <Chat token={token} hidden={route.view !== 'chat'} onConnection={setConnection} />
       {route.view === 'history' && <HistoryList token={token} />}
       {route.view === 'memory' && <MemoryView token={token} />}
+      {route.view === 'profiles' && <ProfilesPage token={token} />}
       {route.view === 'settings' && <SettingsPage token={token} />}
       {route.view === 'transcript' && (
         <TaskTranscript token={token} taskId={route.taskId} sessionId={route.sessionId} />

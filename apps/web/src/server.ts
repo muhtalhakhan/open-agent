@@ -12,6 +12,9 @@ import type {
   HistoryTranscript,
   MemoryListing,
   MemoryRecord,
+  ProfileAction,
+  ProfileFields,
+  ProfilesView,
   ServerEvent,
   SettingsGroup,
   SettingsView,
@@ -87,10 +90,23 @@ export interface SettingsSource {
   apply(changes: Record<string, string | null>): { ok: true } | { ok: false; error: string }
 }
 
+/**
+ * The host's agent profiles. As with settings, the host owns every rule —
+ * which tools the page may turn on, where files go — and the server only
+ * checks that a request has the right shape before passing it on.
+ */
+export interface ProfilesSource {
+  read(): Omit<ProfilesView, 'restartNeeded'>
+  /** `restartNeeded` when the change reaches the running agent only through a restart. */
+  apply(action: ProfileAction): { ok: true; restartNeeded: boolean } | { ok: false; error: string }
+}
+
 export interface WebServerOptions {
   runTask: RunTask
   /** Enables the settings view; without it `/api/settings` answers 404. */
   settings?: SettingsSource
+  /** Enables the profiles view; without it `/api/profiles` answers 404. */
+  profiles?: ProfilesSource
   /** Enables the memory view; without it `/api/memory` answers 404. */
   memory?: MemorySource
   /** Enables the history view; without it `/api/history` answers 404. */
@@ -183,6 +199,23 @@ function toHistoryTask(record: TaskRecord): HistoryTask {
   }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+
+/** The request as a `ProfileAction`, or `null` when it has the wrong shape. The host judges the values. */
+function toProfileAction(body: Record<string, unknown>): ProfileAction | null {
+  const { action, id } = body
+  if (action === 'default') return id === null || typeof id === 'string' ? { action, id } : null
+  if (typeof id !== 'string') return null
+  if (action === 'delete') return { action, id }
+  if (action === 'duplicate') return typeof body.newId === 'string' ? { action, id, newId: body.newId } : null
+  if (action !== 'save' || typeof body.create !== 'boolean' || !isRecord(body.profile)) return null
+  const { name, model, tools } = body.profile
+  if (typeof name !== 'string' || typeof model !== 'string' || !isRecord(tools)) return null
+  if (!Object.values(tools).every((enabled) => typeof enabled === 'boolean')) return null
+  return { action, id, create: body.create, profile: { name, model, tools: tools as ProfileFields['tools'] } }
+}
+
 function sameToken(given: string | null, expected: string): boolean {
   if (!given) return false
   const a = Buffer.from(given)
@@ -237,6 +270,7 @@ export async function startWebServer({
   clientDir: givenClientDir = CLIENT_DIR,
   history,
   memory,
+  profiles,
   settings,
 }: WebServerOptions): Promise<WebServer> {
   const clientDir = path.resolve(givenClientDir)
@@ -489,6 +523,11 @@ export async function startWebServer({
       }
       return sendJson(res, 200, view)
     }
+    if (req.method === 'GET' && url.pathname === '/api/profiles') {
+      if (!profiles) return sendJson(res, 404, { error: 'Profiles are not available.' })
+      const view: ProfilesView = { ...profiles.read(), restartNeeded }
+      return sendJson(res, 200, view)
+    }
     if (req.method === 'GET' && url.pathname === '/api/memory') {
       if (!memory) return sendJson(res, 404, { error: 'Memory is not available.' })
       const query = url.searchParams.get('q')?.trim() ?? ''
@@ -554,6 +593,16 @@ export async function startWebServer({
       const result = settings.apply(changes as Record<string, string | null>)
       if (!result.ok) return sendJson(res, 400, { error: result.error })
       restartNeeded = true
+      return sendJson(res, 200, { restartNeeded })
+    }
+
+    if (url.pathname === '/api/profiles') {
+      if (!profiles) return sendJson(res, 404, { error: 'Profiles are not available.' })
+      const action = toProfileAction(body)
+      if (!action) return sendJson(res, 400, { error: 'Send an "action": save, duplicate, delete or default.' })
+      const result = profiles.apply(action)
+      if (!result.ok) return sendJson(res, 400, { error: result.error })
+      if (result.restartNeeded) restartNeeded = true
       return sendJson(res, 200, { restartNeeded })
     }
 

@@ -154,7 +154,7 @@ function checkValue(spec: Spec, value: string): string | undefined {
  * removed, and everything else — settings this view does not manage,
  * comments, their order — is kept as it was.
  */
-function editEnv(content: string, changes: Map<string, string | null>): string {
+export function editEnv(content: string, changes: Map<string, string | null>): string {
   const pending = new Map(changes)
   const seen = new Set<string>()
   const lines: string[] = []

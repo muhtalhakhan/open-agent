@@ -3,6 +3,8 @@ import type {
   HistoryTask,
   HistoryTranscript,
   MemoryListing,
+  ProfileAction,
+  ProfilesView,
   ServerEvent,
   SettingsView,
 } from '../protocol.js'
@@ -138,4 +140,13 @@ export function fetchSettings(token: string): Promise<SettingsView | string> {
 /** Resolves to an error message, or `null` once saved. */
 export function saveSettings(token: string, changes: Record<string, string | null>): Promise<string | null> {
   return post(token, '/api/settings', { changes })
+}
+
+export function fetchProfiles(token: string): Promise<ProfilesView | string> {
+  return get<ProfilesView>(token, '/api/profiles')
+}
+
+/** Resolves to an error message, or `null` once applied. */
+export function changeProfiles(token: string, action: ProfileAction): Promise<string | null> {
+  return post(token, '/api/profiles', action)
 }

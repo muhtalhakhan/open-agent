@@ -153,3 +153,53 @@ export interface SettingsView {
 export interface SettingsChanges {
   changes: Record<string, string | null>
 }
+
+/** The tools a profile can switch on or off — `PROFILE_TOOLS` in the CLI, restated. */
+export type ProfileTool = 'browser' | 'computer' | 'http' | 'files' | 'shell'
+
+/** The fields of a profile, as the editor sends them. A tool left out takes its `.env` setting. */
+export interface ProfileFields {
+  name: string
+  model: string
+  tools: Partial<Record<ProfileTool, boolean>>
+}
+
+/** One profile file, as the profiles view shows it. */
+export interface ProfileView extends ProfileFields {
+  /** The file name without `.yaml`: what `--profile` takes, and how the page refers to it. */
+  id: string
+  /** `example` profiles live in the checkout and are read-only here; duplicate one to change it. */
+  origin: 'user' | 'example'
+  /** Set when the file does not load: it is listed so the person can find it, but not offered for use. */
+  error?: string
+}
+
+/** `GET /api/profiles`. */
+export interface ProfilesView {
+  /** The folder the person's own profiles are written to. */
+  dir: string
+  /** What `.env` gives when no profile is applied: what each tool left out of a profile falls back to. */
+  base: { model: string; tools: Record<ProfileTool, boolean> }
+  /**
+   * Tools the page can turn off in a profile but not on. They reach the whole
+   * machine, and like the shell setting in the settings view, turning them on
+   * is for the profile file or the terminal.
+   */
+  restricted: ProfileTool[]
+  /** The profile the running agent was started with, as it was named; absent when none. */
+  running?: string
+  /** The profile every start uses when no `--profile` is given. `locked` when the shell sets it. */
+  defaultProfile?: { id: string; locked: boolean }
+  profiles: ProfileView[]
+  /** Shared with the settings view: something was saved that the running agent does not have yet. */
+  restartNeeded: boolean
+}
+
+/** `POST /api/profiles`. Each one is checked and applied by the host, which may refuse it. */
+export type ProfileAction =
+  /** `create` writes a new file and never replaces one; without it, an existing profile of the person's is replaced. */
+  | { action: 'save'; id: string; profile: ProfileFields; create: boolean }
+  | { action: 'duplicate'; id: string; newId: string }
+  | { action: 'delete'; id: string }
+  /** `null` clears the default. */
+  | { action: 'default'; id: string | null }
