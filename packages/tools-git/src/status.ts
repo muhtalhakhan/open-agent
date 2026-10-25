@@ -1,5 +1,5 @@
 import type { ToolDefinition } from '@open-agent/agent'
-import { clip, failure, git, openRepository, type GitToolOptions } from './git.js'
+import { IGNORE_SUBMODULES, clip, failure, git, openRepository, type GitToolOptions } from './git.js'
 
 const MAX_BYTES = 16_000
 
@@ -21,7 +21,11 @@ export function gitStatusTool(options: GitToolOptions): ToolDefinition<Record<st
     async execute(_args, context) {
       try {
         const root = await openRepository(options.root, context.signal)
-        const status = await git(root, ['status', '--short', '--branch', '--untracked-files=normal'], context.signal)
+        const status = await git(
+          root,
+          ['status', '--short', '--branch', '--untracked-files=normal', IGNORE_SUBMODULES],
+          context.signal,
+        )
         const branches = await git(root, ['branch', '--format=%(HEAD) %(refname:short)'], context.signal)
         const listed = branches
           .split('\n')

@@ -1,6 +1,9 @@
 import type { ToolDefinition } from '@open-agent/agent'
 import { resolvePathInWorkspace } from '@open-agent/tools-files'
 import {
+  GitError,
+  IGNORE_SUBMODULES,
+  NO_DRIVERS,
   byPolicy,
   checkRefArgument,
   clip,
@@ -61,13 +64,23 @@ export function gitDiffTool(options: GitToolOptions): ToolDefinition<GitDiffArgs
         if (args.staged === true) selection.push('--cached')
         if (args.ref !== undefined) {
           const ref = checkRefArgument(args.ref, 'ref')
-          await git(root, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`], context.signal)
+          await git(
+            root,
+            ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`],
+            context.signal,
+          ).catch(() => {
+            throw new GitError(`"${ref}" is not a commit, branch or tag here`)
+          })
           selection.push(ref)
         }
         const scope = args.path === undefined ? [] : [(await resolvePathInWorkspace(root, args.path)).relative || '.']
 
         const changed = nulSeparated(
-          await git(root, ['diff', '--no-renames', '--name-only', '-z', ...selection, '--', ...scope], context.signal),
+          await git(
+            root,
+            ['diff', '--no-renames', IGNORE_SUBMODULES, '--name-only', '-z', ...selection, '--', ...scope],
+            context.signal,
+          ),
         )
         const { allowed, denied } = byPolicy(changed, options.policy)
         const omitted = denied.length ? `\n\n[left out by the workspace file policy: ${denied.join(', ')}]` : ''
@@ -77,7 +90,7 @@ export function gitDiffTool(options: GitToolOptions): ToolDefinition<GitDiffArgs
         const format = args.stat === true ? ['--stat'] : []
         const diff = await git(
           root,
-          ['diff', '--no-renames', '--no-ext-diff', '--no-textconv', ...format, ...selection, '--', ...allowed],
+          ['diff', '--no-renames', IGNORE_SUBMODULES, ...NO_DRIVERS, ...format, ...selection, '--', ...allowed],
           context.signal,
         )
         const hint = 'Narrow it with path, or use stat=true for an overview.'

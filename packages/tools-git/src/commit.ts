@@ -1,6 +1,17 @@
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from '@open-agent/agent'
 import { FilePolicyError, resolvePathInWorkspace } from '@open-agent/tools-files'
-import { GitError, byPolicy, failure, git, nulSeparated, openRepository, runGit, type GitToolOptions } from './git.js'
+import {
+  GitError,
+  IGNORE_SUBMODULES,
+  NO_DRIVERS,
+  byPolicy,
+  failure,
+  git,
+  nulSeparated,
+  openRepository,
+  runGit,
+  type GitToolOptions,
+} from './git.js'
 
 const MAX_MESSAGE_CHARS = 10_000
 
@@ -32,7 +43,7 @@ interface Prepared {
   message: string
   /** What `git add` is given: named paths, or `-u` for every tracked change. */
   stage: string[]
-  /** Every file the commit will contain, as far as can be known before staging. */
+  /** Every file the commit will contain: what is staged already plus what staging adds. */
   files: string[]
 }
 
@@ -51,14 +62,24 @@ async function prepare(options: GitToolOptions, args: GitCommitArgs, signal: Abo
   if (args.paths?.length && args.all === true) throw new GitError('give paths or all, not both')
 
   const root = await openRepository(options.root, signal)
-  const staged = nulSeparated(await git(root, ['diff', '--cached', '--no-renames', '--name-only', '-z'], signal))
+  const changedTracked = (scope: string[]) =>
+    git(root, ['diff', '--no-renames', IGNORE_SUBMODULES, '--name-only', '-z', '--', ...scope], signal)
+  const staged = nulSeparated(
+    await git(root, ['diff', '--cached', '--no-renames', IGNORE_SUBMODULES, '--name-only', '-z'], signal),
+  )
   let toStage: string[] = []
   let stage: string[] = []
   if (args.paths?.length) {
-    for (const requested of args.paths) toStage.push((await resolvePathInWorkspace(root, requested)).relative)
-    stage = ['--', ...toStage]
+    const named: string[] = []
+    for (const requested of args.paths) named.push((await resolvePathInWorkspace(root, requested)).relative || '.')
+    // What `git add` would stage for these: a directory stands for every
+    // changed or new file under it, and each of those is what the policy
+    // judges — not the directory's name.
+    const untracked = await git(root, ['ls-files', '-z', '--others', '--exclude-standard', '--', ...named], signal)
+    toStage = [...nulSeparated(await changedTracked(named)), ...nulSeparated(untracked)]
+    stage = ['--', ...named]
   } else if (args.all === true) {
-    toStage = nulSeparated(await git(root, ['diff', '--no-renames', '--name-only', '-z'], signal))
+    toStage = nulSeparated(await changedTracked([]))
     stage = ['-u']
   }
 
@@ -95,11 +116,14 @@ export function gitCommitTool(options: GitToolOptions): ToolDefinition<GitCommit
       const { root, message, stage } = await prepare(options, args, context.signal)
       if (stage.length > 0) await git(root, ['add', ...stage], context.signal)
       // Staging may have found nothing to add: the check that matters is what is staged now.
-      if ((await runGit(root, ['diff', '--cached', '--quiet'], context.signal)).code === 0) {
+      if (
+        (await runGit(root, ['diff', '--cached', '--quiet', IGNORE_SUBMODULES, ...NO_DRIVERS], context.signal)).code ===
+        0
+      ) {
         return failure(new GitError('nothing to commit: the files named have no changes'))
       }
       await git(root, ['commit', '--no-verify', '--quiet', '--cleanup=strip', '-m', message], context.signal)
-      const summary = await git(root, ['show', '--stat', '--no-ext-diff', '--format=%h %s', 'HEAD'], context.signal)
+      const summary = await git(root, ['show', '--stat', ...NO_DRIVERS, '--format=%h %s', 'HEAD'], context.signal)
       return { ok: true, content: `Committed on ${await currentBranch(root, context.signal)}:\n${summary.trimEnd()}` }
     } catch (err) {
       return failure(err)

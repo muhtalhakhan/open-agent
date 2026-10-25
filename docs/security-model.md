@@ -73,7 +73,8 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > commits with `--no-verify`, and refuses to run at all while the repository's own
 > config sets a filter driver or signing program — the same settings in the
 > person's global config, where git-lfs puts its filter, are their choice and are
-> left alone. Git gets a minimal environment, so an inherited `GIT_DIR` or
+> left alone. Submodules are never looked inside, since that runs git under the
+> submodule's own, unchecked config. Git gets a minimal environment, so an inherited `GIT_DIR` or
 > `GIT_EXTERNAL_DIFF` cannot redirect it. The workspace has to be the repository's
 > top level, since git run from a subdirectory reports and commits the whole
 > repository. The file policy applies: a denied file is never diffed or committed.

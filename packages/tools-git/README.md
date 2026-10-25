@@ -32,8 +32,9 @@ Git runs on the host, outside the shell sandbox, and several of its features run
 
 - **Hooks never run.** `core.hooksPath` is pointed at nothing on the command line, which outranks any config, and commits pass `--no-verify`. A check a project wires to pre-commit has to be run as a command instead.
 - **No repository-chosen drivers.** The fsmonitor is off, diffs pass `--no-ext-diff --no-textconv`, and the tools refuse to run while the repository's own config sets a filter driver (`filter.*.clean`/`smudge`/`process`) or a signing program (`gpg.program`). Set in your global config — where git-lfs puts its filter — they are yours and are left alone.
+- **Submodules are left alone.** Looking inside one runs git there, under a config nobody checked, so status and diff pass `--ignore-submodules=all` and nothing recurses into them. A submodule shows up only as the commit it points at.
 - **A clean environment.** Git gets `PATH`, `HOME` and your git identity variables, nothing else, so an inherited `GIT_DIR` or `GIT_EXTERNAL_DIFF` cannot redirect it.
-- **The file policy applies.** A file `read_file` may not read is left out of `git_diff` (by name, so its contents never leave git) and refused by `git_commit`, whether named, swept up by `all`, or already staged — a secret in history outlives the file. A read-only workspace refuses commits and branch changes.
+- **The file policy applies.** A file `read_file` may not read is left out of `git_diff` (by name, so its contents never leave git) and refused by `git_commit`, whether named, inside a named directory, swept up by `all`, or already staged — a secret in history outlives the file. A read-only workspace refuses commits and branch changes.
 - **The workspace is the repository.** Run from a subdirectory, git reports and commits the whole repository, so the tools require the workspace root to be its top level.
 - **No option injection.** Refs and branch names starting with `-` are refused, branch names are checked with `git check-ref-format`, and every path goes through the workspace resolver.
 

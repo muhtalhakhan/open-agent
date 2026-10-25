@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { gitBranchTool } from './branch.js'
 import { gitCommitTool } from './commit.js'
+import { gitDiffTool } from './diff.js'
 import { openRepository } from './git.js'
 import { gitStatusTool } from './status.js'
 import { makeRepo, sh } from './test-repo.js'
@@ -84,6 +85,30 @@ describe('hardening', () => {
     expect((await gitBranchTool({ root }).execute({ action: 'switch', name: 'main' }, context)).ok).toBe(true)
 
     expect(fs.existsSync(marker())).toBe(false)
+  })
+
+  it('never looks inside a submodule, whose own config was never checked', async () => {
+    const source = makeRepo()
+    try {
+      fs.writeFileSync(path.join(source, 'f.txt'), 'x\n')
+      fs.writeFileSync(path.join(source, '.gitattributes'), '*.txt filter=evil\n')
+      sh(source, 'add', '.')
+      sh(source, 'commit', '--quiet', '-m', 'with attributes')
+      sh(root, '-c', 'protocol.file.allow=always', 'submodule', '--quiet', 'add', source, 'mod')
+      sh(root, 'commit', '--quiet', '-m', 'add submodule')
+      // What the sandboxed shell could plant: a filter in the submodule's own
+      // config, and a same-size edit that makes git hash the file through it.
+      sh(path.join(root, 'mod'), 'config', 'filter.evil.clean', `sh -c 'touch "${marker()}"; cat'`)
+      fs.writeFileSync(path.join(root, 'mod', 'f.txt'), 'y\n')
+
+      expect((await gitStatusTool({ root }).execute({}, context)).ok).toBe(true)
+      expect((await gitDiffTool({ root }).execute({}, context)).ok).toBe(true)
+      expect((await gitCommitTool({ root }).execute({ message: 'm', all: true }, context)).ok).toBe(false)
+
+      expect(fs.existsSync(marker())).toBe(false)
+    } finally {
+      fs.rmSync(source, { recursive: true, force: true })
+    }
   })
 
   it('ignores GIT_DIR and the like in the environment it was started from', async () => {

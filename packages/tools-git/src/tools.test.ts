@@ -97,6 +97,10 @@ describe('git_diff', () => {
     const tool = gitDiffTool({ root })
 
     expect(await tool.execute({ ref: '--output=/tmp/x' }, context)).toMatchObject({ ok: false })
+    expect(await tool.execute({ ref: 'no-such-branch' }, context)).toMatchObject({
+      ok: false,
+      error: '"no-such-branch" is not a commit, branch or tag here',
+    })
     expect(await tool.execute({ path: '../outside' }, context)).toMatchObject({
       ok: false,
       error: expect.stringMatching(/outside the workspace/),
@@ -162,6 +166,26 @@ describe('git_commit', () => {
 
     expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/file policy excludes: \.env/) })
     expect({ head: head(), staged: staged() }).toEqual(before)
+  })
+
+  it('judges each file a directory would stage, not the directory', async () => {
+    write('src/app.ts', 'code\n')
+    write('src/.env', 'SECRET=x\n')
+    const before = { head: head(), staged: staged() }
+
+    const result = await gitCommitTool({ root }).execute({ message: 'add src', paths: ['src'] }, context)
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/file policy excludes: src\/\.env/) })
+    expect({ head: head(), staged: staged() }).toEqual(before)
+  })
+
+  it('previews every file a directory would stage', async () => {
+    write('src/a.ts', 'a\n')
+    write('src/b.ts', 'b\n')
+
+    expect((await gitCommitTool({ root }).plan!({ message: 'src', paths: ['src'] }, context)).content).toContain(
+      'Files:\n  src/a.ts\n  src/b.ts',
+    )
   })
 
   it('refuses when there is nothing to commit, and in a read-only workspace', async () => {

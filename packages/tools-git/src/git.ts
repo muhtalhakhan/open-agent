@@ -15,6 +15,11 @@ const TIMEOUT_MS = 30_000
  * write into `.git/` from inside its sandbox, so a host-side git that obeyed
  * those would be a way out of it. Command-line `-c` outranks every config
  * file, so these hold whatever the repository says.
+ *
+ * Submodules are left alone entirely: looking inside one runs git there,
+ * under a config `openRepository` never checked, where a filter driver would
+ * run. `IGNORE_SUBMODULES` repeats it on the commands that would look, since
+ * a per-submodule `ignore` setting outranks the config default but not the flag.
  */
 const HARDENING = [
   '--no-pager',
@@ -26,7 +31,17 @@ const HARDENING = [
   'color.ui=false',
   '-c',
   'core.quotePath=false',
+  '-c',
+  'diff.ignoreSubmodules=all',
+  '-c',
+  'submodule.recurse=false',
 ]
+
+/** For every `status` and `diff`; see `HARDENING`. */
+export const IGNORE_SUBMODULES = '--ignore-submodules=all'
+
+/** For every `diff` or `show` that reads contents: drivers named by the repository's `.gitattributes` stay off. */
+export const NO_DRIVERS = ['--no-ext-diff', '--no-textconv']
 
 /**
  * Settings a repository's own config can use to run a program that no flag
