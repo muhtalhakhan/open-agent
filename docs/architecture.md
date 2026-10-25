@@ -121,6 +121,7 @@ packages/
   tools-decision/ ✅ classify_items/check_claims/rank_candidates/score_items: typed judgments with calibrated probabilities from a DecisionModel (Jev today), for the small calls not worth an LLM round-trip
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
+  tools-git/ ✅ git_status/git_diff/git_log (safe) and git_commit/git_branch (ask, plan previews) over the file tools' workspace and policy; hooks, fsmonitor and diff drivers off, refuses repository-set filter drivers and signing programs
   tools/       🚧 Remaining built-in tools: shell (Milestone 5)
   automation/  ✅ Task scheduler: durable schedule, pluggable trigger kinds, fires tasks into a runner seam (Milestone 8)
   memory/      ✅ Long-term/semantic memory, user preferences (SupermemoryProvider, Mem0Provider, in-memory)

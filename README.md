@@ -27,6 +27,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | 🧠  | Use any model                                 | ✅ Built — Anthropic and Gemini adapters, any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, vLLM, ...), and `ProviderFallbackAdapter` for multi-provider failover |
 | 📋  | Follow project-specific conventions           | ✅ Built — an `AGENTS.md` at the repo root is loaded into the system prompt automatically                                                                                      |
 | 🎭  | Switch between agent profiles                 | ✅ Built — named model + tool sets: `--profile <name>` in the CLI, or create, edit and pick one in the web UI's Profiles view                                                  |
+| 🌿  | Use git: status, diff, log, commit, branch    | ✅ Built — `tools-git`: reads are `safe`, commits and branch changes ask first; hooks never run and the file policy keeps secrets out of diffs and history                     |
 | 💻  | Run code and terminal commands                | ✅ Built — `tools-terminal`: `run_command` plus background processes, sandboxed with bubblewrap or Docker (read-only filesystem, no network by default)                        |
 | 🤖  | Run non-interactively in CI                   | ✅ Built — `open-agent -p "<task>"` prints the answer to stdout and exits with a status code                                                                                   |
 | 🧵  | Work in the background                        | ✅ Built — `:bg <task>` in the CLI runs a task while you keep working; `:jobs` and `:cancel` manage it                                                                         |
@@ -162,6 +163,7 @@ packages/
   tools-http/      Direct HTTP requests to arbitrary APIs (http_request)
   tools-search/    Web search (web_search), over Brave or Tavily
   tools-terminal/  Sandboxed shell commands and background processes (run_command, start_process, ...)
+  tools-git/       Git status, diff, log, commit and branch, hardened against repository-chosen programs
   tools-decision/  Typed judgments (classify, check, rank, score) from a DecisionModel — Jev today
   tools-mcp/       Generic MCP stdio client used by the tool packages above
   registry/        Static index of known MCP tools

@@ -62,6 +62,22 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > `SHELL_SANDBOX=none` has to be set deliberately. Browser isolation (#87) and the
 > provider-neutral sandbox interface (#136) are still design-only.
 
+- Git runs on the host, outside the shell sandbox, so it must not run programs the repository names.
+
+> **Status:** implemented for the git tools (#121). Several git features run a
+> program chosen by the repository: hooks, an fsmonitor, external diff and
+> textconv drivers, filter drivers and a signing program. The sandboxed shell can
+> write into `.git/`, so a host-side git that obeyed them would be a way out of the
+> sandbox. `packages/tools-git` overrides hooks and the fsmonitor on the command
+> line (which outranks every config file), passes `--no-ext-diff --no-textconv`,
+> commits with `--no-verify`, and refuses to run at all while the repository's own
+> config sets a filter driver or signing program — the same settings in the
+> person's global config, where git-lfs puts its filter, are their choice and are
+> left alone. Git gets a minimal environment, so an inherited `GIT_DIR` or
+> `GIT_EXTERNAL_DIFF` cannot redirect it. The workspace has to be the repository's
+> top level, since git run from a subdirectory reports and commits the whole
+> repository. The file policy applies: a denied file is never diffed or committed.
+
 - Browser automation uses a dedicated, isolated browser profile — not the user's real logged-in browser — unless the user explicitly configures profile sharing.
 
 > **Status:** implemented (#87). `packages/tools-browser` provisions a fresh profile

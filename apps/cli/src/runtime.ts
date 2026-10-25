@@ -18,6 +18,7 @@ import {
   createUiTarsGuiAgentFactory,
 } from '@open-agent/tools-computer'
 import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
+import { mountGitTools } from '@open-agent/tools-git'
 import { httpRequestTool } from '@open-agent/tools-http'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
@@ -66,6 +67,7 @@ export async function createRuntime({
   let disposeBrowserTools: (() => void) | undefined
   let workspace: Workspace | undefined
   let disposeFileTools: (() => void) | undefined
+  let disposeGitTools: (() => void) | undefined
   let disposeTerminalTools: (() => void) | undefined
   let disposeDecisionTools: (() => void) | undefined
 
@@ -77,6 +79,7 @@ export async function createRuntime({
     // under anything still running in it.
     disposeTerminalTools?.()
     disposeFileTools?.()
+    disposeGitTools?.()
     await workspace?.dispose()
   }
 
@@ -118,7 +121,7 @@ export async function createRuntime({
     // one for commands". `WORKSPACE_SESSION=1` provisions a throwaway directory
     // per run instead, which is what keeps two concurrent agents out of each
     // other's files.
-    if (config.files.enabled || config.shell.enabled) {
+    if (config.files.enabled || config.shell.enabled || config.git.enabled) {
       const policy = { deny: config.files.deny, allow: config.files.allow, readOnly: config.files.readOnly }
       workspace = config.workspace.session
         ? await createSessionWorkspace({ base: config.workspace.base, policy })
@@ -128,6 +131,10 @@ export async function createRuntime({
         write(`Working in a session workspace at ${workspace.root}\n`)
       }
       if (config.files.enabled) disposeFileTools = mountFileTools(tools, workspace)
+      if (config.git.enabled) {
+        disposeGitTools = mountGitTools(tools, workspace)
+        write(`Git tools loaded (GIT_TOOL=1) for ${workspace.root}\n`)
+      }
 
       if (config.shell.enabled) {
         const sandbox = await selectSandbox(config.shell.sandbox, {
