@@ -79,6 +79,17 @@ Approvals can be scoped: "approve this once," "approve this tool for this task,"
 > top level, since git run from a subdirectory reports and commits the whole
 > repository. The file policy applies: a denied file is never diffed or committed.
 
+- Hooks run the person's own commands around tool calls, so where they come from is narrow.
+
+> **Status:** implemented (#123). `ToolRegistry` runs a host's `beforeCall` hook
+> ahead of the approval handler and `afterCall` after a call ran. A hook can block a
+> call but never approve one or change its arguments, which the session log has
+> already recorded. In the CLI a `pre_tool_call` hook fails closed: a crash or a
+> timeout blocks the call. Hooks load from the person's config only —
+> `~/.openagent/hooks.json`, or `OPEN_AGENT_HOOKS_FILE` from the shell, not `.env` —
+> never from the repository or a shared profile, and a hooks file inside the agent's
+> workspace is refused.
+
 - Browser automation uses a dedicated, isolated browser profile — not the user's real logged-in browser — unless the user explicitly configures profile sharing.
 
 > **Status:** implemented (#87). `packages/tools-browser` provisions a fresh profile

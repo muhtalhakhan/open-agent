@@ -120,6 +120,24 @@ function argumentKey(args: Record<string, unknown>): string {
 }
 
 /**
+ * Code the host runs around every tool call: the person's own policy and
+ * bookkeeping, configured outside the agent. Hooks observe and can refuse;
+ * they cannot approve, and they cannot change a call's arguments — the loop
+ * has already logged the call the model made, and a call that ran with other
+ * arguments would leave the log describing something that did not happen.
+ */
+export interface ToolHooks {
+  /**
+   * Before the call is approved or run. Returning `{ block }` refuses it with
+   * that reason, which is what the model is told. Runs before the approval
+   * handler, so a person is never asked about a call a hook would refuse.
+   */
+  beforeCall?(call: ToolCall, tool: ToolDefinition, taskId: string): Promise<{ block: string } | undefined>
+  /** After a call ran — not after one that was refused. What it returns is ignored. */
+  afterCall?(call: ToolCall, tool: ToolDefinition, result: ToolResult, taskId: string): Promise<void>
+}
+
+/**
  * The scoped tool registry and guarded execution pipeline. Every tool
  * declares a permission level; anything above "safe" is denied unless an
  * approval handler explicitly allows it. This is the one place a tool call
@@ -129,6 +147,7 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>()
   private readonly enabledDangerous = new Set<string>()
   private approvalHandler: ApprovalHandler = () => false
+  private hooks: ToolHooks = {}
   private isUnattended: (taskId: string) => boolean = () => false
   /** Remembered approvals, keyed by tool and (for `exact` grants) arguments. */
   private readonly grants = new Map<string, ApprovalGrant>()
@@ -153,6 +172,8 @@ export class ToolRegistry {
     result: ToolResult
     /** The tool's preview ("diff") if the call carried one. */
     planPreview?: string
+    /** Set when a `beforeCall` hook refused the call: its reason. */
+    blockedBy?: string
   }> = []
 
   register(tool: ToolDefinition): () => void {
@@ -178,6 +199,11 @@ export class ToolRegistry {
 
   onApproval(handler: ApprovalHandler): void {
     this.approvalHandler = handler
+  }
+
+  /** Sets the hooks run around every call; see `ToolHooks`. */
+  useHooks(hooks: ToolHooks): void {
+    this.hooks = hooks
   }
 
   /**
@@ -406,6 +432,22 @@ export class ToolRegistry {
       return result
     }
 
+    // A refusal from a hook ends the call before any approval is asked for:
+    // hooks add policy on top of the permission levels, never in place of them.
+    const hooked = await this.hooks.beforeCall?.(call, tool, context.taskId)
+    if (hooked) {
+      const result: ToolResult = { ok: false, content: '', error: `tool "${call.name}" was blocked: ${hooked.block}` }
+      this.auditLog.push({
+        call,
+        permissionLevel: tool.permissionLevel,
+        approved: false,
+        approvalSource: 'denied',
+        blockedBy: hooked.block,
+        result,
+      })
+      return result
+    }
+
     const { source: approvalSource, escalation, planPreview, plannedError } = await this.decide(call, tool, context)
     if (approvalSource === 'denied') {
       const result: ToolResult = {
@@ -444,6 +486,9 @@ export class ToolRegistry {
       planPreview,
       result,
     })
+    // With the raw result, before any fencing: the hook is the person's own
+    // code, and what it is told is what the tool returned.
+    await this.hooks.afterCall?.(call, tool, result, context.taskId)
 
     // Only a call that has actually run and succeeded settles its destination:
     // one the user refused must never become one the rules consider settled,

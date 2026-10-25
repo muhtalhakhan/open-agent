@@ -838,3 +838,46 @@ describe('approvalScopes', () => {
     ])
   })
 })
+
+describe('ToolRegistry hooks', () => {
+  const call = { id: 'h1', name: 'shell', args: { cmd: 'rm -rf build' } }
+
+  it('lets a hook block a call before anyone is asked to approve it', async () => {
+    const registry = new ToolRegistry()
+    registry.register(shellTool)
+    let asked = false
+    registry.onApproval(() => (asked = true))
+    registry.useHooks({ beforeCall: async () => ({ block: 'no rm -rf here' }) })
+
+    const result = await registry.execute(call, { taskId: 't1', signal: ctx() })
+
+    expect(result).toEqual({ ok: false, content: '', error: 'tool "shell" was blocked: no rm -rf here' })
+    expect(asked).toBe(false)
+    expect(registry.auditLog.at(-1)).toMatchObject({ approved: false, blockedBy: 'no rm -rf here' })
+  })
+
+  it('cannot approve: a call the hook lets through still needs its approval', async () => {
+    const registry = new ToolRegistry()
+    registry.register(shellTool)
+    registry.useHooks({ beforeCall: async () => undefined })
+
+    const result = await registry.execute(call, { taskId: 't1', signal: ctx() })
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/requires approval/) })
+  })
+
+  it('tells afterCall what ran and what it returned, and says nothing of a refused call', async () => {
+    const registry = new ToolRegistry()
+    registry.register(echoTool)
+    registry.register(shellTool)
+    const seen: string[] = []
+    registry.useHooks({
+      afterCall: async (c, tool, result, taskId) => void seen.push(`${taskId}:${tool.name}:${result.content}`),
+    })
+
+    await registry.execute({ id: 'a', name: 'echo', args: { text: 'hi' } }, { taskId: 't1', signal: ctx() })
+    await registry.execute(call, { taskId: 't1', signal: ctx() })
+
+    expect(seen).toEqual(['t1:echo:hi'])
+  })
+})

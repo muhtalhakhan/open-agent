@@ -16,6 +16,7 @@ export type {
   ApprovalMatch,
   ApprovalScope,
   ApprovalSource,
+  ToolHooks,
 } from './tools.js'
 export { AgentLoop, CancelledError } from './agent-loop.js'
 export type { AgentLoopOptions, RunOptions, RunTextEvent } from './agent-loop.js'
