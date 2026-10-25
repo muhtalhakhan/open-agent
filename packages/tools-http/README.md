@@ -27,6 +27,12 @@ The model then calls it with the credential as a placeholder:
 
 In the CLI, set `HTTP_TOOL=1` (plus `HTTP_ALLOWED_HOSTS` and any `HTTP_SECRET_<NAME>`) — see `.env.example`.
 
+## `fetch_url`
+
+`{ url, start? }` → the page's readable text: `URL:` and `Title:` lines, then headings, paragraphs, list items, and links written as `text (url)`. Scripts, styles and markup are dropped. Plain text comes back as it is; anything else (video, images, a PDF) is refused by type. Long pages come back 40,000 characters at a time, and `start` reads on.
+
+It is `safe`, where `http_request` is `ask`: it only sends a GET to the URL, and the registry's exfiltration rule still escalates a call whose URL looks like it is carrying data out. What it returns is the page's own text, so it is `untrustedOutput`. It shares `createGuardedFetch` with `http_request` — the same network policy, the resolved-address check, and every redirect vetted before it is followed. In the CLI, `FETCH_TOOL=1`.
+
 ## Permission level
 
 `ask`, always, and not configurable. The point of the tool is reaching a service the runtime knows nothing about, so neither the effect of a request (a `POST` that charges a card) nor its destination can be judged ahead of time. `allowedHosts` narrows where it can go; it does not make a call safe to run unattended. See `docs/security-model.md`.
