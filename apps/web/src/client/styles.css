@@ -849,3 +849,52 @@ code {
   color: var(--text);
   font: inherit;
 }
+
+.todos {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13.5px;
+}
+
+.todos__head {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.todos ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todos__item {
+  display: flex;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.todos__mark {
+  flex: none;
+  color: var(--muted);
+}
+
+.todos__item--in_progress {
+  font-weight: 600;
+}
+
+.todos__item--in_progress .todos__mark {
+  color: var(--accent);
+}
+
+.todos__item--done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.todos__item--done .todos__mark {
+  color: var(--ok);
+}

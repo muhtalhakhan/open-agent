@@ -30,4 +30,5 @@ export type {
   SettingsView,
   TaskEndStatus,
   TextEvent,
+  TodoItem,
 } from './protocol.js'

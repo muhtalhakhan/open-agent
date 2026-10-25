@@ -20,6 +20,7 @@ import {
 import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
 import { mountGitTools } from '@open-agent/tools-git'
 import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
+import { todoWriteTool } from '@open-agent/tools-todo'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
 import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
@@ -176,6 +177,8 @@ export async function createRuntime({
         }),
       )
     }
+
+    if (config.todo.enabled) tools.register(todoWriteTool())
 
     if (config.fetch.enabled) {
       tools.register(

@@ -16,6 +16,12 @@ export interface Usage {
   cachedInputTokens?: number
 }
 
+/** One step of the agent's todo list — `TodoItem` from tools-todo, restated. */
+export interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'done'
+}
+
 /** How long an approval lasts: this call, the rest of this task, or the rest of the session. */
 export type ApprovalScope = 'once' | 'task' | 'session'
 
@@ -45,6 +51,8 @@ export type ServerEvent =
   /** `output` is the start of what a successful call returned, for a person to glance at, not the whole of it. */
   | { type: 'tool/end'; taskId: string; callId: string; ok: boolean; error?: string; output?: string; ms: number }
   | { type: 'task/end'; taskId: string; status: TaskEndStatus; answer: string; error?: string; usage?: Usage }
+  /** The agent's todo list, whole, each time a `todo_write` call succeeds. */
+  | { type: 'todos'; taskId: string; items: TodoItem[] }
   /**
    * A tool call waiting for the person: answered with
    * `POST /api/approvals/<approvalId>`. Replayed to a tab that connects while

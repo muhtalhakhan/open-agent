@@ -26,6 +26,7 @@
     "@open-agent/tools-search": "*",
     "@open-agent/tools-terminal": "*",
     "@open-agent/tools-git": "*",
+    "@open-agent/tools-todo": "*",
     "@open-agent/web": "*",
     "cli-truncate": "^6.1.1",
     "dotenv": "^16.4.5",

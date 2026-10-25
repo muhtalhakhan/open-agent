@@ -34,7 +34,7 @@ import { runHeadless } from './headless.js'
 import { describeUnreadable, formatHistory, sessionHistory } from './history.js'
 import { createTerminalAnswerStream, type AnswerStream } from './answer-stream.js'
 import { renderMarkdown, shouldRenderMarkdown } from './markdown.js'
-import { createLineActivityView, type ToolActivityView } from './tool-activity.js'
+import { createLineActivityView, printable, type ToolActivityView } from './tool-activity.js'
 import { createApprovalAsk, createLineReader } from './line-reader.js'
 import { createTerminalTakeoverHandler } from './takeover.js'
 import { runRepl, type AbortRef, type ReplIO } from './repl.js'
@@ -42,6 +42,7 @@ import { createRuntime } from './runtime.js'
 import { applySettings, readSettings, type SettingsDeps } from './settings.js'
 import { DEFAULT_PROFILE_VAR, profilesSource } from './web-profiles.js'
 import { createHookRunner, loadHooks } from './hooks.js'
+import { formatTodos, trackTodos } from '@open-agent/tools-todo'
 import { executeTask } from './task.js'
 import {
   applyProfile,
@@ -494,6 +495,18 @@ async function main() {
     ...(resumedSessionId !== undefined ? { session_id: resumedSessionId } : {}),
   })
   let savedSessionId = resumedSessionId
+  // The list as the log has it, printed whenever a todo_write call lands. The
+  // web UI draws it from its own projection of the same log instead.
+  if (!web) {
+    sessions.onAppend(
+      // Each item through `printable`: the text is the model's, and an escape
+      // sequence in it is not formatting.
+      trackTodos((_taskId, todos) => {
+        const safe = todos.map((todo) => ({ ...todo, content: printable(todo.content) }))
+        io.write(`Todo:\n${formatTodos(safe).replace(/^/gm, '  ')}\n`)
+      }),
+    )
+  }
 
   try {
     const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
