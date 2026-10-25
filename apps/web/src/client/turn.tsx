@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ApprovalScope, Usage } from '../protocol.js'
+import type { ApprovalScope, TodoItem, Usage } from '../protocol.js'
 import type { ApprovalItem, Entry, Turn, TurnItem } from './transcript.js'
 
 /** Sends a person's answer; resolves to an error message, or `null` once taken. */
@@ -201,11 +201,36 @@ function ApprovalCard({ item, answer }: { item: ApprovalItem; answer?: AnswerApp
   )
 }
 
+const TODO_MARK: Record<TodoItem['status'], string> = { pending: '○', in_progress: '◐', done: '●' }
+
+/** The agent's plan for the turn, kept at the top so where it is stays in view as tool rows pile up below. */
+function TodoList({ items }: { items: TodoItem[] }) {
+  const done = items.filter((item) => item.status === 'done').length
+  return (
+    <div className="todos" aria-label="Todo list">
+      <div className="todos__head">
+        Plan · {done}/{items.length} done
+      </div>
+      <ul>
+        {items.map((item, index) => (
+          <li key={index} className={`todos__item todos__item--${item.status}`}>
+            <span className="todos__mark" aria-hidden="true">
+              {TODO_MARK[item.status]}
+            </span>
+            {item.content}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function TurnView({ turn, answer }: { turn: Turn; answer?: AnswerApproval }) {
   return (
     <section className="turn" aria-busy={turn.status === 'running'}>
       <div className="turn__input">{turn.input}</div>
       <div className="turn__reply">
+        {turn.todos && turn.todos.length > 0 && <TodoList items={turn.todos} />}
         {turn.items.map((item, index) =>
           item.kind === 'text' ? (
             <div key={index} className={item.done ? 'text' : 'text text--live'}>

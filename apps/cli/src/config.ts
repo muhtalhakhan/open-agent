@@ -19,6 +19,8 @@ export interface CliConfig {
     secrets: Record<string, string>
   }
   files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
+  /** `todo_write`: a checklist the agent keeps for work with several steps. */
+  todo: { enabled: boolean }
   /** `fetch_url`: reading a page as text, under the HTTP tool's denied hosts and local-address rule. */
   fetch: { enabled: boolean }
   /** The git tools, on the same workspace and file policy as the file tools. */
@@ -170,6 +172,9 @@ export function loadConfigFromEnv(
   // Off unless asked for: a commit puts the agent's work into history under
   // the person's name.
   const git = { enabled: env.GIT_TOOL === '1' || env.GIT_TOOL === 'true' }
+  // On unless turned off: unlike the tools above it reaches nothing outside
+  // the conversation, and a list of steps is what a person watching wants.
+  const todo = { enabled: env.TODO_TOOL !== '0' && env.TODO_TOOL !== 'false' }
   // Off unless asked for, like every tool that reaches the network.
   const fetch = { enabled: env.FETCH_TOOL === '1' || env.FETCH_TOOL === 'true' }
 
@@ -247,6 +252,7 @@ export function loadConfigFromEnv(
       computer,
       http: http.config,
       files,
+      todo,
       fetch,
       git,
       workspace,

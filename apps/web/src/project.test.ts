@@ -108,6 +108,22 @@ describe('replayTask', () => {
     })
   })
 
+  it('replays the todo list each time a todo_write call succeeded, and not when one failed', () => {
+    const plan = [{ content: 'Read it', status: 'in_progress' }]
+    const events: SessionEvent[] = [
+      { type: 'user/message', taskId: 't1', at: 1, message: { role: 'user', content: 'go' } },
+      { type: 'tool/call', taskId: 't1', at: 2, call: { id: 'a', name: 'todo_write', args: { todos: plan } } },
+      { type: 'tool/result', taskId: 't1', at: 3, callId: 'a', result: { ok: true, content: '' } },
+      { type: 'tool/call', taskId: 't1', at: 4, call: { id: 'b', name: 'todo_write', args: { todos: [] } } },
+      { type: 'tool/result', taskId: 't1', at: 5, callId: 'b', result: { ok: false, content: '', error: 'x' } },
+      { type: 'turn/end', taskId: 't1', at: 6, reason: 'completed' },
+    ]
+
+    expect(replayTask('t1', events).filter((event) => event.type === 'todos')).toEqual([
+      { type: 'todos', taskId: 't1', items: plan },
+    ])
+  })
+
   it('reports a retry with its reason, and counts steps from 1 again in each turn', () => {
     const events: SessionEvent[] = [
       { type: 'turn/start', taskId: 't1', at: 0 },

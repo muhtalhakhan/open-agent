@@ -1,4 +1,4 @@
-import type { ApprovalScope, ServerEvent, TaskEndStatus, Usage } from '../protocol.js'
+import type { ApprovalScope, ServerEvent, TaskEndStatus, TodoItem, Usage } from '../protocol.js'
 
 export type TurnItem =
   | { kind: 'text'; text: string; done: boolean }
@@ -43,6 +43,8 @@ export interface Turn {
   usage?: Usage
   /** The step it is on, while it runs. */
   step?: number
+  /** The agent's latest todo list for this task, if it kept one. */
+  todos?: TodoItem[]
 }
 
 export type Entry = Turn | { kind: 'notice'; text: string }
@@ -140,6 +142,10 @@ export function reduce(state: Transcript, event: ServerEvent): Transcript {
           output: event.output,
           ms: event.ms,
         }
+      })
+    case 'todos':
+      return updateTurn(state, event.taskId, (turn) => {
+        turn.todos = event.items
       })
     case 'approval/request': {
       const { type: _type, taskId, ...request } = event

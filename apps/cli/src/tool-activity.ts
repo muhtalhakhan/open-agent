@@ -47,7 +47,7 @@ const ERROR_LENGTH = 100
  * need it too: `JSON.stringify` escapes C0 controls but leaves C1 ones as
  * they are, and U+009B is a one-character CSI some terminals act on.
  */
-function printable(text: string): string {
+export function printable(text: string): string {
   // eslint-disable-next-line no-control-regex
   return text.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim()
 }

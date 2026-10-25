@@ -51,6 +51,17 @@ describe('reduce', () => {
     })
   })
 
+  it('keeps the latest todo list on its turn', () => {
+    const first = [{ content: 'a', status: 'in_progress' as const }]
+    const second = [{ content: 'a', status: 'done' as const }]
+
+    const turn = onlyTurn(
+      fold([start, { type: 'todos', taskId: 't1', items: first }, { type: 'todos', taskId: 't1', items: second }]),
+    )
+
+    expect(turn.todos).toEqual(second)
+  })
+
   it('keeps what the task cost', () => {
     const state = fold([start, { ...completed('Hi'), usage: { inputTokens: 50, outputTokens: 2 } } as ServerEvent])
 

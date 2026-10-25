@@ -1,4 +1,5 @@
 import type { SessionEvent, TokenUsage } from '@open-agent/agent'
+import { trackTodos } from '@open-agent/tools-todo'
 import type { ServerEvent } from './protocol.js'
 
 const ARGS_LENGTH = 200
@@ -28,7 +29,9 @@ export const preview = (text: string) => clip(text.replace(/\s+/g, ' ').trim(), 
 export function activityProjector(taskId: string, emit: (event: ServerEvent) => void): (event: SessionEvent) => void {
   const open = new Map<string, number>()
   let step = 0
+  const todos = trackTodos((_taskId, items) => emit({ type: 'todos', taskId, items }))
   return (event) => {
+    todos(event)
     if (event.type === 'turn/start') {
       step = 0
     } else if (event.type === 'step/start') {

@@ -707,6 +707,54 @@ describe('CLI end to end', () => {
       }
     })
 
+    it('shows the todo list on stderr as the agent updates it, keeping stdout for the answer', async () => {
+      const model = createServer((req, res) => {
+        let raw = ''
+        req.on('data', (chunk) => (raw += chunk))
+        req.on('end', () => {
+          const done = JSON.parse(raw).messages.some((m: { role: string }) => m.role === 'tool')
+          const todos = [
+            { content: 'Look at the \u001b[31mtests\u001b[0m', status: 'done' },
+            { content: 'Write the summary', status: 'in_progress' },
+          ]
+          const message = done
+            ? { role: 'assistant', content: 'summary' }
+            : {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 't1',
+                    type: 'function',
+                    function: { name: 'todo_write', arguments: JSON.stringify({ todos }) },
+                  },
+                ],
+              }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ choices: [{ message }] }))
+        })
+      })
+      const port = await new Promise<number>((resolve) =>
+        model.listen(0, '127.0.0.1', () => resolve((model.address() as AddressInfo).port)),
+      )
+      try {
+        const { stdout, stderr, code } = await runCli(
+          '',
+          { OPENAI_BASE_URL: `http://127.0.0.1:${port}`, OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'test-model' },
+          repo,
+          ['-p', 'summarize'],
+        )
+
+        expect(code).toBe(0)
+        expect(stdout).toBe('summary\n')
+        // The escape sequence the model put in an item does not reach the terminal.
+        expect(stderr).toContain('Todo:\n  [x] Look at the  [31mtests [0m\n  [>] Write the summary\n')
+        expect(stderr).not.toContain('\u001b[31m')
+      } finally {
+        await new Promise((done) => model.close(done))
+      }
+    })
+
     it('refuses to start with a hooks file inside the workspace', async () => {
       const hooksFile = path.join(repo, 'hooks.json')
       await writeFile(hooksFile, JSON.stringify({ hooks: [] }))
