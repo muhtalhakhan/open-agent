@@ -39,6 +39,31 @@ Settings are read from `.env` at the repository root, after the shell's own envi
 
 `open-agent web` serves a chat UI on 127.0.0.1 (port 7373, or `--port`) and prints the address to open, token included. It builds the same agent as the terminal and runs each message through the same `task.ts`; the server and the page live in `apps/web` (see its README). Approvals are asked in the browser, with the same choices as the terminal prompt; `--yes` approves `ask`-level calls without asking, as elsewhere, and `--plan` shows file edits there as a diff to review. Ctrl+C waits for a running task, then saves the session.
 
+## Hooks
+
+Your own commands, run at four points: `pre_tool_call`, `post_tool_call`, `session_start` and `session_stop`. They live in `~/.openagent/hooks.json`, or in the file `OPEN_AGENT_HOOKS_FILE` names (set in the shell, not in `.env`):
+
+```json
+{
+  "hooks": [
+    {
+      "event": "pre_tool_call",
+      "tools": ["run_command", "write_file"],
+      "command": "~/bin/guard.sh",
+      "timeout_ms": 5000
+    },
+    { "event": "post_tool_call", "tools": ["browser_*"], "command": "~/bin/log-call.sh" },
+    { "event": "session_stop", "command": "notify-send 'agent done'" }
+  ]
+}
+```
+
+- Each command runs with `sh -c` in the launch directory and gets the event as JSON on stdin: the tool, its arguments, its permission level and the task id for tool events, plus the result (clipped) for `post_tool_call`. `OPEN_AGENT_HOOK_EVENT` names the event. `tools` limits a tool hook to those names, and a trailing `*` matches a prefix.
+- **`pre_tool_call` decides.** Exit 0 lets the call go on to the usual approval; exit 2 blocks it, and what the hook wrote to stderr is the reason the model is told. Anything else, including a crash or a timeout (default 10 s), blocks it too: a broken guard is not a yes. A hook can refuse a call but never approve one, and it is run before anyone is asked, so you are never prompted about a call it would block.
+- **The others observe.** A failure is reported and the agent carries on.
+- Hooks cannot change a call's arguments. The session log records the call the model made, and a call that ran with other arguments would leave it describing something that did not happen. Block with a reason instead, and the model can try again.
+- Hooks run with your privileges, so they come from your own config only — never from the repository or a profile, either of which would let a cloned project or a shared profile run commands on your machine. A hooks file inside the agent's workspace is refused, since the agent could write itself one. Startup says how many hooks loaded.
+
 ## Task history
 
 `open-agent --history` lists the 20 most recent tasks across saved sessions: when each ran, how it ended, the prompt, the start of the answer, the session id to pass to `--resume`, and the tokens it used when the provider reported them. It needs no provider configured. Inside a session, `:history` shows the same, including this session's tasks, which are only written to disk when the session ends.

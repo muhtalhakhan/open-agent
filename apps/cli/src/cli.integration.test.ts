@@ -638,6 +638,89 @@ describe('CLI end to end', () => {
       expect(stderr).toContain('Loaded project conventions from AGENTS.md')
     })
 
+    it('runs the hooks file: a pre_tool_call hook blocks a write, and session hooks run at both ends', async () => {
+      // The model asks for a write, then answers with whatever the call returned.
+      const model = createServer((req, res) => {
+        let raw = ''
+        req.on('data', (chunk) => (raw += chunk))
+        req.on('end', () => {
+          const result = JSON.parse(raw).messages.find((m: { role: string }) => m.role === 'tool')
+          const message = result
+            ? { role: 'assistant', content: `result: ${result.content}` }
+            : {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'w1',
+                    type: 'function',
+                    function: { name: 'write_file', arguments: JSON.stringify({ path: 'out.txt', content: 'x' }) },
+                  },
+                ],
+              }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ choices: [{ message }] }))
+        })
+      })
+      const port = await new Promise<number>((resolve) =>
+        model.listen(0, '127.0.0.1', () => resolve((model.address() as AddressInfo).port)),
+      )
+      // Outside the repo: a hooks file the agent's workspace contains is refused.
+      const config = await mkdtemp(path.join(tmpdir(), 'open-agent-hooks-'))
+      const hooksFile = path.join(config, 'hooks.json')
+      await writeFile(
+        hooksFile,
+        JSON.stringify({
+          hooks: [
+            { event: 'pre_tool_call', tools: ['write_file'], command: 'echo "writes are frozen" >&2; exit 2' },
+            { event: 'session_start', command: `cat > "${path.join(config, 'start.json')}"` },
+            { event: 'session_stop', command: `touch "${path.join(config, 'stopped')}"` },
+          ],
+        }),
+      )
+      try {
+        const { stdout, stderr, code } = await runCli(
+          '',
+          {
+            OPENAI_BASE_URL: `http://127.0.0.1:${port}`,
+            OPENAI_API_KEY: 'test-key',
+            OPENAI_MODEL: 'test-model',
+            FILES_TOOL: '1',
+            OPEN_AGENT_HOOKS_FILE: hooksFile,
+          },
+          repo,
+          ['-p', 'write out.txt', '--yes'],
+        )
+
+        expect(code).toBe(0)
+        expect(stderr).toContain(`Hooks: 3 loaded from ${hooksFile}`)
+        expect(stdout).toBe('result: Error: tool "write_file" was blocked: writes are frozen\n')
+        expect(existsSync(path.join(repo, 'out.txt'))).toBe(false)
+        expect(JSON.parse(await readFile(path.join(config, 'start.json'), 'utf8'))).toMatchObject({
+          event: 'session_start',
+          mode: 'print',
+        })
+        expect(existsSync(path.join(config, 'stopped'))).toBe(true)
+      } finally {
+        await new Promise((done) => model.close(done))
+        await rm(config, { recursive: true, force: true })
+      }
+    })
+
+    it('refuses to start with a hooks file inside the workspace', async () => {
+      const hooksFile = path.join(repo, 'hooks.json')
+      await writeFile(hooksFile, JSON.stringify({ hooks: [] }))
+
+      const { stderr, code } = await runCli('', { ...env(), FILES_TOOL: '1', OPEN_AGENT_HOOKS_FILE: hooksFile }, repo, [
+        '-p',
+        'anything',
+      ])
+
+      expect(code).toBe(1)
+      expect(stderr).toContain("inside the agent's workspace")
+      expect(provider.requests).toHaveLength(0)
+    })
+
     it('exits 1 with an empty stdout when the provider is unreachable', async () => {
       const badEnv = { ...env(), OPENAI_BASE_URL: 'http://127.0.0.1:1' }
 

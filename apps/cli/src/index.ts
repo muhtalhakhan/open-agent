@@ -41,6 +41,7 @@ import { runRepl, type AbortRef, type ReplIO } from './repl.js'
 import { createRuntime } from './runtime.js'
 import { applySettings, readSettings, type SettingsDeps } from './settings.js'
 import { DEFAULT_PROFILE_VAR, profilesSource } from './web-profiles.js'
+import { createHookRunner, loadHooks } from './hooks.js'
 import { executeTask } from './task.js'
 import {
   applyProfile,
@@ -233,6 +234,22 @@ async function main() {
     }
     profile = loaded.profile
     config = applyProfile(config, profile)
+  }
+
+  // Off the shell environment only, so a .env — a file in the checkout —
+  // cannot point the CLI at a hooks file of its choosing.
+  const hooksFile = SHELL_ENV.OPEN_AGENT_HOOKS_FILE
+    ? path.resolve(SHELL_ENV.OPEN_AGENT_HOOKS_FILE)
+    : path.join(os.homedir(), '.openagent', 'hooks.json')
+  const writableRoots =
+    config.files.enabled || config.shell.enabled || config.git.enabled
+      ? [config.files.root ?? config.shell.root ?? process.cwd()]
+      : []
+  const loadedHooks = loadHooks(hooksFile, writableRoots)
+  if (!loadedHooks.ok) {
+    console.error(loadedHooks.error)
+    process.exitCode = 1
+    return
   }
 
   const instructions = await loadProjectInstructions()
@@ -461,6 +478,23 @@ async function main() {
   })
   const loop = runtime.loop
 
+  const hooks = createHookRunner({
+    hooks: loadedHooks.hooks,
+    cwd: process.cwd(),
+    env: SHELL_ENV,
+    notice: (text) => io.write(text),
+  })
+  if (loadedHooks.hooks.length > 0) {
+    tools.useHooks(hooks.toolHooks)
+    // Code that runs around every call is worth saying out loud, as AGENTS.md is.
+    io.write(`Hooks: ${loadedHooks.hooks.length} loaded from ${hooksFile}\n`)
+  }
+  await hooks.session('session_start', {
+    mode: args.mode,
+    ...(resumedSessionId !== undefined ? { session_id: resumedSessionId } : {}),
+  })
+  let savedSessionId = resumedSessionId
+
   try {
     const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
     const memoryHook = { provider: runtime.memory, containerTag }
@@ -575,6 +609,7 @@ async function main() {
       await sessionStore.save(resumedSessionId, sessions.allEvents(), Date.now())
     } else {
       const sessionId = SessionStore.generateId()
+      savedSessionId = sessionId
       await sessionStore.save(sessionId, sessions.allEvents(), Date.now())
       if (!headless) {
         io.write(`Session ID: ${sessionId}\nUse 'open-agent --resume ${sessionId}' to resume this session.\n`)
@@ -585,6 +620,7 @@ async function main() {
     await background?.close()
     teardown()
     disposeTakeoverTools?.()
+    await hooks.session('session_stop', savedSessionId !== undefined ? { session_id: savedSessionId } : {})
     await runtime.dispose()
   }
 }
