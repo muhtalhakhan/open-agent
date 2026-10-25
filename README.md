@@ -34,7 +34,7 @@ AI shouldn't be locked to one provider. Today, powerful computer-using agents ar
 | ⏰  | Run scheduled tasks                           | 🟡 Library — `@open-agent/automation`: one-time and recurring (cron/interval) tasks, a job queue with retries, and notifications; not yet a CLI command                        |
 | 🤖  | Operate autonomously with configurable limits | 🟡 Partly — permission levels, approvals, sandboxing and prompt-injection defenses are in (Milestone 9); remote/cloud agents are Milestone 10                                  |
 
-A CLI is available today (`npm run cli`), and a first browser chat UI (`npm run web`); the rest of the web UI described below is still a design doc.
+A CLI is available today (`npm run cli`), and a browser UI (`npm run web`) with chat, task history, approvals, live tool output, memory and settings management, and a live browser view; agent profile management in the web UI is the last piece still to come.
 
 See the [milestones](../../milestones) for the full roadmap and what's currently in progress.
 
@@ -96,7 +96,7 @@ Your API keys, files, browser profiles, and agent data can remain under your con
 
 ## Project status
 
-OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated. The web UI, agent profiles and remote/cloud agents are still ahead.
+OpenAgent has a working agent runtime, tool calling, browser automation, computer control, web search, direct HTTP calls, pluggable memory, sandboxed file and terminal tools, background jobs, task history, and scheduling as a library. Interactive sessions stream answers as they are generated, the CLI supports agent profiles, and a web UI covers chat, history, approvals and settings. Profile management in the web UI and remote/cloud agents are still ahead.
 
 Progress by milestone (issues closed / total), regenerated from the tracker by [`docs-status.yml`](.github/workflows/docs-status.yml) — edit the issues, not the table:
 
@@ -120,9 +120,9 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 
 <!-- END GENERATED: milestone-status -->
 
-Recently landed: streaming output in the CLI (#102), plan mode with diff review (#120), human takeover and ask-for-login (#50), dangerous-action detection (#92) — which completed Security — and a fix for piped input being dropped (#234).
+Recently landed: the CLI side of Milestone 11 — a live tool-call view (#104), the `open-agent init` setup wizard (#105) and agent profile selection (#106) — and most of the web UI: chat (#107), task history (#108), approvals (#109), live step streaming (#110), memory management (#111), settings (#113) and a live browser view (#114).
 
-Nearest up next: the rest of the CLI side of Milestone 11 — a live tool-call view (#104), an `open-agent init` setup wizard (#105) and agent profile selection (#106).
+Nearest up next: agent profile management in the web UI (#112), which closes Milestone 11, then Milestone 10 — remote agents (#93) and persistent VMs/containers (#94).
 
 Security caveat: permission levels, approvals, audit logs, the shell sandbox (#86), throwaway browser profiles (#87), network restrictions (#89), keychain secrets (#88) and prompt-injection fencing (#91) are in place, but they are defenses, not a guarantee. Setting `SHELL_SANDBOX=none` or approving `ask` calls with `--yes` hands the agent your own privileges, and a model can still be misled by content it reads. Review approvals like you would a colleague's command.
 
@@ -149,22 +149,25 @@ That starts an interactive terminal session against the real agent loop, tool re
 
 ```
 apps/
-  web/            Web UI: a local chat server and its React client (`open-agent web`)
-  cli/            Command-line interface (Ink-based TUI)
+  web/             Web UI: a local chat server and its React client (`open-agent web`)
+  cli/             Command-line interface (Ink-based TUI)
 packages/
   context/         Plugin/service kernel the rest of the runtime is built on
   agent/           Agent loop, session log, tool registry
   providers/       LLM provider abstraction (OpenAI-compatible, Anthropic, Gemini, fallback)
   tools-browser/   Browser tools, via browser-use's MCP server
   tools-computer/  Computer-use tools, via @ui-tars/sdk
-  tools-files/     Filesystem tools confined to a workspace root (read_file)
+  tools-files/     Filesystem tools confined to a workspace root (read, write, list, search)
   tools-http/      Direct HTTP requests to arbitrary APIs (http_request)
   tools-search/    Web search (web_search), over Brave or Tavily
+  tools-terminal/  Sandboxed shell commands and background processes (run_command, start_process, ...)
   tools-decision/  Typed judgments (classify, check, rank, score) from a DecisionModel — Jev today
   tools-mcp/       Generic MCP stdio client used by the tool packages above
-  tools/           Remaining built-in tools (shell — planned)
+  registry/        Static index of known MCP tools
+  tools/           Placeholder (README only)
+  automation/      Scheduler, job queue and notifications for one-time and recurring tasks
   memory/          Long-term/semantic memory (Supermemory, mem0, in-memory)
-  security/        Permission system, approvals, sandboxing (design only — no implementation yet)
+  security/        Secret stores (OS keychain); the permission system lives in agent/
 docs/             Architecture and design docs
 tests/            Cross-package/integration tests
 examples/         Example agent profiles and scripts
