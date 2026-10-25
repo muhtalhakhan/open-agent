@@ -19,7 +19,7 @@ import {
 } from '@open-agent/tools-computer'
 import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace } from '@open-agent/tools-files'
 import { mountGitTools } from '@open-agent/tools-git'
-import { httpRequestTool } from '@open-agent/tools-http'
+import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
 import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
@@ -174,6 +174,12 @@ export async function createRuntime({
           network: { deniedHosts: config.http.deniedHosts, allowLocal: config.http.allowLocal },
           secrets: config.http.secrets,
         }),
+      )
+    }
+
+    if (config.fetch.enabled) {
+      tools.register(
+        fetchUrlTool({ network: { deniedHosts: config.http.deniedHosts, allowLocal: config.http.allowLocal } }),
       )
     }
 

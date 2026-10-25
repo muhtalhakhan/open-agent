@@ -1,7 +1,6 @@
-import type { ToolDefinition, ToolResult } from '@open-agent/agent'
-import { lookup } from 'node:dns/promises'
-import { checkResolvedAddresses, type NetworkPolicy } from '@open-agent/agent'
-import { HttpPolicyError, checkUrl, redactSecrets, resolveSecrets } from './policy.js'
+import type { NetworkPolicy, ToolDefinition, ToolResult } from '@open-agent/agent'
+import { createGuardedFetch } from './guarded-fetch.js'
+import { HttpPolicyError, redactSecrets, resolveSecrets } from './policy.js'
 import { formatResponse, readCappedBody } from './response.js'
 
 /** Enough to answer with a page of JSON, small enough not to evict the conversation. */
@@ -75,11 +74,6 @@ const SCHEMA = {
   required: ['url'],
 }
 
-/** The 3xx statuses that carry a Location worth following. */
-function isRedirect(status: number): boolean {
-  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
-}
-
 function fail(error: string): ToolResult {
   return { ok: false, content: '', error }
 }
@@ -116,30 +110,12 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
   const policy: NetworkPolicy = { ...options.network }
   if (options.allowedHosts !== undefined) policy.allowedHosts = options.allowedHosts
 
-  const resolveHost =
-    options.lookupFn === null
-      ? null
-      : (options.lookupFn ??
-        (async (hostname: string) => (await lookup(hostname, { all: true })).map((entry) => entry.address)))
-
-  /**
-   * Vets one URL: the name first, then what it actually resolves to. The
-   * second check is what stops `metadata.evil.test A 169.254.169.254`, which
-   * costs an attacker one DNS record and defeats the name check alone.
-   */
-  const vet = async (target: string): Promise<void> => {
-    const parsed = checkUrl(target, policy)
-    if (!resolveHost) return
-    let addresses: string[]
-    try {
-      addresses = await resolveHost(parsed.hostname)
-    } catch {
-      // A name that does not resolve is the fetch's problem to report, and
-      // its error message is better than anything invented here.
-      return
-    }
-    checkResolvedAddresses(parsed.hostname, addresses, policy)
-  }
+  const guarded = createGuardedFetch({
+    policy,
+    fetchFn: options.fetchFn,
+    lookupFn: options.lookupFn,
+    maxRedirects,
+  })
 
   return {
     name: 'http_request',
@@ -154,8 +130,6 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
     // The response body is whatever the remote server chose to send.
     untrustedOutput: true,
     async execute(args, context) {
-      const fetchFn = options.fetchFn ?? fetch
-
       let method: Method
       let url: string
       let headers: Record<string, string>
@@ -164,7 +138,9 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
         if (typeof args.url !== 'string' || !args.url) return fail('url is required')
         method = parseMethod(args.method)
         url = resolveSecrets(args.url, secrets)
-        await vet(url)
+        // Vetted here as well as in the fetch, so a refused URL is reported
+        // as a refusal before anything else about the request is judged.
+        await guarded.vet(url)
         headers = Object.fromEntries(
           Object.entries(args.headers ?? {}).map(([name, value]) => [name, resolveSecrets(String(value), secrets)]),
         )
@@ -185,24 +161,7 @@ export function httpRequestTool(options: HttpToolOptions = {}): ToolDefinition<H
       const timer = setTimeout(() => controller.abort(new Error(`request timed out after ${timeoutMs}ms`)), timeoutMs)
 
       try {
-        // `redirect: 'manual'`, and every hop vetted again. Following
-        // automatically would let one redirect to 169.254.169.254 undo the
-        // check the first URL just passed — the destination is what matters,
-        // and only the first one was ever looked at.
-        let response = await fetchFn(url, { method, headers, body, signal: controller.signal, redirect: 'manual' })
-        let hops = 0
-        while (isRedirect(response.status)) {
-          const location = response.headers.get('location')
-          if (!location) break
-          if (hops >= maxRedirects) {
-            return fail(`too many redirects (stopped after ${maxRedirects})`)
-          }
-          const next = new URL(location, url).toString()
-          await vet(next)
-          url = next
-          hops += 1
-          response = await fetchFn(url, { method, headers, body, signal: controller.signal, redirect: 'manual' })
-        }
+        const { response } = await guarded.fetch(url, { method, headers, body, signal: controller.signal })
         const read = await readCappedBody(response, maxResponseBytes)
         const content = redactSecrets(formatResponse(response, read), secrets)
         // A 4xx/5xx is a real answer, not a tool failure — the model gets the
