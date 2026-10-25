@@ -790,3 +790,62 @@ code {
   padding: 0 16px;
   text-align: center;
 }
+
+.profile-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.profile-row__head code,
+.profile-row__line code {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.profile-row__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 13.5px;
+}
+
+.profile-row__warning {
+  color: var(--notice-text);
+}
+
+.profile-badge,
+.profile-tool {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-badge--accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.profile-tool--on {
+  color: var(--text);
+}
+
+.profile-tool--wider {
+  border-color: var(--notice-text);
+  background: var(--notice-bg);
+  color: var(--notice-text);
+}
+
+.memory-row__confirm input[type='text'] {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}

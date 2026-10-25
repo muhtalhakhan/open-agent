@@ -4,8 +4,8 @@ import yaml from 'yaml'
 import type { CliConfig } from './config.js'
 
 /** The tools a profile can switch on or off. Each maps to the `enabled` flag of its section in `CliConfig`. */
-const PROFILE_TOOLS = ['browser', 'computer', 'http', 'files', 'shell'] as const
-type ProfileTool = (typeof PROFILE_TOOLS)[number]
+export const PROFILE_TOOLS = ['browser', 'computer', 'http', 'files', 'shell'] as const
+export type ProfileTool = (typeof PROFILE_TOOLS)[number]
 
 /**
  * A named set of settings applied over the `.env` config. Deliberately small:
@@ -48,6 +48,11 @@ export function parseProfile(content: string, source: string): ProfileResult {
       error: `Profile ${source} is not valid YAML: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
+  return validateProfile(parsed, source)
+}
+
+/** The checks behind `parseProfile`, for a profile that arrives as data — from the web editor — rather than YAML. */
+export function validateProfile(parsed: unknown, source: string): ProfileResult {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ok: false, error: `Profile ${source} must be a YAML mapping.` }
   }
@@ -144,17 +149,22 @@ export type ProfileWriteResult = { ok: true; file: string; profile: AgentProfile
  * Writes a profile into the user's folder as `<fileName>.yaml`. The file name
  * is held to `PROFILE_NAME`, so nothing — least of all the `name` inside a
  * file someone else sent — can place it outside the folder. An existing file
- * is never replaced: importing a shared `coding-agent.yaml` must not quietly
- * overwrite your own.
+ * is replaced only when `replace` says so: importing a shared
+ * `coding-agent.yaml` must not quietly overwrite your own.
  */
-function writeNewProfile(dirs: ProfileDirs, fileName: string, profile: AgentProfile): ProfileWriteResult {
+export function writeProfile(
+  dirs: ProfileDirs,
+  fileName: string,
+  profile: AgentProfile,
+  { replace = false }: { replace?: boolean } = {},
+): ProfileWriteResult {
   if (!PROFILE_NAME.test(fileName)) {
     return { ok: false, error: `"${fileName}" is not a valid profile name: use letters, digits, ".", "_" and "-".` }
   }
   const file = path.join(dirs.user, `${fileName}.yaml`)
   try {
     fs.mkdirSync(dirs.user, { recursive: true })
-    fs.writeFileSync(file, yaml.stringify(profile), { flag: 'wx' })
+    fs.writeFileSync(file, yaml.stringify(profile), { flag: replace ? 'w' : 'wx' })
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
       return { ok: false, error: `${file} already exists. Remove it first, or choose another name.` }
@@ -168,7 +178,7 @@ function writeNewProfile(dirs: ProfileDirs, fileName: string, profile: AgentProf
 export function duplicateProfile(source: string, newName: string, dirs: ProfileDirs): ProfileWriteResult {
   const loaded = loadProfile(source, dirs)
   if (!loaded.ok) return loaded
-  return writeNewProfile(dirs, newName, { ...loaded.profile, name: newName })
+  return writeProfile(dirs, newName, { ...loaded.profile, name: newName })
 }
 
 /**
@@ -193,5 +203,68 @@ export function importProfile(file: string, dirs: ProfileDirs): ProfileWriteResu
   if (!/\.ya?ml$/.test(file)) return { ok: false, error: `${file} is not a .yaml file.` }
   const loaded = loadProfile(file, dirs)
   if (!loaded.ok) return loaded
-  return writeNewProfile(dirs, path.basename(file).replace(/\.ya?ml$/, ''), loaded.profile)
+  return writeProfile(dirs, path.basename(file).replace(/\.ya?ml$/, ''), loaded.profile)
+}
+
+/** One profile file found by `listProfiles`: the profile, or why it did not load. */
+export type ListedProfile = { id: string; origin: 'user' | 'example' } & (
+  { profile: AgentProfile; error?: undefined } | { profile?: undefined; error: string }
+)
+
+function profileFiles(dir: string): string[] {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((entry) => entry.endsWith('.yaml') && PROFILE_NAME.test(entry.slice(0, -'.yaml'.length)))
+      .sort()
+  } catch {
+    // No folder yet is no profiles yet.
+    return []
+  }
+}
+
+/**
+ * Every profile `--profile <name>` can reach: the user's own, then the
+ * examples that none of theirs shadows. Files that fail to load are listed
+ * with the reason, so a typo shows up rather than the profile vanishing.
+ */
+export function listProfiles(dirs: ProfileDirs): ListedProfile[] {
+  const listed: ListedProfile[] = []
+  const seen = new Set<string>()
+  for (const [dir, origin] of [
+    [dirs.user, 'user'],
+    [dirs.examples, 'example'],
+  ] as const) {
+    for (const entry of profileFiles(dir)) {
+      const id = entry.slice(0, -'.yaml'.length)
+      if (seen.has(id)) continue
+      seen.add(id)
+      const file = path.join(dir, entry)
+      let content: string
+      try {
+        content = fs.readFileSync(file, 'utf8')
+      } catch (err) {
+        listed.push({ id, origin, error: `Can't read ${file}: ${String(err)}` })
+        continue
+      }
+      const parsed = parseProfile(content, file)
+      listed.push(parsed.ok ? { id, origin, profile: parsed.profile } : { id, origin, error: parsed.error })
+    }
+  }
+  return listed
+}
+
+/** Removes one of the user's own profiles. The examples are part of the checkout and stay. */
+export function deleteProfile(id: string, dirs: ProfileDirs): { ok: true } | { ok: false; error: string } {
+  if (!PROFILE_NAME.test(id)) return { ok: false, error: `"${id}" is not a valid profile name.` }
+  const file = path.join(dirs.user, `${id}.yaml`)
+  try {
+    fs.unlinkSync(file)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { ok: false, error: `"${id}" is not one of your profiles in ${dirs.user}.` }
+    }
+    return { ok: false, error: `Can't remove ${file}: ${err instanceof Error ? err.message : String(err)}` }
+  }
+  return { ok: true }
 }

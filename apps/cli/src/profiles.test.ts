@@ -5,11 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfigFromEnv, type CliConfig } from './config.js'
 import {
   applyProfile,
+  deleteProfile,
   duplicateProfile,
   exportProfile,
   importProfile,
+  listProfiles,
   loadProfile,
   parseProfile,
+  writeProfile,
   type ProfileDirs,
 } from './profiles.js'
 
@@ -218,5 +221,52 @@ describe('duplicate, export and import', () => {
       ok: false,
       error: expect.stringMatching(/not found/),
     })
+  })
+})
+
+describe('list, replace and delete', () => {
+  let tmp: string
+  let dirs: ProfileDirs
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'openagent-profiles-'))
+    dirs = { user: path.join(tmp, 'home', 'profiles'), examples: path.join(tmp, 'examples') }
+    fs.mkdirSync(dirs.examples)
+    fs.writeFileSync(path.join(dirs.examples, 'coder.yaml'), 'name: Coder\nmodel: m\n')
+    fs.writeFileSync(path.join(dirs.examples, 'writer.yaml'), 'name: Writer\nmodel: w\n')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('lists your profiles, then the examples none of them shadows, with files that do not load', () => {
+    expect(listProfiles(dirs).map(({ id, origin }) => `${origin}:${id}`)).toEqual(['example:coder', 'example:writer'])
+
+    fs.mkdirSync(dirs.user, { recursive: true })
+    fs.writeFileSync(path.join(dirs.user, 'coder.yaml'), 'name: My coder\nmodel: mine\n')
+    fs.writeFileSync(path.join(dirs.user, 'broken.yaml'), 'name: B\n')
+    fs.writeFileSync(path.join(dirs.user, 'notes.txt'), 'not a profile')
+
+    const listed = listProfiles(dirs)
+    expect(listed.map(({ id, origin }) => `${origin}:${id}`)).toEqual(['user:broken', 'user:coder', 'example:writer'])
+    expect(listed[0]).toMatchObject({ error: expect.stringMatching(/needs a "model"/) })
+    expect(listed[1]).toMatchObject({ profile: { name: 'My coder', model: 'mine' } })
+  })
+
+  it('replaces an existing profile only when asked to', () => {
+    expect(writeProfile(dirs, 'mine', { name: 'One', model: 'm' }).ok).toBe(true)
+    expect(writeProfile(dirs, 'mine', { name: 'Two', model: 'm' })).toMatchObject({ ok: false })
+    expect(writeProfile(dirs, 'mine', { name: 'Two', model: 'm' }, { replace: true }).ok).toBe(true)
+    expect(loadProfile('mine', dirs)).toMatchObject({ ok: true, profile: { name: 'Two' } })
+  })
+
+  it('deletes your own profiles, and never an example or a path', () => {
+    writeProfile(dirs, 'mine', { name: 'Mine', model: 'm' })
+
+    expect(deleteProfile('mine', dirs)).toEqual({ ok: true })
+    expect(deleteProfile('coder', dirs)).toMatchObject({ ok: false, error: expect.stringMatching(/not one of your/) })
+    expect(deleteProfile('../examples/coder', dirs)).toMatchObject({ ok: false })
+    expect(fs.existsSync(path.join(dirs.examples, 'coder.yaml'))).toBe(true)
   })
 })
