@@ -122,6 +122,7 @@ packages/
   tools-decision/ ✅ classify_items/check_claims/rank_candidates/score_items: typed judgments with calibrated probabilities from a DecisionModel (Jev today), for the small calls not worth an LLM round-trip
   tools-search/ ✅ web_search: a search API (Brave, Tavily) behind a SearchProvider seam, usable without the browser tools
   tools-files/ ✅ read_file/write_file/edit_file/list_directory/search_files over one workspace, with a file policy that keeps secrets (.env, keys) unreadable and unsearchable; per-session workspaces provisioned and cleaned up
+  tools-vision/ ✅ view_image: an image (workspace file or URL, under the file and network policies) and a question sent to a vision model on the configured endpoint
   tools-todo/ ✅ todo_write: a checklist the agent keeps for multi-step work, rebuilt from the session log by the CLI and web views
   tools-git/ ✅ git_status/git_diff/git_log (safe) and git_commit/git_branch (ask, plan previews) over the file tools' workspace and policy; hooks, fsmonitor and diff drivers off, refuses repository-set filter drivers and signing programs
   tools/       🚧 Placeholder (README only); the built tools are the tools-* packages

@@ -21,6 +21,7 @@ import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace }
 import { mountGitTools } from '@open-agent/tools-git'
 import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
 import { todoWriteTool } from '@open-agent/tools-todo'
+import { viewImageTool } from '@open-agent/tools-vision'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
 import { mountTerminalTools, selectSandbox } from '@open-agent/tools-terminal'
@@ -179,6 +180,22 @@ export async function createRuntime({
     }
 
     if (config.todo.enabled) tools.register(todoWriteTool())
+
+    if (config.vision.enabled) {
+      // Images come from the workspace only when one exists for the file,
+      // shell or git tools; turning on vision alone grants no file access.
+      tools.register(
+        viewImageTool({
+          baseURL: config.llm.baseURL,
+          apiKey: config.llm.apiKey,
+          model: config.vision.model,
+          root: workspace?.root,
+          policy: workspace?.policy,
+          network: { deniedHosts: config.http.deniedHosts, allowLocal: config.http.allowLocal },
+        }),
+      )
+      write(`Vision tool loaded (VISION_TOOL=1, model ${config.vision.model}).\n`)
+    }
 
     if (config.fetch.enabled) {
       tools.register(

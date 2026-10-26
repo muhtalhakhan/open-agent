@@ -19,6 +19,8 @@ export interface CliConfig {
     secrets: Record<string, string>
   }
   files: { enabled: boolean; root?: string; deny?: string[]; allow?: string[]; readOnly: boolean }
+  /** `view_image`: asks a vision model on the same endpoint about an image. */
+  vision: { enabled: boolean; model: string }
   /** `todo_write`: a checklist the agent keeps for work with several steps. */
   todo: { enabled: boolean }
   /** `fetch_url`: reading a page as text, under the HTTP tool's denied hosts and local-address rule. */
@@ -172,6 +174,12 @@ export function loadConfigFromEnv(
   // Off unless asked for: a commit puts the agent's work into history under
   // the person's name.
   const git = { enabled: env.GIT_TOOL === '1' || env.GIT_TOOL === 'true' }
+  // Off unless asked for: every image it looks at is sent to the provider,
+  // and a model that cannot see would only fail the call.
+  const vision = {
+    enabled: env.VISION_TOOL === '1' || env.VISION_TOOL === 'true',
+    model: env.VISION_MODEL?.trim() || model,
+  }
   // On unless turned off: unlike the tools above it reaches nothing outside
   // the conversation, and a list of steps is what a person watching wants.
   const todo = { enabled: env.TODO_TOOL !== '0' && env.TODO_TOOL !== 'false' }
@@ -252,6 +260,7 @@ export function loadConfigFromEnv(
       computer,
       http: http.config,
       files,
+      vision,
       todo,
       fetch,
       git,

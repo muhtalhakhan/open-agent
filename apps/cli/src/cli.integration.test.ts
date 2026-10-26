@@ -755,6 +755,66 @@ describe('CLI end to end', () => {
       }
     })
 
+    it('looks at a workspace image with VISION_TOOL=1, through the same endpoint', async () => {
+      await writeFile(path.join(repo, 'shot.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+      const visionRequests: Array<{ model: string }> = []
+      const model = createServer((req, res) => {
+        let raw = ''
+        req.on('data', (chunk) => (raw += chunk))
+        req.on('end', () => {
+          const body = JSON.parse(raw)
+          const first = body.messages[0]
+          let message: Record<string, unknown>
+          if (Array.isArray(first.content)) {
+            // The vision call: a question and the image, nothing else.
+            visionRequests.push(body)
+            message = { role: 'assistant', content: 'a red square' }
+          } else {
+            const result = body.messages.find((m: { role: string }) => m.role === 'tool')
+            message = result
+              ? {
+                  role: 'assistant',
+                  content: `it shows ${result.content.includes('a red square') ? 'a red square' : '?'}`,
+                }
+              : {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    { id: 'v1', type: 'function', function: { name: 'view_image', arguments: '{"image":"shot.png"}' } },
+                  ],
+                }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ choices: [{ message }] }))
+        })
+      })
+      const port = await new Promise<number>((resolve) =>
+        model.listen(0, '127.0.0.1', () => resolve((model.address() as AddressInfo).port)),
+      )
+      try {
+        const { stdout, stderr, code } = await runCli(
+          '',
+          {
+            OPENAI_BASE_URL: `http://127.0.0.1:${port}`,
+            OPENAI_API_KEY: 'test-key',
+            OPENAI_MODEL: 'test-model',
+            VISION_TOOL: '1',
+            VISION_MODEL: 'eyes-model',
+            FILES_TOOL: '1',
+          },
+          repo,
+          ['-p', 'what is in shot.png?'],
+        )
+
+        expect(code).toBe(0)
+        expect(stderr).toContain('Vision tool loaded (VISION_TOOL=1, model eyes-model)')
+        expect(stdout).toBe('it shows a red square\n')
+        expect(visionRequests.map((r) => r.model)).toEqual(['eyes-model'])
+      } finally {
+        await new Promise((done) => model.close(done))
+      }
+    })
+
     it('refuses to start with a hooks file inside the workspace', async () => {
       const hooksFile = path.join(repo, 'hooks.json')
       await writeFile(hooksFile, JSON.stringify({ hooks: [] }))
