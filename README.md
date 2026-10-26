@@ -122,7 +122,7 @@ Progress by milestone (issues closed / total), regenerated from the tracker by [
 | 9 — Security         | 10 / 10 | ✅ Complete                                                                                                                      |
 | 10 — Cloud           | 0 / 8   | 🚧 Not started — first up: Remote agent (#93), Persistent VM/container (#94), +6 more                                            |
 | 11 — User Interfaces | 15 / 15 | ✅ Complete                                                                                                                      |
-| 12 — Backlog         | 12 / 35 | 🟡 In progress — Parallel sub-agents in git worktrees (#122), Agent Client Protocol (ACP) / editor integr… (#125), +21 more left |
+| 12 — Backlog         | 13 / 35 | 🟡 In progress — Parallel sub-agents in git worktrees (#122), Agent Client Protocol (ACP) / editor integr… (#125), +20 more left |
 
 <!-- END GENERATED: milestone-status -->
 
