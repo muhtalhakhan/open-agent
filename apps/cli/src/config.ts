@@ -25,6 +25,13 @@ export interface CliConfig {
   todo: { enabled: boolean }
   /** `fetch_url`: reading a page as text, under the HTTP tool's denied hosts and local-address rule. */
   fetch: { enabled: boolean }
+  /**
+   * Loading the user's own tools from `~/.openagent/tools/`. Those specs are
+   * always `dangerous`, so each one is gated by the approval system like any
+   * other dangerous tool — this flag only decides whether they are registered
+   * at all.
+   */
+  builder: { enabled: boolean }
   /** The git tools, on the same workspace and file policy as the file tools. */
   git: { enabled: boolean }
   /** Where the file and shell tools work, and whether it is provisioned per run. */
@@ -185,6 +192,9 @@ export function loadConfigFromEnv(
   const todo = { enabled: env.TODO_TOOL !== '0' && env.TODO_TOOL !== 'false' }
   // Off unless asked for, like every tool that reaches the network.
   const fetch = { enabled: env.FETCH_TOOL === '1' || env.FETCH_TOOL === 'true' }
+  // Off unless asked for. The tools themselves are dangerous and approval-gated;
+  // this flag only decides whether the user's own folder is read at all.
+  const builder = { enabled: env.TOOL_BUILDER === '1' || env.TOOL_BUILDER === 'true' }
 
   const workspace = {
     session: env.WORKSPACE_SESSION === '1' || env.WORKSPACE_SESSION === 'true',
@@ -263,6 +273,7 @@ export function loadConfigFromEnv(
       vision,
       todo,
       fetch,
+      builder,
       git,
       workspace,
       shell: shell.config,

@@ -25,6 +25,7 @@ describe('loadConfigFromEnv', () => {
         vision: { enabled: false, model: 'gpt-4o-mini' },
         todo: { enabled: true },
         fetch: { enabled: false },
+        builder: { enabled: false },
         git: { enabled: false },
         workspace: { session: false, base: undefined },
         shell: {
@@ -53,6 +54,14 @@ describe('loadConfigFromEnv', () => {
       BROWSER_USE: '1',
     })
     expect(result.ok && result.config.browser.enabled).toBe(true)
+  })
+
+  it('loads the user-built tools when TOOL_BUILDER=1, and leaves them off otherwise', () => {
+    expect(loadConfigFromEnv(base()).ok && true).toBe(true)
+    const off = loadConfigFromEnv(base())
+    expect(off.ok && off.config.builder).toEqual({ enabled: false })
+    const on = loadConfigFromEnv({ ...base(), TOOL_BUILDER: '1' })
+    expect(on.ok && on.config.builder).toEqual({ enabled: true })
   })
 
   it('enables computer-use when COMPUTER_USE=1', () => {

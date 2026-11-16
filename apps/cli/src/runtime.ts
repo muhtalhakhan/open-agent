@@ -11,6 +11,7 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { JevDecisionModel, OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
+import { mountUserBuiltTools } from '@open-agent/tools-builder'
 import {
   computerUseTaskTool,
   computerScreenshotTool,
@@ -72,9 +73,11 @@ export async function createRuntime({
   let disposeGitTools: (() => void) | undefined
   let disposeTerminalTools: (() => void) | undefined
   let disposeDecisionTools: (() => void) | undefined
+  let disposeUserTools: (() => void) | undefined
 
   const dispose = async () => {
     disposeDecisionTools?.()
+    disposeUserTools?.()
     disposeBrowserTools?.()
     // Before the workspace goes: a background process outlives the task that
     // started it, and a session workspace is about to be deleted out from
@@ -180,6 +183,14 @@ export async function createRuntime({
     }
 
     if (config.todo.enabled) tools.register(todoWriteTool())
+
+    // The user's own tools, from ~/.openagent/tools/. They are always dangerous,
+    // so the approval system they were saved under is the one that gates every
+    // call; mounting is the only thing this flag does.
+    if (config.builder.enabled) {
+      disposeUserTools = await mountUserBuiltTools(tools, { report: write })
+      write('User-built tools loaded from ~/.openagent/tools/.\n')
+    }
 
     if (config.vision.enabled) {
       // Images come from the workspace only when one exists for the file,
