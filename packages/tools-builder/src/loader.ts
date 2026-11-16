@@ -52,7 +52,9 @@ export async function loadSavedTool(
 export type LoadReporter = (message: string) => void
 
 /** Load all approved tool specs from the user's folder. */
-export async function loadUserTools(report?: LoadReporter): Promise<Array<{ name: string; spec: ToolSpec; file: SavedToolFile }>> {
+export async function loadUserTools(
+  report?: LoadReporter,
+): Promise<Array<{ name: string; spec: ToolSpec; file: SavedToolFile }>> {
   const dir = USER_TOOLS_DIR
   let entries: string[]
   try {
