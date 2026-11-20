@@ -51,11 +51,11 @@ export async function loadSavedTool(
 /** What a failed load should say. Absent means the failure is only reported through the return value. */
 export type LoadReporter = (message: string) => void
 
-/** Load all approved tool specs from the user's folder. */
+/** Load all approved tool specs from the user's folder (or a supplied one, for tests). */
 export async function loadUserTools(
   report?: LoadReporter,
+  dir: string = USER_TOOLS_DIR,
 ): Promise<Array<{ name: string; spec: ToolSpec; file: SavedToolFile }>> {
-  const dir = USER_TOOLS_DIR
   let entries: string[]
   try {
     entries = await readdir(dir)
@@ -116,10 +116,10 @@ export function registerUserTool(registry: ToolRegistry, loaded: { name: string;
  */
 export async function mountUserBuiltTools(
   registry: ToolRegistry,
-  options: { report?: LoadReporter } = {},
+  options: { report?: LoadReporter; dir?: string } = {},
 ): Promise<() => void> {
   const report = options.report ?? (() => {})
-  const loaded = await loadUserTools(report)
+  const loaded = await loadUserTools(report, options.dir)
   const disposers: Array<() => void> = []
   for (const entry of loaded) {
     try {

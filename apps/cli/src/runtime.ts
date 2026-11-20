@@ -11,7 +11,7 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { JevDecisionModel, OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
-import { mountUserBuiltTools } from '@open-agent/tools-builder'
+import { mountUserBuiltTools, createToolTool, createToolApprovalPrompt } from '@open-agent/tools-builder'
 import {
   computerUseTaskTool,
   computerScreenshotTool,
@@ -40,6 +40,12 @@ export interface RuntimeOptions {
   systemPrompt?: string
   /** Log the loop's progress to the console (still redacted). */
   debug?: boolean
+  /**
+   * How the user approves a tool the agent wants to build. Absent in a host with
+   * no interactive person (print mode, a background job), where a built tool
+   * cannot be approved and so is never saved.
+   */
+  ask?: (question: string) => Promise<string>
 }
 
 export interface Runtime {
@@ -66,6 +72,7 @@ export async function createRuntime({
   cwd,
   systemPrompt,
   debug = false,
+  ask,
 }: RuntimeOptions): Promise<Runtime> {
   let disposeBrowserTools: (() => void) | undefined
   let workspace: Workspace | undefined
@@ -189,6 +196,18 @@ export async function createRuntime({
     // call; mounting is the only thing this flag does.
     if (config.builder.enabled) {
       disposeUserTools = await mountUserBuiltTools(tools, { report: write })
+      // The agent-facing authoring tool: the agent proposes a spec, the user
+      // approves it, and only then is it saved and registered. It needs a
+      // person to answer; without one (print mode, a background job) it is not
+      // offered, since a tool nobody can approve would only ever be refused.
+      if (ask) {
+        tools.register(
+          createToolTool({
+            registry: tools,
+            prompt: createToolApprovalPrompt(ask),
+          }),
+        )
+      }
       write('User-built tools loaded from ~/.openagent/tools/.\n')
     }
 

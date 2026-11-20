@@ -476,6 +476,7 @@ async function main() {
     cwd: process.cwd(),
     systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
     debug: Boolean(process.env.DEBUG),
+    ask,
   })
   const loop = runtime.loop
 
