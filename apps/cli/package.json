@@ -26,6 +26,8 @@
     "@open-agent/tools-search": "*",
     "@open-agent/tools-terminal": "*",
     "@open-agent/tools-git": "*",
+    "@open-agent/tools-builder": "*",
+    "@open-agent/tools-skills": "*",
     "@open-agent/tools-todo": "*",
     "@open-agent/tools-vision": "*",
     "@open-agent/web": "*",
