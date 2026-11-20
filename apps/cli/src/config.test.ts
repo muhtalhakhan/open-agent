@@ -26,6 +26,7 @@ describe('loadConfigFromEnv', () => {
         todo: { enabled: true },
         fetch: { enabled: false },
         builder: { enabled: false },
+        skills: { enabled: true },
         git: { enabled: false },
         workspace: { session: false, base: undefined },
         shell: {

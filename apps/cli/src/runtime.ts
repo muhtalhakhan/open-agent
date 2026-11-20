@@ -22,6 +22,7 @@ import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace }
 import { mountGitTools } from '@open-agent/tools-git'
 import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
 import { todoWriteTool } from '@open-agent/tools-todo'
+import { saveSkillTool, listSkillsTool, readSkillTool } from '@open-agent/tools-skills'
 import { viewImageTool } from '@open-agent/tools-vision'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
@@ -190,6 +191,11 @@ export async function createRuntime({
     }
 
     if (config.todo.enabled) tools.register(todoWriteTool())
+    if (config.skills.enabled) {
+      tools.register(saveSkillTool())
+      tools.register(listSkillsTool())
+      tools.register(readSkillTool())
+    }
 
     // The user's own tools, from ~/.openagent/tools/. They are always dangerous,
     // so the approval system they were saved under is the one that gates every

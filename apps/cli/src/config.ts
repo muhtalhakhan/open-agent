@@ -25,6 +25,8 @@ export interface CliConfig {
   todo: { enabled: boolean }
   /** `fetch_url`: reading a page as text, under the HTTP tool's denied hosts and local-address rule. */
   fetch: { enabled: boolean }
+  /** Loading the user's own skills from `~/.openagent/skills/`. Safe procedures the agent can reuse. */
+  skills: { enabled: boolean }
   /**
    * Loading the user's own tools from `~/.openagent/tools/`. Those specs are
    * always `dangerous`, so each one is gated by the approval system like any
@@ -190,6 +192,8 @@ export function loadConfigFromEnv(
   // On unless turned off: unlike the tools above it reaches nothing outside
   // the conversation, and a list of steps is what a person watching wants.
   const todo = { enabled: env.TODO_TOOL !== '0' && env.TODO_TOOL !== 'false' }
+  // On unless turned off: safe user skills from ~/.openagent/skills/.
+  const skills = { enabled: env.SKILLS_TOOL !== '0' && env.SKILLS_TOOL !== 'false' }
   // Off unless asked for, like every tool that reaches the network.
   const fetch = { enabled: env.FETCH_TOOL === '1' || env.FETCH_TOOL === 'true' }
   // Off unless asked for. The tools themselves are dangerous and approval-gated;
@@ -274,6 +278,7 @@ export function loadConfigFromEnv(
       todo,
       fetch,
       builder,
+      skills,
       git,
       workspace,
       shell: shell.config,
