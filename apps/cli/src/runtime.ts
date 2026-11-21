@@ -11,6 +11,7 @@ import { InMemoryMemoryProvider, Mem0Provider, SupermemoryProvider, memoryPlugin
 import type { MemoryProvider } from '@open-agent/memory'
 import { JevDecisionModel, OpenAiCompatibleProvider, createRedactingLogger } from '@open-agent/providers'
 import { mountBrowserUseTools } from '@open-agent/tools-browser'
+import { mountUserBuiltTools, createToolTool, createToolApprovalPrompt } from '@open-agent/tools-builder'
 import {
   computerUseTaskTool,
   computerScreenshotTool,
@@ -21,6 +22,8 @@ import { createSessionWorkspace, mountFileTools, openWorkspace, type Workspace }
 import { mountGitTools } from '@open-agent/tools-git'
 import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
 import { todoWriteTool } from '@open-agent/tools-todo'
+import { saveSkillTool, listSkillsTool, readSkillTool } from '@open-agent/tools-skills'
+import { mountMemoryTools } from '@open-agent/tools-memory'
 import { viewImageTool } from '@open-agent/tools-vision'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
@@ -39,6 +42,14 @@ export interface RuntimeOptions {
   systemPrompt?: string
   /** Log the loop's progress to the console (still redacted). */
   debug?: boolean
+  /**
+   * How the user approves a tool the agent wants to build. Absent in a host with
+   * no interactive person (print mode, a background job), where a built tool
+   * cannot be approved and so is never saved.
+   */
+  ask?: (question: string) => Promise<string>
+  /** Memory container tag for scoping user memories. Defaults to CLI_USER_ID or 'cli-user'. */
+  containerTag?: string
 }
 
 export interface Runtime {
@@ -65,6 +76,8 @@ export async function createRuntime({
   cwd,
   systemPrompt,
   debug = false,
+  ask,
+  containerTag,
 }: RuntimeOptions): Promise<Runtime> {
   let disposeBrowserTools: (() => void) | undefined
   let workspace: Workspace | undefined
@@ -72,9 +85,13 @@ export async function createRuntime({
   let disposeGitTools: (() => void) | undefined
   let disposeTerminalTools: (() => void) | undefined
   let disposeDecisionTools: (() => void) | undefined
+  let disposeUserTools: (() => void) | undefined
+  let disposeMemoryTools: (() => void) | undefined
 
   const dispose = async () => {
+    disposeMemoryTools?.()
     disposeDecisionTools?.()
+    disposeUserTools?.()
     disposeBrowserTools?.()
     // Before the workspace goes: a background process outlives the task that
     // started it, and a session workspace is about to be deleted out from
@@ -180,6 +197,31 @@ export async function createRuntime({
     }
 
     if (config.todo.enabled) tools.register(todoWriteTool())
+    if (config.skills.enabled) {
+      tools.register(saveSkillTool())
+      tools.register(listSkillsTool())
+      tools.register(readSkillTool())
+    }
+
+    // The user's own tools, from ~/.openagent/tools/. They are always dangerous,
+    // so the approval system they were saved under is the one that gates every
+    // call; mounting is the only thing this flag does.
+    if (config.builder.enabled) {
+      disposeUserTools = await mountUserBuiltTools(tools, { report: write })
+      // The agent-facing authoring tool: the agent proposes a spec, the user
+      // approves it, and only then is it saved and registered. It needs a
+      // person to answer; without one (print mode, a background job) it is not
+      // offered, since a tool nobody can approve would only ever be refused.
+      if (ask) {
+        tools.register(
+          createToolTool({
+            registry: tools,
+            prompt: createToolApprovalPrompt(ask),
+          }),
+        )
+      }
+      write('User-built tools loaded from ~/.openagent/tools/.\n')
+    }
 
     if (config.vision.enabled) {
       // Images come from the workspace only when one exists for the file,
@@ -240,6 +282,11 @@ export async function createRuntime({
       ctx.plugin(memoryPlugin(new Mem0Provider(new MemoryClient({ apiKey: config.memory.apiKey }))))
     } else {
       ctx.plugin(memoryPlugin(new InMemoryMemoryProvider()))
+    }
+
+    if (config.memoryTools.enabled) {
+      const activeContainerTag = containerTag ?? process.env.CLI_USER_ID ?? 'cli-user'
+      disposeMemoryTools = mountMemoryTools(tools, ctx.get<MemoryProvider>('memory')!, activeContainerTag)
     }
 
     const loop = new AgentLoop({

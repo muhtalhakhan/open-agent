@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { totalUsage } from '@open-agent/agent'
 import type { AgentLoop, RunOptions, SessionEvent, SessionLog, TokenUsage } from '@open-agent/agent'
 import type { MemoryProvider } from '@open-agent/memory'
+import { loadUserSkills, buildSkillContext } from '@open-agent/tools-skills'
 
 export interface MemoryHook {
   provider: MemoryProvider
@@ -24,6 +25,8 @@ export interface TaskOutcome {
 
 export interface TaskOptions {
   memory?: MemoryHook
+  /** Whether to match and load skills from ~/.openagent/skills/ into context. Default true. */
+  skills?: boolean
   /** The model's text as it is generated — see `RunOptions.onText`. */
   onText?: RunOptions['onText']
   /** What tools show while they run, such as screenshots — see `RunOptions.onAttachment`. */
@@ -49,18 +52,28 @@ export async function executeTask(
   sessions: SessionLog,
   input: string,
   signal: AbortSignal,
-  { memory, onText, onEvent, onAttachment }: TaskOptions = {},
+  { memory, skills = true, onText, onEvent, onAttachment }: TaskOptions = {},
 ): Promise<TaskOutcome> {
-  // Recalled memories travel as turn context, not as part of the user's
-  // message: the log should record what the user actually typed, and
+  // Recalled memories and matching skills travel as turn context, not as part of
+  // the user's message: the log should record what the user actually typed, and
   // background context shouldn't read to the model as the request.
-  let context: string | undefined
+  const contextParts: string[] = []
   if (memory) {
     const recalled = await memory.provider.recall({ q: input, containerTag: memory.containerTag, limit: 5 })
     if (recalled.length > 0) {
-      context = `Relevant memory from past sessions:\n${recalled.map((r) => `- ${r.content}`).join('\n')}`
+      contextParts.push(`Relevant memory from past sessions:\n${recalled.map((r) => `- ${r.content}`).join('\n')}`)
     }
   }
+
+  if (skills) {
+    const userSkills = await loadUserSkills()
+    const skillContext = buildSkillContext(userSkills, input)
+    if (skillContext) {
+      contextParts.push(skillContext)
+    }
+  }
+
+  const context = contextParts.length > 0 ? contextParts.join('\n\n') : undefined
 
   // The id is chosen here rather than by the loop so the subscription can be
   // filtered to it before the task's first event is appended.

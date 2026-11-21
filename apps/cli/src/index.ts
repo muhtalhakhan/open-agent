@@ -466,6 +466,7 @@ async function main() {
     disposeTakeoverTools = mountTakeoverTools(tools, leases)
   }
 
+  const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
   const runtime = await createRuntime({
     config,
     sessions,
@@ -476,6 +477,8 @@ async function main() {
     cwd: process.cwd(),
     systemPrompt: instructions ? buildSystemPrompt(instructions) : undefined,
     debug: Boolean(process.env.DEBUG),
+    ask,
+    containerTag,
   })
   const loop = runtime.loop
 
@@ -509,7 +512,6 @@ async function main() {
   }
 
   try {
-    const containerTag = process.env.CLI_USER_ID ?? 'cli-user'
     const memoryHook = { provider: runtime.memory, containerTag }
 
     if (headless) {
