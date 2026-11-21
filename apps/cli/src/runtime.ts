@@ -24,6 +24,7 @@ import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
 import { todoWriteTool } from '@open-agent/tools-todo'
 import { saveSkillTool, listSkillsTool, readSkillTool } from '@open-agent/tools-skills'
 import { mountMemoryTools } from '@open-agent/tools-memory'
+import { mountTutorTools } from '@open-agent/tools-tutor'
 import { viewImageTool } from '@open-agent/tools-vision'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
@@ -201,6 +202,9 @@ export async function createRuntime({
       tools.register(saveSkillTool())
       tools.register(listSkillsTool())
       tools.register(readSkillTool())
+    }
+    if (config.tutorTools.enabled) {
+      mountTutorTools(tools, () => workspace?.root ?? cwd)
     }
 
     // The user's own tools, from ~/.openagent/tools/. They are always dangerous,

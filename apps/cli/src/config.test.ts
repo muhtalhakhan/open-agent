@@ -28,6 +28,7 @@ describe('loadConfigFromEnv', () => {
         builder: { enabled: false },
         skills: { enabled: true },
         memoryTools: { enabled: true },
+        tutorTools: { enabled: true },
         git: { enabled: false },
         workspace: { session: false, base: undefined },
         shell: {
@@ -158,6 +159,14 @@ describe('loadConfigFromEnv', () => {
       allowLocal: false,
       secrets: {},
     })
+  })
+
+  it('enables tutor tools by default and disables them with TUTOR_TOOLS=0', () => {
+    const onByDefault = loadConfigFromEnv(base())
+    expect(onByDefault.ok && onByDefault.config.tutorTools.enabled).toBe(true)
+
+    const explicitlyOff = loadConfigFromEnv({ ...base(), TUTOR_TOOLS: '0' })
+    expect(explicitlyOff.ok && explicitlyOff.config.tutorTools.enabled).toBe(false)
   })
 
   it('enables the http tool with its allowlist and HTTP_SECRET_* placeholders', () => {

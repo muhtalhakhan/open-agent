@@ -29,6 +29,8 @@ export interface CliConfig {
   skills: { enabled: boolean }
   /** `memory_tools`: remember, recall, forget, and list_memories tools for the agent. */
   memoryTools: { enabled: boolean }
+  /** `tutor_tools`: study help tools (tutor_save, tutor_quiz, tutor_progress, tutor_list). */
+  tutorTools: { enabled: boolean }
   /**
    * Loading the user's own tools from `~/.openagent/tools/`. Those specs are
    * always `dangerous`, so each one is gated by the approval system like any
@@ -198,6 +200,8 @@ export function loadConfigFromEnv(
   const skills = { enabled: env.SKILLS_TOOL !== '0' && env.SKILLS_TOOL !== 'false' }
   // On unless turned off: memory tools (remember, recall, forget, list_memories).
   const memoryTools = { enabled: env.MEMORY_TOOLS !== '0' && env.MEMORY_TOOLS !== 'false' }
+  // On unless turned off: tutor tools (tutor_save, tutor_quiz, tutor_progress, tutor_list).
+  const tutorTools = { enabled: env.TUTOR_TOOLS !== '0' && env.TUTOR_TOOLS !== 'false' }
   // Off unless asked for, like every tool that reaches the network.
   const fetch = { enabled: env.FETCH_TOOL === '1' || env.FETCH_TOOL === 'true' }
   // Off unless asked for. The tools themselves are dangerous and approval-gated;
@@ -284,6 +288,7 @@ export function loadConfigFromEnv(
       builder,
       skills,
       memoryTools,
+      tutorTools,
       git,
       workspace,
       shell: shell.config,
