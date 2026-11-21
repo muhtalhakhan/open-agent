@@ -27,6 +27,7 @@ describe('loadConfigFromEnv', () => {
         fetch: { enabled: false },
         builder: { enabled: false },
         skills: { enabled: true },
+        memoryTools: { enabled: true },
         git: { enabled: false },
         workspace: { session: false, base: undefined },
         shell: {
@@ -63,6 +64,15 @@ describe('loadConfigFromEnv', () => {
     expect(off.ok && off.config.builder).toEqual({ enabled: false })
     const on = loadConfigFromEnv({ ...base(), TOOL_BUILDER: '1' })
     expect(on.ok && on.config.builder).toEqual({ enabled: true })
+  })
+
+  it('enables memory tools by default, and leaves them off when MEMORY_TOOLS=0', () => {
+    const defaultOn = loadConfigFromEnv(base())
+    expect(defaultOn.ok && defaultOn.config.memoryTools).toEqual({ enabled: true })
+    const off = loadConfigFromEnv({ ...base(), MEMORY_TOOLS: '0' })
+    expect(off.ok && off.config.memoryTools).toEqual({ enabled: false })
+    const offFalse = loadConfigFromEnv({ ...base(), MEMORY_TOOLS: 'false' })
+    expect(offFalse.ok && offFalse.config.memoryTools).toEqual({ enabled: false })
   })
 
   it('enables computer-use when COMPUTER_USE=1', () => {

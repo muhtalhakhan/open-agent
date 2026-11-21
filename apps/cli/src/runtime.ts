@@ -23,6 +23,7 @@ import { mountGitTools } from '@open-agent/tools-git'
 import { fetchUrlTool, httpRequestTool } from '@open-agent/tools-http'
 import { todoWriteTool } from '@open-agent/tools-todo'
 import { saveSkillTool, listSkillsTool, readSkillTool } from '@open-agent/tools-skills'
+import { mountMemoryTools } from '@open-agent/tools-memory'
 import { viewImageTool } from '@open-agent/tools-vision'
 import { BraveSearchProvider, TavilySearchProvider, webSearchTool } from '@open-agent/tools-search'
 import { mountDecisionTools } from '@open-agent/tools-decision'
@@ -47,6 +48,8 @@ export interface RuntimeOptions {
    * cannot be approved and so is never saved.
    */
   ask?: (question: string) => Promise<string>
+  /** Memory container tag for scoping user memories. Defaults to CLI_USER_ID or 'cli-user'. */
+  containerTag?: string
 }
 
 export interface Runtime {
@@ -74,6 +77,7 @@ export async function createRuntime({
   systemPrompt,
   debug = false,
   ask,
+  containerTag,
 }: RuntimeOptions): Promise<Runtime> {
   let disposeBrowserTools: (() => void) | undefined
   let workspace: Workspace | undefined
@@ -82,8 +86,10 @@ export async function createRuntime({
   let disposeTerminalTools: (() => void) | undefined
   let disposeDecisionTools: (() => void) | undefined
   let disposeUserTools: (() => void) | undefined
+  let disposeMemoryTools: (() => void) | undefined
 
   const dispose = async () => {
+    disposeMemoryTools?.()
     disposeDecisionTools?.()
     disposeUserTools?.()
     disposeBrowserTools?.()
@@ -276,6 +282,11 @@ export async function createRuntime({
       ctx.plugin(memoryPlugin(new Mem0Provider(new MemoryClient({ apiKey: config.memory.apiKey }))))
     } else {
       ctx.plugin(memoryPlugin(new InMemoryMemoryProvider()))
+    }
+
+    if (config.memoryTools.enabled) {
+      const activeContainerTag = containerTag ?? process.env.CLI_USER_ID ?? 'cli-user'
+      disposeMemoryTools = mountMemoryTools(tools, ctx.get<MemoryProvider>('memory')!, activeContainerTag)
     }
 
     const loop = new AgentLoop({

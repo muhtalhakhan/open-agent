@@ -27,6 +27,8 @@ export interface CliConfig {
   fetch: { enabled: boolean }
   /** Loading the user's own skills from `~/.openagent/skills/`. Safe procedures the agent can reuse. */
   skills: { enabled: boolean }
+  /** `memory_tools`: remember, recall, forget, and list_memories tools for the agent. */
+  memoryTools: { enabled: boolean }
   /**
    * Loading the user's own tools from `~/.openagent/tools/`. Those specs are
    * always `dangerous`, so each one is gated by the approval system like any
@@ -194,6 +196,8 @@ export function loadConfigFromEnv(
   const todo = { enabled: env.TODO_TOOL !== '0' && env.TODO_TOOL !== 'false' }
   // On unless turned off: safe user skills from ~/.openagent/skills/.
   const skills = { enabled: env.SKILLS_TOOL !== '0' && env.SKILLS_TOOL !== 'false' }
+  // On unless turned off: memory tools (remember, recall, forget, list_memories).
+  const memoryTools = { enabled: env.MEMORY_TOOLS !== '0' && env.MEMORY_TOOLS !== 'false' }
   // Off unless asked for, like every tool that reaches the network.
   const fetch = { enabled: env.FETCH_TOOL === '1' || env.FETCH_TOOL === 'true' }
   // Off unless asked for. The tools themselves are dangerous and approval-gated;
@@ -279,6 +283,7 @@ export function loadConfigFromEnv(
       fetch,
       builder,
       skills,
+      memoryTools,
       git,
       workspace,
       shell: shell.config,
