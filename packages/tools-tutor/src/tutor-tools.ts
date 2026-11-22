@@ -82,7 +82,8 @@ const TUTOR_QUIZ_SCHEMA = {
     },
     answers: {
       type: 'array',
-      description: 'Optional list of user answers for grading in one shot: [{id, result: "correct" | "missed"} or {id, answer: "..."}].',
+      description:
+        'Optional list of user answers for grading in one shot: [{id, result: "correct" | "missed"} or {id, answer: "..."}].',
       items: {
         type: 'object',
         properties: {
@@ -178,7 +179,11 @@ export function tutorQuizTool(getWorkspaceRoot: () => string): ToolDefinition<{
         const root = getWorkspaceRoot()
         const deck = await loadDeck(root, args.topic)
         if (!deck) {
-          return { ok: false, content: '', error: `Study deck for topic "${args.topic}" not found. Use tutor_save first.` }
+          return {
+            ok: false,
+            content: '',
+            error: `Study deck for topic "${args.topic}" not found. Use tutor_save first.`,
+          }
         }
 
         const mode = args.mode || 'quiz'
@@ -235,7 +240,12 @@ export function tutorQuizTool(getWorkspaceRoot: () => string): ToolDefinition<{
         }
 
         // Otherwise, serve items to review
-        let pool = mode === 'flashcards' ? deck.flashcards : mode === 'quiz' ? deck.quizQuestions : [...deck.flashcards, ...deck.quizQuestions]
+        let pool =
+          mode === 'flashcards'
+            ? deck.flashcards
+            : mode === 'quiz'
+              ? deck.quizQuestions
+              : [...deck.flashcards, ...deck.quizQuestions]
 
         if (mode === 'missed') {
           pool = pool.filter((item) => item.lastResult === 'missed' || item.attempts === 0)
@@ -259,7 +269,10 @@ export function tutorQuizTool(getWorkspaceRoot: () => string): ToolDefinition<{
         const itemsOutput = selected.map((item, idx) => {
           const isQuiz = 'options' in item
           const typeLabel = isQuiz ? 'Quiz Question' : 'Flashcard'
-          const optionsText = isQuiz && item.options && item.options.length > 0 ? `\nOptions:\n${item.options.map((o, i) => `  ${i + 1}. ${o}`).join('\n')}` : ''
+          const optionsText =
+            isQuiz && item.options && item.options.length > 0
+              ? `\nOptions:\n${item.options.map((o, i) => `  ${i + 1}. ${o}`).join('\n')}`
+              : ''
           const hintText = 'hint' in item && item.hint ? `\nHint: ${item.hint}` : ''
           return `### Item ${idx + 1}: [${item.id}] (${typeLabel})\n**Question:** ${item.question}${optionsText}${hintText}\n*(Attempts: ${item.attempts}, Correct: ${item.correctCount}, Status: ${item.lastResult || 'untested'})\n*`
         })
@@ -305,7 +318,10 @@ export function tutorProgressTool(getWorkspaceRoot: () => string): ToolDefinitio
               `- Missed / Weak: ${progress.missedCards} items\n` +
               `- Accuracy Rate: ${progress.accuracyRate}%\n` +
               `- Last Reviewed: ${progress.lastReviewedAt || 'Never'}\n\n` +
-              (missedItems.length > 0 ? `### Missed Items Queue:\n` + missedItems.map((m) => `- [${m.id}] ${m.question} (Correct: ${m.answer})`).join('\n') : 'No missed items!'),
+              (missedItems.length > 0
+                ? `### Missed Items Queue:\n` +
+                  missedItems.map((m) => `- [${m.id}] ${m.question} (Correct: ${m.answer})`).join('\n')
+                : 'No missed items!'),
           }
         }
 

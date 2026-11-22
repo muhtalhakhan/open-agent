@@ -14,5 +14,6 @@ These tools turn material (text, workspace files, documentation) into structured
 ## Storage Format
 
 Saved in `.openagent/tutor/` in the workspace:
+
 - `<topic>-summary.md`: Clean Markdown summary of the topic.
 - `<topic>-deck.json`: Flashcards, quiz questions, and study/missed stats.

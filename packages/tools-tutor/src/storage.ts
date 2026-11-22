@@ -25,7 +25,13 @@ export async function saveDeck(
     description?: string
     sourceFile?: string
     flashcards: Array<{ id?: string; question: string; answer: string; hint?: string; tags?: readonly string[] }>
-    quizQuestions: Array<{ id?: string; question: string; options?: readonly string[]; answer: string; explanation?: string }>
+    quizQuestions: Array<{
+      id?: string
+      question: string
+      options?: readonly string[]
+      answer: string
+      explanation?: string
+    }>
   },
 ): Promise<{ summaryPath: string; deckPath: string; topic: string }> {
   const cleanTopic = sanitizeTopic(topic)
