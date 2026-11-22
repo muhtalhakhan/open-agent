@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "for p in context agent automation memory providers registry security tools-mcp tools-browser tools-computer tools-decision tools-files tools-http tools-search tools-terminal tools-git tools-todo tools-vision; do npx tsc -p packages/$p/tsconfig.json --noEmit || exit 1; done; npx tsc -p apps/cli/tsconfig.json --noEmit && npx tsc -p apps/web/tsconfig.json --noEmit && npx tsc -p apps/web/src/client/tsconfig.json --noEmit",
+    "typecheck": "for p in context agent automation memory providers registry security tools-mcp tools-browser tools-computer tools-decision tools-files tools-http tools-search tools-terminal tools-git tools-todo tools-vision tools-builder tools-skills tools-memory tools-tutor; do npx tsc -p packages/$p/tsconfig.json --noEmit || exit 1; done; npx tsc -p apps/cli/tsconfig.json --noEmit && npx tsc -p apps/web/tsconfig.json --noEmit && npx tsc -p apps/web/src/client/tsconfig.json --noEmit",
     "test": "npm run test --workspaces --if-present && npm run test:scripts",
     "test:scripts": "vitest run --dir scripts",
     "test:integration": "npm run test:integration --workspaces --if-present",
@@ -26,6 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@open-agent/tools-tutor": "^0.1.0",
     "@types/node": "^22.0.0",
     "eslint": "10.9.1",
     "eslint-config-prettier": "10.1.8",

@@ -25,6 +25,10 @@ describe('loadConfigFromEnv', () => {
         vision: { enabled: false, model: 'gpt-4o-mini' },
         todo: { enabled: true },
         fetch: { enabled: false },
+        builder: { enabled: false },
+        skills: { enabled: true },
+        memoryTools: { enabled: true },
+        tutorTools: { enabled: true },
         git: { enabled: false },
         workspace: { session: false, base: undefined },
         shell: {
@@ -53,6 +57,23 @@ describe('loadConfigFromEnv', () => {
       BROWSER_USE: '1',
     })
     expect(result.ok && result.config.browser.enabled).toBe(true)
+  })
+
+  it('loads the user-built tools when TOOL_BUILDER=1, and leaves them off otherwise', () => {
+    expect(loadConfigFromEnv(base()).ok && true).toBe(true)
+    const off = loadConfigFromEnv(base())
+    expect(off.ok && off.config.builder).toEqual({ enabled: false })
+    const on = loadConfigFromEnv({ ...base(), TOOL_BUILDER: '1' })
+    expect(on.ok && on.config.builder).toEqual({ enabled: true })
+  })
+
+  it('enables memory tools by default, and leaves them off when MEMORY_TOOLS=0', () => {
+    const defaultOn = loadConfigFromEnv(base())
+    expect(defaultOn.ok && defaultOn.config.memoryTools).toEqual({ enabled: true })
+    const off = loadConfigFromEnv({ ...base(), MEMORY_TOOLS: '0' })
+    expect(off.ok && off.config.memoryTools).toEqual({ enabled: false })
+    const offFalse = loadConfigFromEnv({ ...base(), MEMORY_TOOLS: 'false' })
+    expect(offFalse.ok && offFalse.config.memoryTools).toEqual({ enabled: false })
   })
 
   it('enables computer-use when COMPUTER_USE=1', () => {
@@ -138,6 +159,14 @@ describe('loadConfigFromEnv', () => {
       allowLocal: false,
       secrets: {},
     })
+  })
+
+  it('enables tutor tools by default and disables them with TUTOR_TOOLS=0', () => {
+    const onByDefault = loadConfigFromEnv(base())
+    expect(onByDefault.ok && onByDefault.config.tutorTools.enabled).toBe(true)
+
+    const explicitlyOff = loadConfigFromEnv({ ...base(), TUTOR_TOOLS: '0' })
+    expect(explicitlyOff.ok && explicitlyOff.config.tutorTools.enabled).toBe(false)
   })
 
   it('enables the http tool with its allowlist and HTTP_SECRET_* placeholders', () => {
