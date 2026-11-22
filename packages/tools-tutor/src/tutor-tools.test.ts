@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ToolExecutionContext } from '@open-agent/agent'
 import {
   saveDeck,
   loadDeck,
@@ -13,6 +14,11 @@ import {
   tutorListTool,
   mountTutorTools,
 } from './index.js'
+
+const ctx: ToolExecutionContext = {
+  taskId: 'test-task',
+  signal: new AbortController().signal,
+}
 
 describe('tools-tutor', () => {
   let tempDir: string
@@ -59,13 +65,16 @@ describe('tools-tutor', () => {
 
   it('runs tutorSaveTool successfully', async () => {
     const tool = tutorSaveTool(() => tempDir)
-    const result = await tool.execute({
-      topic: 'react-hooks',
-      title: 'React Hooks Overview',
-      summary: 'Hooks allow function components to use state.',
-      flashcards: [{ question: 'What does useState do?', answer: 'Declares state variable' }],
-      quizQuestions: [{ question: 'Can hooks be conditional?', answer: 'No' }],
-    })
+    const result = await tool.execute(
+      {
+        topic: 'react-hooks',
+        title: 'React Hooks Overview',
+        summary: 'Hooks allow function components to use state.',
+        flashcards: [{ question: 'What does useState do?', answer: 'Declares state variable' }],
+        quizQuestions: [{ question: 'Can hooks be conditional?', answer: 'No' }],
+      },
+      ctx,
+    )
 
     expect(result.ok).toBe(true)
     expect(result.content).toContain('Successfully saved study deck')
@@ -87,32 +96,41 @@ describe('tools-tutor', () => {
     const quizTool = tutorQuizTool(() => tempDir)
 
     // 2. Fetch quiz questions to review
-    const sessionRes = await quizTool.execute({
-      topic: 'git-flow',
-      mode: 'quiz',
-    })
+    const sessionRes = await quizTool.execute(
+      {
+        topic: 'git-flow',
+        mode: 'quiz',
+      },
+      ctx,
+    )
     expect(sessionRes.ok).toBe(true)
     expect(sessionRes.content).toContain('What does git merge do?')
 
     // 3. Submit correct answer
-    const gradeRes = await quizTool.execute({
-      topic: 'git-flow',
-      answers: [{ id: 'quiz-1', answer: 'Joins branches' }],
-    })
+    const gradeRes = await quizTool.execute(
+      {
+        topic: 'git-flow',
+        answers: [{ id: 'quiz-1', answer: 'Joins branches' }],
+      },
+      ctx,
+    )
     expect(gradeRes.ok).toBe(true)
     expect(gradeRes.content).toContain('[CORRECT] quiz-1')
 
     // 4. Submit missed answer on flashcard
-    const missedRes = await quizTool.execute({
-      topic: 'git-flow',
-      answers: [{ id: 'card-1', result: 'missed' }],
-    })
+    const missedRes = await quizTool.execute(
+      {
+        topic: 'git-flow',
+        answers: [{ id: 'card-1', result: 'missed' }],
+      },
+      ctx,
+    )
     expect(missedRes.ok).toBe(true)
     expect(missedRes.content).toContain('[MISSED] card-1')
 
     // 5. Check progress tool
     const progressTool = tutorProgressTool(() => tempDir)
-    const progRes = await progressTool.execute({ topic: 'git-flow' })
+    const progRes = await progressTool.execute({ topic: 'git-flow' }, ctx)
     expect(progRes.ok).toBe(true)
     expect(progRes.content).toContain('Missed / Weak: 1 items')
     expect(progRes.content).toContain('Missed Items Queue:')
@@ -123,7 +141,7 @@ describe('tools-tutor', () => {
     const listTool = tutorListTool(() => tempDir)
 
     // Initially empty
-    const emptyRes = await listTool.execute({}, {} as any)
+    const emptyRes = await listTool.execute({}, ctx)
     expect(emptyRes.ok).toBe(true)
     expect(emptyRes.content).toContain('No tutor study decks found')
 
@@ -135,7 +153,7 @@ describe('tools-tutor', () => {
       quizQuestions: [],
     })
 
-    const populatedRes = await listTool.execute({}, {} as any)
+    const populatedRes = await listTool.execute({}, ctx)
     expect(populatedRes.ok).toBe(true)
     expect(populatedRes.content).toContain('Algorithms')
     expect(populatedRes.content).toContain('algorithms')
