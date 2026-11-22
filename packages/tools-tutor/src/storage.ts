@@ -55,7 +55,7 @@ export async function saveDeck(
     const raw = await readFile(deckPath, 'utf8')
     existingDeck = JSON.parse(raw) as SavedDeckFile
   } catch {
-    existingDeck = null
+    // ignore missing or corrupt file
   }
 
   const existingCardsMap = new Map<string, Flashcard>()

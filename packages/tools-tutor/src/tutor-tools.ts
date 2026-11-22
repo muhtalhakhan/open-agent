@@ -1,6 +1,6 @@
-import type { ToolDefinition, ToolResult, ToolExecutionContext } from '@open-agent/agent'
-import { saveDeck, loadDeck, loadSummary, listDecks, saveDeckFile, computeProgress } from './storage.js'
-import type { SavedDeckFile, TutorProgressSummary } from './types.js'
+import type { ToolDefinition, ToolResult } from '@open-agent/agent'
+import { saveDeck, loadDeck, listDecks, saveDeckFile, computeProgress } from './storage.js'
+import type { TutorProgressSummary } from './types.js'
 
 export const TUTOR_SAVE_NAME = 'tutor_save'
 export const TUTOR_QUIZ_NAME = 'tutor_quiz'
@@ -360,13 +360,13 @@ export function tutorProgressTool(getWorkspaceRoot: () => string): ToolDefinitio
   }
 }
 
-export function tutorListTool(getWorkspaceRoot: () => string): ToolDefinition<{}> {
+export function tutorListTool(getWorkspaceRoot: () => string): ToolDefinition<Record<string, unknown>> {
   return {
     name: TUTOR_LIST_NAME,
     description: 'List all available tutor study decks and summaries in the workspace.',
     schema: TUTOR_LIST_SCHEMA,
     permissionLevel: 'safe',
-    async execute(_args, context: ToolExecutionContext): Promise<ToolResult> {
+    async execute(): Promise<ToolResult> {
       try {
         const root = getWorkspaceRoot()
         const decks = await listDecks(root)
