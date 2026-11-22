@@ -9,6 +9,7 @@ OpenAgent is a provider-agnostic AI agent platform that gives users control over
 ## Essential Commands
 
 **Development setup:**
+
 ```bash
 npm install                    # Install all workspace dependencies
 npm run cli -- init            # Setup wizard: provider, key, tools, writes .env
@@ -17,11 +18,13 @@ npm run web                    # Start web UI (builds and prints address)
 ```
 
 **Quality checks (run before every PR):**
+
 ```bash
 npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:integration
 ```
 
 **Individual commands:**
+
 ```bash
 npm run format:check       # Prettier (use `npm run format` to fix)
 npm run lint               # ESLint (use `npm run lint:fix` to auto-fix)
@@ -87,11 +90,13 @@ docs/               Architecture, agent design, security model
 ## Critical Implementation Details
 
 ### ESM and TypeScript
+
 - Always use `.js` extensions in relative imports, even from `.ts` files (`import { foo } from './bar.js'`)
 - Use `import type { ... }` for type-only imports (ESLint enforces this)
 - Prettier: no semicolons, single quotes, 120 columns, trailing commas
 
 ### Tool Execution Pipeline
+
 1. Model requests a tool call
 2. `ToolRegistry.decide` checks permission level
 3. If `ask` or `dangerous`, calls `ApprovalHandler` (terminal prompt or web UI)
@@ -101,6 +106,7 @@ docs/               Architecture, agent design, security model
 7. Result goes to model
 
 ### Session Log Flow
+
 1. User message appended to `SessionLog`
 2. `SessionLog` projected to `Message[]` for model
 3. Model responds with text or tool calls
@@ -110,6 +116,7 @@ docs/               Architecture, agent design, security model
 7. Repeat until final answer
 
 ### Testing Philosophy
+
 - Unit tests run with no API keys or network (use injected fakes)
 - Integration tests (`*.integration.test.ts`) spawn real CLI against fake provider on local socket
 - CI runs both suites
